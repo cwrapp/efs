@@ -1,0 +1,414 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+Copyright 2025 Charles W. Rapp
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>org.efs</groupId>
+  <artifactId>efs-parent</artifactId>
+  <version>0.1.0</version>
+
+  <packaging>pom</packaging>
+
+  <name>efs - event file system</name>
+  <description>
+    Description will be provided in future release.
+  </description>
+  <url>https://ebus.sourceforge.io/eBus/index.html</url>
+
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <!-- scm tag required by Maven Central Respository -->
+  <scm>
+    <url>https://github.com/cwrapp/efs.git</url>
+  </scm>
+
+  <developers>
+    <developer>
+      <id>cwrapp</id>
+      <name>Charles W. Rapp</name>
+      <email>rapp@acm.org</email>
+      <url></url>
+      <roles>
+        <role>architect</role>
+        <role>developer</role>
+        <role>administrator</role>
+      </roles>
+      <timezone>
+      </timezone>
+    </developer>
+  </developers>
+
+  <modules>
+    <module>efs-bom</module>
+    <module>efs-dispatcher</module>
+    <module>efs-activator</module>
+  </modules>
+
+  <distributionManagement>
+
+<!-- Delete?
+    <snapshotRepository>
+      <id>ossrh</id>
+      <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+    </snapshotRepository>
+
+    <repository>
+      <id>ossrh</id>
+      <url>https://oss.sonatype.org/service/local/staging/deploy/maven2</url>
+    </repository>
+  -->
+
+    <repository>
+      <id>github</id>
+      <name>GitHub cwrapp Apache Maven Packages</name>
+      <url>https://maven.pkg.github.com/cwrapp/efs</url>
+    </repository>
+
+  </distributionManagement>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <maven.compiler.source>21</maven.compiler.source>
+    <maven.compiler.target>21</maven.compiler.target>
+    <maven.compiler.testSource>21</maven.compiler.testSource>
+    <maven.compiler.testTarget>21</maven.compiler.testTarget>
+
+    <javadoc-version>3.11.3</javadoc-version>
+    <source-version>3.3.1</source-version>
+
+    <ebus.version>7.6.0</ebus.version>
+    <guava.version>33.5.0-jre</guava.version>
+    <decimal4j.version>1.0.3</decimal4j.version>
+    <openhft.version>3.27ea1</openhft.version>
+    <typesafe.version>1.4.5</typesafe.version>
+    <jctools.version>4.0.5</jctools.version>
+
+    <slf4j.version>2.0.17</slf4j.version>
+    <logback.version>1.5.18</logback.version>
+
+    <junit.version>5.13.4</junit.version>
+    <assertj.version>3.27.4</assertj.version>
+    <mockito.version>5.19.0</mockito.version>
+    <bytebuddy.version>1.15.11</bytebuddy.version>
+    <awaitility.version>4.3.0</awaitility.version>
+    <jacoco.version>0.8.13</jacoco.version>
+
+    <project.reporting.outputDirectory>target</project.reporting.outputDirectory>
+    <project.release>0.1.0</project.release>
+
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+
+      <!-- eBus dependencies -->
+
+      <dependency>
+        <groupId>net.sf.ebus</groupId>
+        <artifactId>net</artifactId>
+        <version>${ebus.version}</version>
+        <exclusions>
+          <exclusion>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+          </exclusion>
+        </exclusions>
+      </dependency>
+
+      <dependency>
+        <groupId>net.sf.ebus</groupId>
+        <artifactId>util</artifactId>
+        <version>${ebus.version}</version>
+        <exclusions>
+          <exclusion>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+          </exclusion>
+        </exclusions>
+      </dependency>
+
+      <!-- google dependencies -->
+
+      <dependency>
+        <groupId>com.google.code.findbugs</groupId>
+        <artifactId>jsr305</artifactId>
+        <version>3.0.2</version>
+      </dependency>
+
+      <dependency>
+        <groupId>com.google.guava</groupId>
+        <artifactId>guava</artifactId>
+        <version>${guava.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.decimal4j</groupId>
+        <artifactId>decimal4j</artifactId>
+        <version>${decimal4j.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>com.typesafe</groupId>
+        <artifactId>config</artifactId>
+        <version>${typesafe.version}</version>
+      </dependency>
+
+      <!-- OpenHFT dependencies -->
+
+      <dependency>
+        <groupId>net.openhft</groupId>
+        <artifactId>affinity</artifactId>
+        <version>${openhft.version}</version>
+      </dependency>
+
+      <!-- slf4j dependencies -->
+
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>${slf4j.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>jcl-over-slf4j</artifactId>
+        <version>${slf4j.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>jul-to-slf4j</artifactId>
+        <version>${slf4j.version}</version>
+      </dependency>
+
+      <!-- Miscellaneous dependencies -->
+
+      <dependency>
+        <groupId>org.jctools</groupId>
+        <artifactId>jctools-core</artifactId>
+        <version>${jctools.version}</version>
+      </dependency>
+
+      <!-- Test dependencies -->
+
+      <dependency>
+        <groupId>org.junit.jupiter</groupId>
+        <artifactId>junit-jupiter-engine</artifactId>
+        <version>${junit.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.assertj</groupId>
+        <artifactId>assertj-core</artifactId>
+        <version>${assertj.version}</version>
+        <scope>test</scope>
+      </dependency>
+
+      <dependency>
+        <groupId>org.mockito</groupId>
+        <artifactId>mockito-junit-jupiter</artifactId>
+        <version>${mockito.version}</version>
+        <scope>test</scope>
+      </dependency>
+
+      <dependency>
+        <groupId>net.bytebuddy</groupId>
+        <artifactId>byte-buddy-agent</artifactId>
+        <version>${bytebuddy.version}</version>
+        <scope>test</scope>
+      </dependency>
+
+      <dependency>
+        <groupId>ch.qos.logback</groupId>
+        <artifactId>logback-classic</artifactId>
+        <version>${logback.version}</version>
+        <scope>test</scope>
+      </dependency>
+
+      <dependency>
+        <groupId>org.awaitility</groupId>
+        <artifactId>awaitility</artifactId>
+        <version>${awaitility.version}</version>
+        <scope>test</scope>
+      </dependency>
+
+    </dependencies>
+  </dependencyManagement>
+
+  <profiles>
+
+    <profile>
+      <id>test</id>
+      <properties>
+        <env>test</env>
+        <gebEnv>test</gebEnv>
+        <jacoco.skip>false</jacoco.skip>
+        <maven.test.skip>false</maven.test.skip>
+        <skip.unit.tests>false</skip.unit.tests>
+      </properties>
+    </profile>
+
+  </profiles>
+
+  <build>
+    <plugins>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>${javadoc-version}</version>
+
+        <configuration>
+          <excludePackageNames>**/</excludePackageNames>
+          <failOnError>false</failOnError>
+          <outputDirectory>${project.build.directory}</outputDirectory>
+          <stylesheetfile>src/main/javadoc/overview.css</stylesheetfile>
+          <doctitle><![CDATA[efs v. ${project.release}<br>API Specification]]></doctitle>
+          <header><![CDATA[efs<br>v. ${project.release}]]></header>
+          <bottom><![CDATA[Copyright &#169; 2025. Charles W. Rapp<br>All rights reserved]]></bottom>
+          <encoding>UTF-8</encoding>
+          <windowtitle>efs ${project.release} API</windowtitle>
+          <additionalJOptions>--allow-script-in-comments</additionalJOptions>
+        </configuration>
+
+        <executions>
+
+          <execution>
+            <id>attach-javadocs</id>
+            <phase>package</phase>
+            <goals>
+              <goal>javadoc</goal>
+              <goal>jar</goal>
+            </goals>
+            <configuration>
+              <doclint>none</doclint>
+            </configuration>
+          </execution>
+
+          <execution>
+            <id>aggregate</id>
+            <goals>
+              <goal>aggregate</goal>
+            </goals>
+          </execution>
+
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.version}</version>
+
+        <executions>
+          <execution>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+          </execution>
+
+          <execution>
+            <id>report</id>
+            <phase>prepare-package</phase>
+            <goals>
+              <goal>report</goal>
+            </goals>
+
+            <configuration>
+              <outputDirectory>${project.reporting.outputDirectory}/jacoco_test</outputDirectory>
+            </configuration>
+          </execution>
+
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+        <version>${source-version}</version>
+
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <goals>
+              <goal>jar-no-fork</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-gpg-plugin</artifactId>
+        <version>1.6</version>
+
+        <executions>
+          <execution>
+            <id>sign-artifacts</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>sign</goal>
+            </goals>
+            <configuration>
+              <executable>/usr/local/bin/gpg2</executable>
+              <defaultKeyring>/Users/charlesr/.gnupg/pubring.kbx</defaultKeyring>
+              <keyname>C73A52FB7807C2E1F4FF1CD2748464F3750732B5</keyname>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+<!-- Delete?
+      <plugin>
+        <groupId>org.sonatype.central</groupId>
+        <artifactId>central-publishing-maven-plugin</artifactId>
+        <version>0.8.0</version>
+        <extensions>true</extensions>
+        <configuration>
+          <publishingServerId>central</publishingServerId>
+        </configuration>
+      </plugin>
+-->
+
+    </plugins>
+  </build>
+
+  <reporting>
+    <plugins>
+
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.version}</version>
+      </plugin>
+
+    </plugins>
+  </reporting>
+
+</project>

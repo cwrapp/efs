@@ -1,0 +1,162 @@
+@startuml
+annotation com.google.common.annotations.VisibleForTesting
+annotation com.typesafe.config.Optional
+annotation java.lang.FunctionalInterface
+annotation java.lang.Override
+annotation java.lang.SuppressWarnings
+annotation javax.annotation.Nullable
+class com.google.common.base.Strings
+class com.google.common.collect.ImmutableList
+class com.typesafe.config.Config
+class com.typesafe.config.ConfigBeanFactory
+class com.typesafe.config.ConfigException
+class com.typesafe.config.ConfigFactory
+class java.io.File
+class java.lang.RuntimeException
+class java.lang.Thread
+class java.time.Duration
+class java.time.Instant
+class java.util.HashSet
+class java.util.List
+class java.util.Map
+class java.util.Objects
+class java.util.Queue
+class java.util.concurrent.BlockingQueue
+class java.util.concurrent.ConcurrentHashMap
+class java.util.concurrent.ConcurrentLinkedQueue
+class java.util.concurrent.LinkedBlockingDeque
+class java.util.concurrent.atomic.AtomicBoolean
+class java.util.concurrent.atomic.AtomicReference
+class java.util.concurrent.locks.Lock
+class java.util.concurrent.locks.LockSupport
+class java.util.concurrent.locks.ReentrantLock
+class java.util.function.Consumer
+class net.openhft.affinity.AffinityLock
+class net.openhft.affinity.AffinityStrategies
+class net.sf.eBus.util.ValidationException
+class net.sf.eBus.util.Validator
+class org.efs.dispatcher.EfsAgent
+class org.efs.dispatcher.EfsAgent#AgentState
+class org.efs.dispatcher.EfsDispatcher
+class org.efs.dispatcher.EfsDispatcher#DispatcherType
+class org.efs.dispatcher.EfsDispatcherThread
+class org.efs.dispatcher.ThreadStartException
+class org.efs.dispatcher.config.EfsDispatcherConfig
+class org.efs.dispatcher.config.EfsDispatchersConfig
+class org.efs.dispatcher.config.ThreadAffinity
+class org.efs.dispatcher.config.ThreadAffinityConfig
+class org.efs.dispatcher.config.ThreadAffinityConfig#AffinityType
+class org.efs.event.IEfsEvent
+class org.efs.logging.AsyncLoggerFactory
+class org.jctools.queues.atomic.MpmcAtomicArrayQueue
+class org.jctools.queues.atomic.MpscAtomicArrayQueue
+class org.slf4j.Logger
+class org.slf4j.LoggerFactory
+enum org.efs.dispatcher.config.ThreadType
+interface org.efs.dispatcher.IEfsAgent
+interface org.efs.dispatcher.IEfsDispatcher
+org.efs.dispatcher.EfsAgent ..> java.lang.Override
+org.efs.dispatcher.EfsAgent ..> java.lang.SuppressWarnings
+org.efs.dispatcher.EfsAgent ..> com.google.common.collect.ImmutableList
+org.efs.dispatcher.EfsAgent ..> java.util.List
+org.efs.dispatcher.EfsAgent ..> java.util.Objects
+org.efs.dispatcher.EfsAgent ..> java.util.Queue
+org.efs.dispatcher.EfsAgent ..> java.util.concurrent.atomic.AtomicBoolean
+org.efs.dispatcher.EfsAgent ..> java.util.function.Consumer
+org.efs.dispatcher.EfsAgent ..> net.sf.eBus.util.ValidationException
+org.efs.dispatcher.EfsAgent ..> net.sf.eBus.util.Validator
+org.efs.dispatcher.EfsAgent ..> org.efs.event.IEfsEvent
+org.efs.dispatcher.EfsAgent ..> org.jctools.queues.atomic.MpmcAtomicArrayQueue
+org.efs.dispatcher.EfsAgent ..> org.jctools.queues.atomic.MpscAtomicArrayQueue
+org.efs.dispatcher.EfsAgent ..> org.slf4j.Logger
+org.efs.dispatcher.EfsAgent ..> org.slf4j.LoggerFactory
+org.efs.dispatcher.EfsDispatcher ..> java.lang.Override
+org.efs.dispatcher.EfsDispatcher ..> java.lang.SuppressWarnings
+org.efs.dispatcher.EfsDispatcher ..> javax.annotation.Nullable
+org.efs.dispatcher.EfsDispatcher ..> com.google.common.base.Strings
+org.efs.dispatcher.EfsDispatcher ..> com.google.common.collect.ImmutableList
+org.efs.dispatcher.EfsDispatcher ..> com.typesafe.config.Config
+org.efs.dispatcher.EfsDispatcher ..> com.typesafe.config.ConfigBeanFactory
+org.efs.dispatcher.EfsDispatcher ..> com.typesafe.config.ConfigException
+org.efs.dispatcher.EfsDispatcher ..> com.typesafe.config.ConfigFactory
+org.efs.dispatcher.EfsDispatcher ..> java.io.File
+org.efs.dispatcher.EfsDispatcher ..> java.time.Duration
+org.efs.dispatcher.EfsDispatcher ..> java.util.List
+org.efs.dispatcher.EfsDispatcher ..> java.util.Map
+org.efs.dispatcher.EfsDispatcher ..> java.util.Objects
+org.efs.dispatcher.EfsDispatcher ..> java.util.Queue
+org.efs.dispatcher.EfsDispatcher ..> java.util.concurrent.ConcurrentHashMap
+org.efs.dispatcher.EfsDispatcher ..> java.util.concurrent.LinkedBlockingDeque
+org.efs.dispatcher.EfsDispatcher ..> java.util.function.Consumer
+org.efs.dispatcher.EfsDispatcher ..> net.sf.eBus.util.ValidationException
+org.efs.dispatcher.EfsDispatcher ..> net.sf.eBus.util.Validator
+org.efs.dispatcher.EfsDispatcher ..> org.efs.dispatcher.config.EfsDispatcherConfig
+org.efs.dispatcher.EfsDispatcher ..> org.efs.dispatcher.config.EfsDispatchersConfig
+org.efs.dispatcher.EfsDispatcher ..> org.efs.dispatcher.config.ThreadAffinityConfig
+org.efs.dispatcher.EfsDispatcher ..> org.efs.event.IEfsEvent
+org.efs.dispatcher.EfsDispatcher ..> org.efs.logging.AsyncLoggerFactory
+org.efs.dispatcher.EfsDispatcher ..> org.jctools.queues.atomic.MpmcAtomicArrayQueue
+org.efs.dispatcher.EfsDispatcher ..> org.jctools.queues.atomic.MpscAtomicArrayQueue
+org.efs.dispatcher.EfsDispatcher ..> org.slf4j.Logger
+org.efs.dispatcher.EfsDispatcher ..> org.efs.dispatcher.config.ThreadType
+org.efs.dispatcher.EfsDispatcher --|> org.efs.dispatcher.IEfsDispatcher
+org.efs.dispatcher.EfsDispatcherThread ..> java.lang.FunctionalInterface
+org.efs.dispatcher.EfsDispatcherThread ..> java.lang.Override
+org.efs.dispatcher.EfsDispatcherThread ..> java.lang.SuppressWarnings
+org.efs.dispatcher.EfsDispatcherThread ..> javax.annotation.Nullable
+org.efs.dispatcher.EfsDispatcherThread ..> com.google.common.base.Strings
+org.efs.dispatcher.EfsDispatcherThread --|> java.lang.Thread
+org.efs.dispatcher.EfsDispatcherThread ..> java.time.Duration
+org.efs.dispatcher.EfsDispatcherThread ..> java.time.Instant
+org.efs.dispatcher.EfsDispatcherThread ..> java.util.Objects
+org.efs.dispatcher.EfsDispatcherThread ..> java.util.Queue
+org.efs.dispatcher.EfsDispatcherThread ..> java.util.concurrent.BlockingQueue
+org.efs.dispatcher.EfsDispatcherThread ..> java.util.concurrent.ConcurrentLinkedQueue
+org.efs.dispatcher.EfsDispatcherThread ..> java.util.concurrent.atomic.AtomicReference
+org.efs.dispatcher.EfsDispatcherThread ..> java.util.concurrent.locks.LockSupport
+org.efs.dispatcher.EfsDispatcherThread ..> net.openhft.affinity.AffinityLock
+org.efs.dispatcher.EfsDispatcherThread ..> net.sf.eBus.util.ValidationException
+org.efs.dispatcher.EfsDispatcherThread ..> net.sf.eBus.util.Validator
+org.efs.dispatcher.EfsDispatcherThread ..> org.efs.dispatcher.EfsAgent.AgentState
+org.efs.dispatcher.EfsDispatcherThread ..> org.efs.dispatcher.config.ThreadAffinity
+org.efs.dispatcher.EfsDispatcherThread ..> org.efs.dispatcher.config.ThreadAffinityConfig
+org.efs.dispatcher.EfsDispatcherThread ..> org.efs.dispatcher.config.ThreadAffinityConfig.AffinityType
+org.efs.dispatcher.EfsDispatcherThread ..> org.efs.logging.AsyncLoggerFactory
+org.efs.dispatcher.EfsDispatcherThread ..> org.slf4j.Logger
+org.efs.dispatcher.EfsDispatcherThread ..> org.efs.dispatcher.config.ThreadType
+org.efs.dispatcher.ThreadStartException ..> javax.annotation.Nullable
+org.efs.dispatcher.ThreadStartException --|> java.lang.RuntimeException
+org.efs.dispatcher.config.EfsDispatcherConfig ..> com.typesafe.config.Optional
+org.efs.dispatcher.config.EfsDispatcherConfig ..> java.lang.Override
+org.efs.dispatcher.config.EfsDispatcherConfig ..> java.lang.SuppressWarnings
+org.efs.dispatcher.config.EfsDispatcherConfig ..> javax.annotation.Nullable
+org.efs.dispatcher.config.EfsDispatcherConfig ..> com.google.common.base.Strings
+org.efs.dispatcher.config.EfsDispatcherConfig ..> com.typesafe.config.ConfigException
+org.efs.dispatcher.config.EfsDispatcherConfig ..> java.time.Duration
+org.efs.dispatcher.config.EfsDispatcherConfig ..> org.efs.dispatcher.EfsDispatcher
+org.efs.dispatcher.config.EfsDispatcherConfig ..> org.efs.dispatcher.EfsDispatcher.DispatcherType
+org.efs.dispatcher.config.EfsDispatcherConfig ..> org.efs.dispatcher.IEfsAgent
+org.efs.dispatcher.config.EfsDispatchersConfig ..> java.lang.Override
+org.efs.dispatcher.config.EfsDispatchersConfig ..> java.lang.SuppressWarnings
+org.efs.dispatcher.config.EfsDispatchersConfig ..> com.google.common.collect.ImmutableList
+org.efs.dispatcher.config.EfsDispatchersConfig ..> com.typesafe.config.ConfigException
+org.efs.dispatcher.config.EfsDispatchersConfig ..> java.util.HashSet
+org.efs.dispatcher.config.EfsDispatchersConfig ..> java.util.List
+org.efs.dispatcher.config.ThreadAffinity ..> com.google.common.annotations.VisibleForTesting
+org.efs.dispatcher.config.ThreadAffinity ..> java.util.List
+org.efs.dispatcher.config.ThreadAffinity ..> java.util.Objects
+org.efs.dispatcher.config.ThreadAffinity ..> java.util.concurrent.locks.Lock
+org.efs.dispatcher.config.ThreadAffinity ..> java.util.concurrent.locks.ReentrantLock
+org.efs.dispatcher.config.ThreadAffinity ..> net.openhft.affinity.AffinityLock
+org.efs.dispatcher.config.ThreadAffinity ..> net.openhft.affinity.AffinityStrategies
+org.efs.dispatcher.config.ThreadAffinity ..> net.sf.eBus.util.ValidationException
+org.efs.dispatcher.config.ThreadAffinity ..> net.sf.eBus.util.Validator
+org.efs.dispatcher.config.ThreadAffinity ..> org.efs.dispatcher.config.ThreadAffinityConfig.AffinityType
+org.efs.dispatcher.config.ThreadAffinityConfig ..> java.lang.Override
+org.efs.dispatcher.config.ThreadAffinityConfig ..> com.google.common.collect.ImmutableList
+org.efs.dispatcher.config.ThreadAffinityConfig ..> com.typesafe.config.ConfigException
+org.efs.dispatcher.config.ThreadAffinityConfig ..> java.util.List
+org.efs.dispatcher.config.ThreadAffinityConfig ..> net.openhft.affinity.AffinityStrategies
+org.efs.dispatcher.config.ThreadType ..> java.lang.Override
+org.efs.dispatcher.config.ThreadType ..> javax.annotation.Nullable
+@enduml

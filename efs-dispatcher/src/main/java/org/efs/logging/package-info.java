@@ -1,0 +1,27 @@
+//
+// Copyright 2025 Charles W. Rapp
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+
+/**
+ * This package extends
+ * <a href="https://slf4j.org" target="_blank">slf4j</a> package
+ * with an asynchronous logger. This slf4j logger performs actual
+ * logging on an efs dispatcher thread rather than in-line with
+ * the application code. See
+ * {@link org.efs.logging.AsyncLogger AsyncLogger} for
+ * a detailed explanation on how to create and use this logger.
+ */
+
+package org.efs.logging;

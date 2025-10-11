@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+
+<!--
+  Copyright 2025 Charles W. Rapp
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+
+  This overview is used to generate the efs javadocs.
+ -->
+
+<html>
+  <head>
+    <title>efs Overview</title>
+    <meta charset="UTF-8">
+    <meta name="description" content="efs - event file system" />
+    <meta name="author" content="Charles W. Rapp" />
+    <meta name="keywords" content="asynchronous reactive event processing" />
+    <link rel="stylesheet" type="text/css" href="overview.css" />
+  </head>
+
+  <body>
+    <div></div>
+    <div class="titlebar">
+      <div class="titlename">efs</div>
+      <div class="titledescription">
+        Event File System
+      </div>
+      <div class="titlerelease">
+        <!-- UPDATE FOR RELEASE -->
+        Updated: October 11, 2025<br/>Version: 0.1.0
+      </div>
+    </div>
+    <div class="content-container"> <!-- --> </div>
+    <ul class="navbar">
+      <li class="dropdown-menu">
+        <a href="#Introduction">Introduction</a>
+        <div class="dropdown-content">
+          <a href="#LearnEfs">Learning efs</a>
+        </div>
+        <div class="dropdown-content">
+          <a href="#BackgroundEfs">efs Background</a>
+        </div>
+      </li>
+      <li class="dropdown-menu">
+        {@link org.efs.dispatcher Dispatcher}
+        <div class="dropdown-content">
+          {@link org.efs.dispatcher.IEfsAgent Agents}
+        </div>
+        <div class="dropdown-content">
+          {@link org.efs.event Events}
+        </div>
+        <div class="dropdown-content">
+          {@link org.efs.dispatcher.EfsDispatcher EfsDispatcher}
+        </div>
+        <div class="dropdown-content">
+          {@link org.efs.dispatcher.EfsDispatcherThread Dispatcher Thread}
+        </div>
+        <div class="dropdown-content">
+          {@link org.efs.dispatcher.config Dispatcher Configuration}
+        </div>
+      </li>
+      <li class="dropdown-menu">
+        {@link org.efs.activator Activator}
+        <div class="dropdown-content">
+          {@link org.efs.activator.IEfsActivateAgent Activate Agent}
+        </div>
+        <div class="dropdown-content">
+          {@link org.efs.activator.event Activator Event}
+        </div>
+        <div class="dropdown-content">
+          {@link org.efs.activator.EfsActivator EfsActivator}
+        </div>
+        <div class="dropdown-content">
+          {@link org.efs.activator.Workflow Workflow}
+        </div>
+        <div class="dropdown-content">
+          {@link org.efs.activator.config Activator Configuration}
+        </div>
+      </li>
+      <li class="dropdown-menu">
+        <a href="#">Utilites</a>
+        <div class="dropdown-content">
+          {@link org.efs.timer EfsScheduledExecutor}
+        </div>
+        <div class="dropdown-content">
+          {@link org.efs.logging AsyncLogger}
+        </div>
+      </li>
+      <li class="dropdown-menu" style="float:right; background-color:#f7ff1c;">
+        <a href="#" style="color:#000;">efs</a>
+        <div class="dropdown-content" style="float:right; background-color:#f7ff1c;">
+          <a id="aboutBtn" href="#aboutModal" style="color:#000;">About</a>
+          <a href="https://github.com" target="_blank" style="color:#000;">GitHub Project</a>
+        </div>
+      </li>
+    </ul>
+
+    <!-- The About Modal -->
+    <div id="aboutModal" class="modal">
+
+      <!-- About Modal content -->
+      <div class="modal-content">
+        <div class="model-header">
+          <span class="close">&times;</span>
+          <div class="modal-header-name">
+            efs
+          </div>
+          <div class="modal-header-copyright">
+            Copyright &copy; 2025, Charles W. Rapp. All Rights Reserved.
+          </div>
+        </div>
+        <div class="modal-body">
+          <p>
+            efs
+            <a href="https://github.com/" target="_blank">GitHub</a>
+            project was created on October, 2025 and has been
+            actively improved and extended since then. efs' goal
+            is to bring the power of distributed, reactive events
+            in a simple API, so simple that you don't notice efs
+            when you transmit events within your JVM or around
+            the world.
+          </p>
+          <p>
+            <!-- UPDATE FOR RELEASE -->
+            Updated: October 11, 2025<br>Version. 0.1.0
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <h1><a id="Introduction">Introduction</a></h1>
+    <p>
+      efs - Event File System is <em>envisioned</em> as a
+      reliable, robust, and low-latency event persistence and
+      delivery API from publishing agent to subscribing
+      agent.
+    </p>
+    <p>
+      "Envision" means that efs is not yet implemented to this
+      point - but enough is implemented to warrant an initial
+      release. The first is the dispatcher framework used to
+      deliver events to agents in a virtual single-threaded
+      manner. Virtual single-threading means that while an
+      agent may run on different threads over its lifespan it
+      is guaranteed to be accessed by only one thread at any
+      given moment. This means there is no need for
+      synchronization/locks which can lead to a thread losing
+      core while waiting to acquire a lock.
+    </p>
+    <p>
+      The second component is the activator which uses dispatcher
+      to start and activate
+      {@link org.efs.activator.IEfsActivateAgent activate agents}
+      (an interface extension to
+      {@link org.efs.dispatcher.IEfsAgent IEfsAgent})
+      Activator solves the problem where an agent is activated
+      on one thread where it connects into a reactive framework
+      but receives events on dispatcher threads
+      <em>while still activating on the original thread.</em>
+      The virtual single-threading guarantee provided by
+      dispatcher is lost in this scenario. Activator has agent
+      activation performed by the agent's dispatcher. Any events
+      posted to the agent while activating are delivered
+      <em>after</em> activation is completed.
+    </p>
+    <h2><a id="LearnEfs">Learning efs</a></h2>
+    <p>
+      efs package javadocs explain how to use the package
+      together with example code. You are encourged to explore
+      the javadoc packages in the following order:
+    </p>
+    <ol>
+      <li>
+        {@link org.efs.dispatcher dispatcher}: explains
+        dispatcher architecture and how to use. Compares efs
+        dispatcher with LMAX Disruptor and SEDA (staged event
+        driven architecture).
+      </li>
+      <li>
+        {@link org.efs.dispatcher.config dispatcher configuration}:
+        explains how to configure dispatchers using
+        <a href="https://github.com/lightbend/config" target="_blank">typesafe</a>
+        configuration bean classes stored in a JSON file format.
+        <p>
+          Please note that efs uses typesafe for all its
+          configuration.
+        </p>
+      </li>
+      <li>
+        {@link org.efs.timer timer}: contains the
+        {link org.efs.timer.EfsScheduledExecutor} which
+        <em>somewhat</em> follows the
+        {@link java.util.concurrent.ScheduledExecutorService ScheduledExecutorService}
+        interface but does not implement that interface because
+        it does not deliver expired timers using a
+        {@code ScheduledFuture} but instead uses
+        {@code EfsDispatcher} for delivery.
+        <p>
+          An efs scheduled executor may be created either
+          programmatically or by typesafe configuration file.
+        </p>
+      </li>
+      <li>
+        {@link org.efs.timer.config timer configuration}:
+        explains how to define one or more efs scheduled
+        executors using a typesafe configuration file.
+      </li>
+      <li>
+        {@link org.efs.activator activator}: this service steps
+        efs agents through stopped, stand by, active states in
+        a thread-safe manner using efs dispatcher's virtual
+        single-thread environment. User defined
+        {@link org.efs.activator.Workflow workflows} provide the
+        order in which efs agents are stepped through their
+        states.
+      </li>
+      <li>
+        {@link org.efs.activator.config activator configuration}:
+        explains how to define one or more activation workflows
+        using a typesafe configuration file.
+      </li>
+      <li>
+        {@link org.efs.logging logging}: implements
+        <a href="https://slf4j.org" target="_blank">slf4j</a>
+        {@code Logger} and {@code LoggerFactory} with
+        {@link org.efs.logging.AsyncLogger AsyncLogger} and
+        {@link org.efs.logging.AsyncLoggerFactory AsyncLoggerFactory}.
+        This logging uses efs dispatcher to perform the actual
+        logging on a dispatcher thread rather than inline with
+        application code.
+      </li>
+    </ol>
+    <h2><a id="BackgroundEfs">efs Background</a></h2>
+    <p>
+      efs is a direct descendent of the 25 year old
+      <a href="https://sourceforge.net/projects/ebus/">eBus</a>
+      project. The goal here is to tease out the best of that
+      work, forming a better API using Java 21 features. This
+      work is <em>not</em> a re-implementation of eBus but a step
+      beyond. efs is based on the oberservation that applications
+      require:
+    </p>
+    <ul>
+      <li>
+        historic events,
+      </li>
+      <li>
+        live events, and
+      </li>
+      <li>
+        combination of historic and live events.
+      </li>
+    </ul>
+    <p>
+      eBus started with live event distribution only. A later
+      attempt to add historic events to eBus designed to fit into
+      the eBus framework was less than satisfactory. Hence,
+      a need for a new framework supporting both historic and
+      live event distribution from the start.
+    </p>
+    <p>
+      Designing a new efs event persistence and distribution
+      API is on-going. This initial release 0.1.0 provides the
+      event delivery and processing API known as Dispatcher. It
+      is similar to Disruptor and SEDA (staged event-driven
+      architecture) but simpler. Dispatcher is designed to be a
+      stand-alone API and useful in its own right.
+    </p>
+
+    @author <a href="mailto:rapp@acm.org">Charles Rapp</a>
+
+    <script>
+      // Get the modal
+      var modal = document.getElementById('aboutModal');
+
+      // Get the button that opens the modal
+      var btn = document.getElementById("aboutBtn");
+
+      // Get the span element that closes the modal
+      var span = document.getElementsByClassName("close")[0];
+
+      // When the user clicks the button, open the modal
+      btn.onclick = function() {
+        modal.style.display = "block";
+      }
+
+      // When the user clicks on (x), close the modal
+      span.onclick = function() {
+        modal.style.display = "none";
+      }
+
+      // When the user clicks anywhere outside of the modal, close it
+      window.onclick = function(event) {
+        if (event.target == modal) {
+          modal.style.display = "none";
+        }
+      }
+    </script>
+
+  </body>
+</html>
