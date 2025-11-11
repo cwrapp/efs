@@ -18,7 +18,6 @@ package org.efs.dispatcher;
 
 import javax.annotation.Nullable;
 import org.efs.event.IEfsEvent;
-import org.efs.event.ReplyTo;
 
 /**
  * Used to measure event dispatch and processing delta within a

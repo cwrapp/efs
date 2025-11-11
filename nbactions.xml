@@ -25,7 +25,7 @@
       <goal>versions:set</goal>
     </goals>
     <properties>
-      <newVersion>0.1.0</newVersion>
+      <newVersion>0.2.0</newVersion>
     </properties>
   </action>
 

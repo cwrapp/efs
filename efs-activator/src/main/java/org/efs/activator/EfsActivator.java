@@ -25,16 +25,17 @@ import com.typesafe.config.ConfigException;
 import com.typesafe.config.ConfigFactory;
 import java.io.File;
 import java.time.Duration;
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import javax.annotation.concurrent.ThreadSafe;
 import net.sf.eBus.util.ValidationException;
 import net.sf.eBus.util.Validator;
 import org.efs.activator.config.EfsActivatorConfig;
@@ -59,6 +60,13 @@ import org.slf4j.Logger;
  * Please see {@link org.efs.activator} package documentation for
  * a detailed description on how to use {@code EfsActivator}.
  * </p>
+ * <p>
+ * {@code EfsActivator} is thread-safe but can only process a
+ * single workflow at a time. That workflow must be either
+ * run to completion or {@link #terminateWorkflow() terminated}
+ * prior to {@link #initializeWorkflow(String) initiating}
+ * another workflow.
+ * </p>
  *
  * @see Workflow
  * @see WorkflowStage
@@ -67,6 +75,7 @@ import org.slf4j.Logger;
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
 
+@ThreadSafe
 public final class EfsActivator
 {
 //---------------------------------------------------------------
@@ -135,7 +144,7 @@ public final class EfsActivator
     /**
      * Currently executing this workflow.
      */
-    private Workflow mCurrentWorkflow;
+    private volatile Workflow mCurrentWorkflow;
 
 //---------------------------------------------------------------
 // Member methods.
@@ -151,8 +160,8 @@ public final class EfsActivator
     private EfsActivator(final Builder builder)
     {
         mWorkflows = createWorkflowMap(builder.mWorkflows);
-        mAgents = new HashMap<>();
-        mListeners = new CopyOnWriteArrayList<>();
+        mAgents = new ConcurrentHashMap<>();
+        mListeners = new ArrayList<>();
     } // end of EfsActivator(Builder)
 
     //
@@ -206,12 +215,15 @@ public final class EfsActivator
 
         Objects.requireNonNull(agent, NULL_AGENT);
 
-        final Iterator<ActivatorListener> lIt =
-            mListeners.iterator();
-
-        while (!retcode && lIt.hasNext())
+        synchronized (mListeners)
         {
-            retcode = ((lIt.next()).mAgent == agent);
+            final Iterator<ActivatorListener> lIt =
+                mListeners.iterator();
+
+            while (!retcode && lIt.hasNext())
+            {
+                retcode = ((lIt.next()).mAgent == agent);
+            }
         }
 
         return (retcode);
@@ -336,7 +348,7 @@ public final class EfsActivator
      * string, or does not reference a known agent.
      */
     public void agentState(final String agentName,
-                              final EfsAgentState state)
+                           final EfsAgentState state)
     {
         if (Strings.isNullOrEmpty(agentName))
         {
@@ -394,19 +406,22 @@ public final class EfsActivator
         Objects.requireNonNull(callback, NULL_CALLBACK);
         Objects.requireNonNull(agent, NULL_AGENT);
 
-        final ActivatorListener l =
-            new ActivatorListener(callback, agent);
-
-        if (mListeners.contains(l))
+        synchronized (mListeners)
         {
-            throw (
-                new IllegalStateException(
-                    "agent " +
-                    agent.name() +
-                    " is already registered"));
-        }
+            final ActivatorListener l =
+                new ActivatorListener(callback, agent);
 
-        mListeners.add(l);
+            if (mListeners.contains(l))
+            {
+                throw (
+                    new IllegalStateException(
+                        "agent " +
+                        agent.name() +
+                        " is already registered"));
+            }
+
+            mListeners.add(l);
+        }
     } // end of registerListener(Consumer<>, IEfsAgent)
 
     /**
@@ -426,8 +441,11 @@ public final class EfsActivator
         Objects.requireNonNull(callback, NULL_CALLBACK);
         Objects.requireNonNull(agent, NULL_AGENT);
 
-        mListeners.remove(
-            new ActivatorListener(callback, agent));
+        synchronized (mListeners)
+        {
+            mListeners.remove(
+                new ActivatorListener(callback, agent));
+        }
     } // end of deregisterListener(Consumer<>, IEfsAgent)
 
     //
@@ -438,6 +456,9 @@ public final class EfsActivator
      * Executes next step in workflow. Returns {@code true} if
      * workflow is completed after successfully completing step.
      * @return {@code true} if workflow is completed.
+     * @throws IllegalStateException
+     * if there is no activation in progress or the activation
+     * fails.
      */
     public boolean executeNextStep()
     {
@@ -465,6 +486,9 @@ public final class EfsActivator
      * Executes next stage in workflow. Returns {@code true} if
      * workflow is completed after successfully completing stage.
      * @return {@code true} if workflow is completed.
+     * @throws IllegalStateException
+     * if there is no activation in progress or the activation
+     * fails.
      */
     public boolean executeNextStage()
     {
@@ -491,6 +515,9 @@ public final class EfsActivator
     /**
      * Executes all remaining stages and steps in this workflow.
      * @return {@code true}.
+     * @throws IllegalStateException
+     * if there is no activation in progress or the activation
+     * fails.
      */
     public boolean executeWorkflow()
     {
@@ -522,6 +549,8 @@ public final class EfsActivator
      * @param beginState expected agent current state.
      * @param endState target agent state.
      * @param transitionTime time limit for state transition.
+     * @throws IllegalStateException
+     * if activation fails.
      */
     public void execute(final String agentName,
                         final EfsAgentState beginState,
@@ -704,6 +733,7 @@ public final class EfsActivator
          * if {@code workflows} is either {@code null} or an
          * empty list.
          */
+        @SuppressWarnings({"java:S1121"})
         public Builder workflows(final List<Workflow> workflows)
         {
             if (workflows == null || workflows.isEmpty())
@@ -714,16 +744,26 @@ public final class EfsActivator
             }
 
             final Set<String> wfNames = new TreeSet<>();
-            final Set<String> duplicateNames = new TreeSet<>();
+            final List<String> problems = new ArrayList<>();
             String wfName;
 
             for (Workflow w : workflows)
             {
-                wfName = w.name();
-
-                if (wfNames.contains(wfName))
+                if (w == null)
                 {
-                    duplicateNames.add(wfName);
+                    problems.add(
+                        "workflows contains null workflow");
+                }
+                else if (Strings.isNullOrEmpty((wfName = w.name())))
+                {
+                    problems.add(
+                        "workflow name is null or an empty string");
+                }
+                else if (wfNames.contains(wfName))
+                {
+                    problems.add(
+                        "workflows contains duplicate workflow " +
+                        wfName);
                 }
                 else
                 {
@@ -731,17 +771,16 @@ public final class EfsActivator
                 }
             }
 
-            if (!duplicateNames.isEmpty())
+            if (!problems.isEmpty())
             {
                 final StringBuilder message =
                     new StringBuilder();
+                String sep = "";
 
-                message.append(
-                    "workflows contains duplicate names:");
-
-                for (String n : duplicateNames)
+                for (String n : problems)
                 {
-                    message.append(' ').append(n);
+                    message.append(sep).append(n);
+                    sep = "\n";
                 }
 
                 throw (
@@ -1011,7 +1050,7 @@ public final class EfsActivator
         @Override
         public int hashCode()
         {
-            return (mAgent.hashCode());
+            return (System.identityHashCode(mAgent));
         } // end of hashCode()
 
         //

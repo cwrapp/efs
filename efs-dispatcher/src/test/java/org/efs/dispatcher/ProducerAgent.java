@@ -22,7 +22,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import org.efs.event.ReplyTo;
 import org.efs.logging.AsyncLoggerFactory;
 import org.slf4j.Logger;
 

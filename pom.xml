@@ -24,7 +24,7 @@ limitations under the License.
 
   <groupId>org.efs</groupId>
   <artifactId>efs-parent</artifactId>
-  <version>0.1.0</version>
+  <version>0.2.0</version>
 
   <packaging>pom</packaging>
 
@@ -65,8 +65,10 @@ limitations under the License.
 
   <modules>
     <module>efs-bom</module>
+    <module>efs-event</module>
     <module>efs-dispatcher</module>
     <module>efs-activator</module>
+    <module>efs-timer</module>
   </modules>
 
   <distributionManagement>
@@ -99,7 +101,7 @@ limitations under the License.
     <maven.compiler.testSource>21</maven.compiler.testSource>
     <maven.compiler.testTarget>21</maven.compiler.testTarget>
 
-    <javadoc-version>3.11.3</javadoc-version>
+    <javadoc-version>3.12.0</javadoc-version>
     <source-version>3.3.1</source-version>
 
     <ebus.version>7.6.0</ebus.version>
@@ -110,18 +112,16 @@ limitations under the License.
     <jctools.version>4.0.5</jctools.version>
 
     <slf4j.version>2.0.17</slf4j.version>
-    <logback.version>1.5.18</logback.version>
+    <logback.version>1.5.20</logback.version>
 
-    <junit.version>5.13.4</junit.version>
+    <junit.version>6.0.0</junit.version>
     <assertj.version>3.27.4</assertj.version>
     <mockito.version>5.19.0</mockito.version>
     <bytebuddy.version>1.15.11</bytebuddy.version>
     <awaitility.version>4.3.0</awaitility.version>
-    <jacoco.version>0.8.13</jacoco.version>
+    <jacoco.version>0.8.14</jacoco.version>
 
     <project.reporting.outputDirectory>target</project.reporting.outputDirectory>
-    <project.release>0.1.0</project.release>
-
   </properties>
 
   <dependencyManagement>
@@ -289,11 +289,11 @@ limitations under the License.
           <failOnError>false</failOnError>
           <outputDirectory>${project.build.directory}</outputDirectory>
           <stylesheetfile>src/main/javadoc/overview.css</stylesheetfile>
-          <doctitle><![CDATA[efs v. ${project.release}<br>API Specification]]></doctitle>
-          <header><![CDATA[efs<br>v. ${project.release}]]></header>
+          <doctitle><![CDATA[efs v. ${version}<br>API Specification]]></doctitle>
+          <header><![CDATA[efs<br>v. ${version}]]></header>
           <bottom><![CDATA[Copyright &#169; 2025. Charles W. Rapp<br>All rights reserved]]></bottom>
           <encoding>UTF-8</encoding>
-          <windowtitle>efs ${project.release} API</windowtitle>
+          <windowtitle>efs ${version} API</windowtitle>
           <additionalJOptions>--allow-script-in-comments</additionalJOptions>
         </configuration>
 

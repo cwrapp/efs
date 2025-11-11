@@ -24,13 +24,11 @@ import org.efs.dispatcher.EfsDispatcher.DispatcherStats;
 import org.efs.dispatcher.EfsDispatcher.DispatcherType;
 import org.efs.dispatcher.EfsDispatcherThread.DispatcherThreadStats;
 import org.efs.dispatcher.config.ThreadType;
-import org.efs.logging.AsyncLoggerFactory;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
 
 /**
  * Exercises event dispatch on a small scale.
@@ -63,13 +61,6 @@ public class DispatchTest
         TimeUnit.MILLISECONDS;
 
     //-----------------------------------------------------------
-    // Statics.
-    //
-
-    private static final Logger sLogger =
-        AsyncLoggerFactory.getLogger();
-
-    //-----------------------------------------------------------
     // Locals.
     //
 
@@ -95,10 +86,9 @@ public class DispatchTest
     public static void setUpClass()
     {
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
+            EfsDispatcher.builder(DISPATCHER_NAME);
 
-        builder.dispatcherName(DISPATCHER_NAME)
-               .threadType(THREAD_TYPE)
+        builder.threadType(THREAD_TYPE)
                .numThreads(THREAD_COUNT)
                .priority(THREAD_PRIORITY)
                .dispatcherType(DispatcherType.EFS)
@@ -111,6 +101,7 @@ public class DispatchTest
     @AfterAll
     public static void tearDownClass()
     {
+        EfsDispatcher.stopDispatchers();
         EfsDispatcher.clearDispatchers();
     } // end of tearDownClass()
 
@@ -137,6 +128,8 @@ public class DispatchTest
     {
         EfsDispatcher.deregister(mAgent);
         EfsDispatcher.deregister(mProducer);
+
+        EfsDispatcher.stopDispatchers();
     } // end of tearDown()
 
     //

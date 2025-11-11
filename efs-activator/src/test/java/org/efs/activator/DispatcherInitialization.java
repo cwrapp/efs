@@ -67,7 +67,7 @@ public final class DispatcherInitialization
         {
             sIsStarted = true;
 
-            EfsDispatcher.loadDispatchersConfig(
+            EfsDispatcher.loadDispatchersConfigFile(
                 DISPATCHER_FILE_NAME);
 
         }
