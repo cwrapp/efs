@@ -52,53 +52,21 @@ public final class MakeMoneyAlgoAgent
 
     @Override
     public void startup()
-    {
-        // TODO
-    } // end of startup()
+    {}
 
     @Override
     public void activate()
-    {
-        // TODO
-    } // end of activate()
+    {}
 
     @Override
     public void deactivate()
-    {
-        // TODO
-    } // end of deactivate()
+    {}
 
     @Override
     public void stop()
-    {
-        // TODO
-    } // end of stop()
+    {}
 
     //
     // end of IEfsActivateAgent Interface Implementation.
-    //-----------------------------------------------------------
-
-    //-----------------------------------------------------------
-    // Object Method Overrides.
-    //
-
-    //
-    // end of Object Method Overrides.
-    //-----------------------------------------------------------
-
-    //-----------------------------------------------------------
-    // Get Methods.
-    //
-
-    //
-    // end of Get Methods.
-    //-----------------------------------------------------------
-
-    //-----------------------------------------------------------
-    // Set Methods.
-    //
-
-    //
-    // end of Set Methods.
     //-----------------------------------------------------------
 } // end of class MakeMoneyAlgoAgent

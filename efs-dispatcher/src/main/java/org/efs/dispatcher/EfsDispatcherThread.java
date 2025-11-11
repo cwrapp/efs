@@ -38,6 +38,7 @@ import static org.efs.dispatcher.config.ThreadType.BLOCKING;
 import static org.efs.dispatcher.config.ThreadType.SPINNING;
 import static org.efs.dispatcher.config.ThreadType.SPINPARK;
 import org.efs.logging.AsyncLoggerFactory;
+import org.jctools.queues.atomic.AtomicReferenceArrayQueue;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 
@@ -192,7 +193,7 @@ public final class EfsDispatcherThread
      * Nanosecond park time used when
      * {@link #spinParkPoll()} poll method is used.
      */
-    @Nullable private final long mParkTime;
+    private final long mParkTime;
 
     /**
      * Thread affinity configuration. Used to associate thread
@@ -205,6 +206,12 @@ public final class EfsDispatcherThread
      * Maximum number of events a agent may run per call out.
      */
     private final int mMaxEvents;
+
+    /**
+     * Dispatcher thread continues running while this flag is
+     * {@code true}.
+     */
+    private volatile boolean mRunFlag;
 
     //
     // Performance statistics.
@@ -247,6 +254,7 @@ public final class EfsDispatcherThread
         mParkTime = (builder.mParkTime).toNanos();
         mAffinity = builder.mAffinity;
         mMaxEvents = builder.mMaxEvents;
+        mRunFlag = true;
 
         mStats = new DispatcherThreadStats();
 
@@ -320,7 +328,7 @@ public final class EfsDispatcherThread
         // Note: once started, a dispatcher thread runs until
         // JVM is stopped - or the world comes to an end,
         // whichever happens first.
-        while (true)
+        while (mRunFlag)
         {
             // Get the next agent.
             // Note: poll *never* returns null.
@@ -486,7 +494,10 @@ public final class EfsDispatcherThread
                         mRunQueue).take();
             }
             catch (InterruptedException interrupt)
-            {}
+            {
+                // Pass this interrupt through.
+                this.interrupt();
+            }
         }
 
         return (retval);
@@ -578,6 +589,16 @@ public final class EfsDispatcherThread
     //
     // end of Queue Polling Methods.
     //-----------------------------------------------------------
+
+    /**
+     * Sets run flag to {@code false} which eventually stops
+     * this dispatcher thread.
+     */
+    /* package */ void shutdown()
+    {
+        mRunFlag = false;
+        this.interrupt();
+    } // end of shutdown()
 
     /**
      * Returns a new dispatcher thread builder instance.
@@ -877,6 +898,12 @@ public final class EfsDispatcherThread
                           mParkTime.isPositive())),
                         "parkTime",
                         "not set for spin+park thread type")
+                    .requireTrue(((mThreadType == BLOCKING &&
+                                   mRunQueue instanceof BlockingQueue) ||
+                                  (mThreadType != BLOCKING &&
+                                   mRunQueue instanceof AtomicReferenceArrayQueue)),
+                                 "runQueue",
+                                 "does not match thread type")
                     .throwException(EfsDispatcherThread.class);
         }
     } // end of class Builder
@@ -1409,7 +1436,7 @@ public final class EfsDispatcherThread
         private void addAgentStat(final long datum)
         {
             // Make sure datum is valid.
-            if (datum >= 0L && datum < 1_000_000_000L)
+            if (datum >= 0L)
             {
                 final long removedValue = mStats[mNextIndex];
                 final long ma =

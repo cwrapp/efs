@@ -20,7 +20,6 @@ import java.util.List;
 import java.util.function.Consumer;
 import net.sf.eBus.util.ValidationException;
 import static org.assertj.core.api.Assertions.assertThat;
-import org.efs.dispatcher.EfsDispatcher.DispatcherState;
 import org.efs.dispatcher.EfsDispatcher.DispatcherType;
 import org.efs.dispatcher.config.EfsDispatcherConfig;
 import org.efs.dispatcher.config.ThreadAffinityConfig;
@@ -106,17 +105,15 @@ public final class EfsDispatcherTest
     public void builderNullDispatcherName()
     {
         final String dispatcherName = null;
-        final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
 
         try
         {
-            builder.dispatcherName(dispatcherName);
+            EfsDispatcher.builder(dispatcherName);
         }
         catch (IllegalArgumentException argex)
         {
             assertThat(argex)
-                .hasMessage("name is either null or an empty string");
+                .hasMessage("dispatcherName is either null or an empty string");
         }
     } // end of builderNullDispatcherName()
 
@@ -124,28 +121,27 @@ public final class EfsDispatcherTest
     public void builderEmptyDispatcherName()
     {
         final String dispatcherName = "";
-        final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
 
         try
         {
-            builder.dispatcherName(dispatcherName);
+            EfsDispatcher.builder(dispatcherName);
         }
         catch (Exception jex)
         {
             assertThat(jex)
                 .isInstanceOf(IllegalArgumentException.class);
             assertThat(jex)
-                .hasMessage("name is either null or an empty string");
+                .hasMessage("dispatcherName is either null or an empty string");
         }
     } // end of builderEmptyDispatcherName()
 
     @Test
     public void builderZeroThreadCount()
     {
+        final String dispatcherName = generateDispatcherName();
         final int numThreads = 0;
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
+            EfsDispatcher.builder(dispatcherName);
 
         try
         {
@@ -163,9 +159,10 @@ public final class EfsDispatcherTest
     @Test
     public void builderNullThreadType()
     {
+        final String dispatcherName = generateDispatcherName();
         final ThreadType type = null;
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
+            EfsDispatcher.builder(dispatcherName);
 
         try
         {
@@ -182,9 +179,10 @@ public final class EfsDispatcherTest
     @Test
     public void builderPiorityLessThanMin()
     {
+        final String dispatcherName = generateDispatcherName();
         final int priority = (Thread.MIN_PRIORITY - 1);
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
+            EfsDispatcher.builder(dispatcherName);
 
         try
         {
@@ -201,9 +199,10 @@ public final class EfsDispatcherTest
     @Test
     public void builderPriorityGreaterThanMax()
     {
+        final String dispatcherName = generateDispatcherName();
         final int priority = (Thread.MAX_PRIORITY + 1);
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
+            EfsDispatcher.builder(dispatcherName);
 
         try
         {
@@ -220,9 +219,10 @@ public final class EfsDispatcherTest
     @Test
     public void builderZeroSpinLimit()
     {
+        final String dispatcherName = generateDispatcherName();
         final long limit = 0L;
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
+            EfsDispatcher.builder(dispatcherName);
 
         try
         {
@@ -239,9 +239,10 @@ public final class EfsDispatcherTest
     @Test
     public void builderNullParkTime()
     {
+        final String dispatcherName = generateDispatcherName();
         final Duration time = null;
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
+            EfsDispatcher.builder(dispatcherName);
 
         try
         {
@@ -258,9 +259,10 @@ public final class EfsDispatcherTest
     @Test
     public void builderNegativeParkTime()
     {
+        final String dispatcherName = generateDispatcherName();
         final Duration time = Duration.ZERO;
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
+            EfsDispatcher.builder(dispatcherName);
 
         try
         {
@@ -277,9 +279,10 @@ public final class EfsDispatcherTest
     @Test
     public void builderNullDispatcherType()
     {
+        final String dispatcherName = generateDispatcherName();
         final DispatcherType type = null;
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
+            EfsDispatcher.builder(dispatcherName);
 
         try
         {
@@ -296,9 +299,10 @@ public final class EfsDispatcherTest
     @Test
     public void builderNegativeEventQueueCapacity()
     {
+        final String dispatcherName = generateDispatcherName();
         final int capacity = -1;
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
+            EfsDispatcher.builder(dispatcherName);
 
         try
         {
@@ -315,9 +319,10 @@ public final class EfsDispatcherTest
     @Test
     public void builderZeroRunQueueCapacity()
     {
+        final String dispatcherName = generateDispatcherName();
         final int capacity = 0;
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
+            EfsDispatcher.builder(dispatcherName);
 
         try
         {
@@ -334,9 +339,10 @@ public final class EfsDispatcherTest
     @Test
     public void builderZeroMaxEvents()
     {
+        final String dispatcherName = generateDispatcherName();
         final int maxEvents = 0;
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
+            EfsDispatcher.builder(dispatcherName);
 
         try
         {
@@ -353,9 +359,10 @@ public final class EfsDispatcherTest
     @Test
     public void builderNullDispatcher()
     {
+        final String dispatcherName = generateDispatcherName();
         final Consumer<Runnable> dispatcher = null;
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
+            EfsDispatcher.builder(dispatcherName);
 
         try
         {
@@ -372,8 +379,9 @@ public final class EfsDispatcherTest
     @Test
     public void builderInvalidSettings()
     {
+        final String dispatcherName = generateDispatcherName();
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
+            EfsDispatcher.builder(dispatcherName);
 
         try
         {
@@ -401,47 +409,22 @@ public final class EfsDispatcherTest
         final int maxEvents = eventQueueCapacity;
         final ThreadAffinityConfig affinityConfig =
             createAffinityConfig();
-        final String text =
-            String.format(
-                "[%s type=%s, # threads=%d, priority=%d, max events=%d, thread type=%s, spin limit=%d, park time=%s]",
-                dispatcherName,
-                DispatcherType.EFS,
-                numThreads,
-                priority,
-                maxEvents,
-                threadType,
-                spinLimit,
-                parkTime);
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
-        final EfsDispatcher dispatcher =
-            builder.dispatcherName(dispatcherName)
-                   .numThreads(numThreads)
-                   .threadType(threadType)
-                   .priority(priority)
-                   .spinLimit(spinLimit)
-                   .parkTime(parkTime)
-                   .dispatcherType(dispatcherType)
-                   .eventQueueCapacity(eventQueueCapacity)
-                   .runQueueCapacity(runQueueCapacity)
-                   .maxEvents(maxEvents)
-                   .threadAffinity(affinityConfig)
-                   .build();
+            EfsDispatcher.builder(dispatcherName);
         final List<EfsAgent.AgentStats> runStats =
             EfsAgent.runTimeStats();
 
-        assertThat(dispatcher).isNotNull();
-        assertThat(dispatcher.name()).isEqualTo(dispatcherName);
-        assertThat(dispatcher.threadCount())
-            .isEqualTo(numThreads);
-        assertThat(dispatcher.threadType()).isEqualTo(threadType);
-        assertThat(dispatcher.priority()).isEqualTo(priority);
-        assertThat(dispatcher.dispatcherState())
-            .isEqualTo(DispatcherState.STOPPED);
-        assertThat(dispatcher.toString()).isEqualTo(text);
-        assertThat(EfsDispatcher.getDispatcher(dispatcherName))
-            .isSameAs(dispatcher);
-        assertThat(dispatcherType.isSpecial()).isFalse();
+        builder.numThreads(numThreads)
+               .threadType(threadType)
+               .priority(priority)
+               .spinLimit(spinLimit)
+               .parkTime(parkTime)
+               .dispatcherType(dispatcherType)
+               .eventQueueCapacity(eventQueueCapacity)
+               .runQueueCapacity(runQueueCapacity)
+               .maxEvents(maxEvents)
+               .threadAffinity(affinityConfig)
+               .build();
 
         assertThat(runStats).isNotNull();
         assertThat(runStats).isNotEmpty();
@@ -479,6 +462,7 @@ public final class EfsDispatcherTest
                 .hasMessage("unknown dispatcher \"fubar\"");
         }
 
+        EfsDispatcher.clearAgents();
         EfsDispatcher.register(sEfsAgent, dispatcherName);
 
         assertThat(EfsDispatcher.isRegistered(sEfsAgent))
@@ -564,6 +548,50 @@ public final class EfsDispatcherTest
     } // end of builderSuccess()
 
     @Test
+    public void builderDuplicateDispatcher()
+    {
+        final String dispatcherName = generateDispatcherName();
+        final int numThreads = 8;
+        final ThreadType threadType = ThreadType.SPINPARK;
+        final int priority = 8;
+        final long spinLimit = 2_500_000L;
+        final Duration parkTime = Duration.ofNanos(500L);
+        final DispatcherType dispatcherType = DispatcherType.EFS;
+        final int eventQueueCapacity = 128;
+        final int runQueueCapacity = 32;
+        final int maxEvents = eventQueueCapacity;
+        final ThreadAffinityConfig affinityConfig =
+            createAffinityConfig();
+        final EfsDispatcher.Builder builder =
+            EfsDispatcher.builder(dispatcherName);
+
+        builder.numThreads(numThreads)
+               .threadType(threadType)
+               .priority(priority)
+               .spinLimit(spinLimit)
+               .parkTime(parkTime)
+               .dispatcherType(dispatcherType)
+               .eventQueueCapacity(eventQueueCapacity)
+               .runQueueCapacity(runQueueCapacity)
+               .maxEvents(maxEvents)
+               .threadAffinity(affinityConfig)
+               .build();
+
+        try
+        {
+            EfsDispatcher.builder(dispatcherName);
+        }
+        catch (IllegalStateException statex)
+        {
+            assertThat(statex).
+                hasMessage(
+                    "dispatcher " +
+                    dispatcherName +
+                    " already exists");
+        }
+    } // end of builderDuplicateDispatcher()
+
+    @Test
     public void builderSuccessSpecial()
     {
         final String dispatcherName = "SwingDispatcher";
@@ -573,18 +601,13 @@ public final class EfsDispatcherTest
         final Consumer<Runnable> eventDispatcher =
             javax.swing.SwingUtilities::invokeLater;
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
-        final EfsDispatcher dispatcher =
-            builder.dispatcherName(dispatcherName)
-                   .dispatcherType(DispatcherType.SPECIAL)
-                   .dispatcher(eventDispatcher)
-                   .maxEvents(maxEvents)
-                   .build();
+            EfsDispatcher.builder(dispatcherName);
 
-        assertThat(dispatcher).isNotNull();
-        assertThat(dispatcher.name()).isEqualTo(dispatcherName);
-        assertThat(dispatcher.dispatcherState())
-            .isEqualTo(DispatcherState.STARTED);
+        builder.dispatcherType(DispatcherType.SPECIAL)
+               .dispatcher(eventDispatcher)
+               .maxEvents(maxEvents)
+               .build();
+
         assertThat(dispatcherType.isSpecial()).isTrue();
     } // end of builderSuccessSpecial()
 
@@ -605,9 +628,7 @@ public final class EfsDispatcherTest
             createAffinityConfig();
         final EfsDispatcherConfig config =
             new EfsDispatcherConfig();
-        final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
-        final EfsDispatcher dispatcher;
+        final EfsDispatcher.Builder builder;
 
         config.setDispatcherName(dispatcherName);
         config.setThreadType(threadType);
@@ -620,18 +641,9 @@ public final class EfsDispatcherTest
         config.setMaxEvents(maxEvents);
         config.setAffinity(affinityConfig);
 
-        dispatcher = builder.set(config).build();
-
-        assertThat(dispatcher).isNotNull();
-        assertThat(dispatcher.name()).isEqualTo(dispatcherName);
-        assertThat(dispatcher.threadCount())
-            .isEqualTo(numThreads);
-        assertThat(dispatcher.threadType()).isEqualTo(threadType);
-        assertThat(dispatcher.priority()).isEqualTo(priority);
-        assertThat(dispatcher.dispatcherState())
-            .isEqualTo(DispatcherState.STOPPED);
-        assertThat(EfsDispatcher.getDispatcher(dispatcherName))
-            .isSameAs(dispatcher);
+        builder =
+            EfsDispatcher.builder(config.getDispatcherName());
+        builder.set(config).build();
     } // end of builderUsingConfig()
 
     @Test
@@ -665,67 +677,6 @@ public final class EfsDispatcherTest
                 .hasMessage("name is null or an empty string");
         }
     } // end of getDispatcherEmptyName()
-
-    @Test
-    public void loadDispatcherConfigFileNotSet()
-    {
-        final List<String> dispatcherNames;
-
-        EfsDispatcher.loadDispatcherConfigFile();
-        dispatcherNames = EfsDispatcher.dispatcherNames();
-
-        assertThat(dispatcherNames).isEmpty();
-    } // end of loadDispatcherConfigFileNotSet()
-
-    @Test
-    public void loadDispatcherConfigInvalidFilename()
-    {
-        final String fileName =
-            "./src/test/resources/foobar.conf";
-        final List<String> dispatcherNames;
-
-        System.setProperty(
-            EfsDispatcher.DISPATCHER_CONFIG_OPTION, fileName);
-        EfsDispatcher.loadDispatcherConfigFile();
-        dispatcherNames = EfsDispatcher.dispatcherNames();
-
-        assertThat(dispatcherNames).isEmpty();
-    } // end of loadDispatcherConfigInvalidFilename()
-
-    @Test
-    public void loadDispatcherConfigFileInvalidFile()
-    {
-        final String fileName =
-            "./src/test/resources/duplicate-dispatchers.conf";
-        final List<String> dispatcherNames;
-
-        System.setProperty(
-            EfsDispatcher.DISPATCHER_CONFIG_OPTION, fileName);
-        EfsDispatcher.loadDispatcherConfigFile();
-        dispatcherNames = EfsDispatcher.dispatcherNames();
-
-        assertThat(dispatcherNames).isEmpty();
-    } // end of loadDispatcherConfigFileInvalidFile()
-
-    @Test
-    public void loadDispatcherConfigFileSuccess()
-    {
-        final String fileName =
-            "./src/test/resources/all-dispatchers.conf";
-        final List<String> dispatcherNames;
-
-        System.setProperty(
-            EfsDispatcher.DISPATCHER_CONFIG_OPTION, fileName);
-        EfsDispatcher.loadDispatcherConfigFile();
-        dispatcherNames = EfsDispatcher.dispatcherNames();
-
-        assertThat(dispatcherNames).hasSize(4);
-        assertThat(dispatcherNames)
-            .contains("TestDispatcher-0",
-                      "TestDispatcher-1",
-                      "TestDispatcher-2",
-                      "TestDispatcher-3");
-    } // end of loadDispatcherConfigFileSuccess()
 
     //
     // end of JUnit Test Methods.

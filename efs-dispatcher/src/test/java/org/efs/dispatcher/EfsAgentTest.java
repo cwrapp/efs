@@ -152,9 +152,9 @@ public class EfsAgentTest
     } // end of builderZeroMaxEvents()
 
     @Test
-    public void builderNegativeCapacity()
+    public void builderZeroCapacity()
     {
-        final int capacity = -1;
+        final int capacity = 0;
         final EfsAgent.Builder builder = EfsAgent.builder();
 
         try
@@ -165,9 +165,9 @@ public class EfsAgentTest
         {
             assertThat(jex)
                 .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex).hasMessage("capacity < zero");
+            assertThat(jex).hasMessage("capacity <= zero");
         }
-    } // end of builderNegativeCapacity()
+    } // end of builderZeroCapacity()
 
     @Test
     public void builderInvalidSettings()
@@ -271,49 +271,6 @@ public class EfsAgentTest
         assertThat(agentInfo.toString())
             .startsWith(EFS_AGENT_NAME);
     } // end of builderSuccess()
-
-    @Test
-    public void builderUnboundedQueueMultiThreadDispatcher()
-    {
-        final EfsAgent.Builder builder = EfsAgent.builder();
-        final EfsAgent agent =
-            builder.agent(sEfsObject)
-                   .dispatcher(sMultiThreadDispatcher)
-                   .maxEvents(TEST_MAX_EVENTS)
-                   .eventQueueCapacity(0)
-                   .build();
-
-        assertThat(agent).isNotNull();
-        assertThat(agent.agent()).isEqualTo(sEfsObject);
-        assertThat(agent.agentName())
-            .isEqualTo(EFS_AGENT_NAME);
-        assertThat(agent.maxEvents()).isEqualTo(TEST_MAX_EVENTS);
-        assertThat(agent.dispatcher())
-            .isEqualTo(sMultiThreadDispatcher);
-        assertThat(agent.runState()).isEqualTo(RunState.IDLE);
-        assertThat(agent.getAndClearReadyTimestamp()).isZero();
-    } // end of builderUnboundedQueueMultiThreadDispatcher()
-
-    @Test
-    public void builderUnboundedQueueSingleThreadDispatcher()
-    {
-        final EfsAgent.Builder builder = EfsAgent.builder();
-        final EfsAgent agent =
-            builder.agent(sEfsObject)
-                   .dispatcher(sDispatcher)
-                   .maxEvents(TEST_MAX_EVENTS)
-                   .eventQueueCapacity(0)
-                   .build();
-
-        assertThat(agent).isNotNull();
-        assertThat(agent.agent()).isEqualTo(sEfsObject);
-        assertThat(agent.agentName())
-            .isEqualTo(EFS_AGENT_NAME);
-        assertThat(agent.maxEvents()).isEqualTo(TEST_MAX_EVENTS);
-        assertThat(agent.dispatcher()).isEqualTo(sDispatcher);
-        assertThat(agent.runState()).isEqualTo(RunState.IDLE);
-        assertThat(agent.getAndClearReadyTimestamp()).isZero();
-    } // end of builderUnboundedQueueSingleThreadDispatcher()
 
     //
     // end of JUnit Test Methods.

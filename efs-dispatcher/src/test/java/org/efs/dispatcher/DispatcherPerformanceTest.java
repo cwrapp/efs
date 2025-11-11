@@ -117,14 +117,13 @@ public final class DispatcherPerformanceTest
     public void performanceTestBlocking()
     {
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
+            EfsDispatcher.builder(BLOCKING_DISPATCHER);
         final int eventCount = MAX_EVENTS;
         final long delay = TEST_DELAY;
         final TimeUnit timeUnit = TEST_TIME_UNIT;
 
         // Blocking dispatcher.
-        builder.dispatcherName(BLOCKING_DISPATCHER)
-               .numThreads(BLOCKING_NUM_THREADS)
+        builder.numThreads(BLOCKING_NUM_THREADS)
                .threadType(ThreadType.BLOCKING)
                .priority(DISPATCHER_PRIORITY)
                .dispatcherType(DispatcherType.EFS)
@@ -144,14 +143,13 @@ public final class DispatcherPerformanceTest
     public void performanceTestSpinning()
     {
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
+            EfsDispatcher.builder(SPINNING_DISPATCHER);
         final int eventCount = MAX_EVENTS;
         final long delay = TEST_DELAY;
         final TimeUnit timeUnit = TEST_TIME_UNIT;
 
         // Spinning dispatcher.
-        builder.dispatcherName(SPINNING_DISPATCHER)
-               .numThreads(DISPATCHER_NUM_THREADS)
+        builder.numThreads(DISPATCHER_NUM_THREADS)
                .threadType(ThreadType.SPINNING)
                .priority(DISPATCHER_PRIORITY)
                .dispatcherType(DispatcherType.EFS)
@@ -171,14 +169,13 @@ public final class DispatcherPerformanceTest
     public void performanceTestSpinPark()
     {
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
+            EfsDispatcher.builder(SPIN_PARK_DISPATCHER);
         final int eventCount = MAX_EVENTS;
         final long delay = TEST_DELAY;
         final TimeUnit timeUnit = TEST_TIME_UNIT;
 
         // Spin+park dispatcher.
-        builder.dispatcherName(SPIN_PARK_DISPATCHER)
-               .numThreads(DISPATCHER_NUM_THREADS)
+        builder.numThreads(DISPATCHER_NUM_THREADS)
                .threadType(ThreadType.SPINPARK)
                .priority(DISPATCHER_PRIORITY)
                .spinLimit(DISPATCHER_SPIN_LIMIT)
@@ -200,14 +197,13 @@ public final class DispatcherPerformanceTest
     public void performanceTestSpinYield()
     {
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
+            EfsDispatcher.builder(SPIN_YIELD_DISPATCHER);
         final int eventCount = MAX_EVENTS;
         final long delay = TEST_DELAY;
         final TimeUnit timeUnit = TEST_TIME_UNIT;
 
         // Spin+yield dispatcher.
-        builder.dispatcherName(SPIN_YIELD_DISPATCHER)
-               .numThreads(DISPATCHER_NUM_THREADS)
+        builder.numThreads(DISPATCHER_NUM_THREADS)
                .threadType(ThreadType.SPINYIELD)
                .priority(DISPATCHER_PRIORITY)
                .spinLimit(DISPATCHER_SPIN_LIMIT)
@@ -227,7 +223,7 @@ public final class DispatcherPerformanceTest
     @Test
     public void performanceTestMultiAgentMultiDispatcher()
     {
-        final int numEvents = 500_000;
+        final int numEvents = 5_000_000;
         final CountDownLatch doneSignal =
             new CountDownLatch(numEvents);
         final int eventCount;
@@ -244,9 +240,9 @@ public final class DispatcherPerformanceTest
 
         // Spinning dispatcher.
         sLogger.info("Creating {}.", MULTI_SPINNING_DISPATCHER);
-        builder = EfsDispatcher.builder();
-        builder.dispatcherName(MULTI_SPINNING_DISPATCHER)
-               .numThreads(5)
+        builder =
+            EfsDispatcher.builder(MULTI_SPINNING_DISPATCHER);
+        builder.numThreads(5)
                .threadType(ThreadType.SPINNING)
                .priority(DISPATCHER_PRIORITY)
                .dispatcherType(DispatcherType.EFS)
@@ -257,9 +253,9 @@ public final class DispatcherPerformanceTest
 
         // Spin+park dispatcher.
         sLogger.info("Creating {}.", MULTI_SPIN_PARK_DISPATCHER);
-        builder = EfsDispatcher.builder();
-        builder.dispatcherName(MULTI_SPIN_PARK_DISPATCHER)
-               .numThreads(5)
+        builder =
+            EfsDispatcher.builder(MULTI_SPIN_PARK_DISPATCHER);
+        builder.numThreads(5)
                .threadType(ThreadType.SPINPARK)
                .priority(DISPATCHER_PRIORITY)
                .spinLimit(DISPATCHER_SPIN_LIMIT)
@@ -272,9 +268,8 @@ public final class DispatcherPerformanceTest
 
         // Blocking dispatcher.
         sLogger.info("Creating {}.", BLOCKING_DISPATCHER);
-        builder = EfsDispatcher.builder();
-        builder.dispatcherName(BLOCKING_DISPATCHER)
-               .numThreads(5)
+        builder = EfsDispatcher.builder(BLOCKING_DISPATCHER);
+        builder.numThreads(5)
                .threadType(ThreadType.BLOCKING)
                .priority(DISPATCHER_PRIORITY)
                .dispatcherType(DispatcherType.EFS)
