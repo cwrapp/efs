@@ -116,12 +116,11 @@ public final class AsyncLogger
     static
     {
         final EfsDispatcher.Builder builder =
-            EfsDispatcher.builder();
+            EfsDispatcher.builder(LOGGER_DISPATCHER_NAME);
 
         // The act of building a Dispatcher result in the
         // instance being added to the dispatcher list.
-        builder.dispatcherName(LOGGER_DISPATCHER_NAME)
-               .numThreads(1)
+        builder.numThreads(1)
                .threadType(ThreadType.BLOCKING)
                .priority(Thread.MIN_PRIORITY)
                .dispatcherType(DispatcherType.EFS)

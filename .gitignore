@@ -1,0 +1,10 @@
+/efs-bom/target/
+/target/
+/efs-dispatcher/target/
+/efs-activator/target/
+/efs-event/target/
+/efs-activator/nbproject/
+/efs-dispatcher/nbproject/
+/efs-event/nbproject/
+/efs-logging/target/
+/efs-timer/target/

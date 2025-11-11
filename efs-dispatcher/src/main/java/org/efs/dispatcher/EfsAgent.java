@@ -49,22 +49,6 @@ import org.slf4j.LoggerFactory;
 //
 
     /**
-     * An efs agent is either on a dispatcher thread or off.
-     */
-    public enum AgentState
-    {
-        /**
-         * efs agent is running on a dispatcher thread.
-         */
-        ON_DISPATCHER_THREAD,
-
-        /**
-         * efs agent is not on a dispatcher thread.
-         */
-        OFF_DISPATCHER_THREAD
-    } // end of enum AgentState
-
-    /**
      * Defines efs agent run states. The agent run state changes
      * as events are posted to or removed from the agent event
      * queue.
@@ -96,19 +80,6 @@ import org.slf4j.LoggerFactory;
 //---------------------------------------------------------------
 // Member data.
 //
-
-    //-----------------------------------------------------------
-    // Constants.
-    //
-
-    /**
-     * When an agent is associated with a multi-threaded
-     * dispatcher and the agent is configured with an unbounded
-     * event queue, then event queue capacity is actually set to
-     * {@value}.
-     */
-    public static final int UNBOUNDED_MULTI_THREAD_CAPACITY =
-        65_536;
 
     //-----------------------------------------------------------
     // Statics.
@@ -145,7 +116,7 @@ import org.slf4j.LoggerFactory;
      * agent is no longer registered, any enqueued events are
      * no longer delivered to the agent.
      */
-    private boolean mIsRegistered;
+    private volatile boolean mIsRegistered;
 
     //
     // Executor data members.
@@ -201,7 +172,7 @@ import org.slf4j.LoggerFactory;
      * is denied access to a dispatcher thread beyond the
      * monitor time limit.
      */
-    private long mReadyTimestamp;
+    private volatile long mReadyTimestamp;
 
     //
     // Execution statistics.
@@ -493,6 +464,9 @@ Ponger (id 5)
     /* package */ void deregister()
     {
         mIsRegistered = false;
+
+        // Clear out undelivered events.
+        mEvents.clear();
     } // end of deregister()
 
     /**
@@ -589,7 +563,7 @@ Ponger (id 5)
         // + reached maximum event limit, or
         // + runs out of event.
         while (mIsRegistered &&
-               eventsRemaining > 0L &&
+               eventsRemaining > 0 &&
                (task = mEvents.poll()) != null)
         {
             // Yes, there is a event to delivery.
@@ -655,12 +629,13 @@ Ponger (id 5)
                               mDispatcher.name());
             }
 
+            // Mark this agent as in the ready state and
+            // timestamp when this occurred.
+            runState(RunState.READY);
+            mReadyTimestamp = System.nanoTime();
+
             // No. Place this agent on the run queue.
             mDispatcher.dispatch(this);
-            runState(RunState.READY);
-
-            // Timestamp when this efs agent went to ready state.
-            mReadyTimestamp = System.nanoTime();
         }
         // Else if this agent is either stopped or currently on
         // the run queue or running, so nothing has changed.
@@ -696,11 +671,7 @@ Ponger (id 5)
         }
         else
         {
-            retval =
-                new MpmcAtomicArrayQueue<>(
-                    capacity == 0 ?
-                    UNBOUNDED_MULTI_THREAD_CAPACITY :
-                    capacity);
+            retval = new MpmcAtomicArrayQueue<>(capacity);
         }
 
         return (retval);
@@ -957,7 +928,7 @@ Ponger (id 5)
 
         private Builder()
         {
-            mEventQueueCapacity = -1;
+            mEventQueueCapacity = 0;
         } // end of Builder()
 
         //
@@ -968,6 +939,14 @@ Ponger (id 5)
         // Set Methods.
         //
 
+        /**
+         * Sets the encapsulated agent to which events are
+         * posted.
+         * @param target encapsulated agent.
+         * @return {@code this Builder} instance.
+         * @throws NullPointerException
+         * if {@code target} is {@code null}.
+         */
         public Builder agent(final IEfsAgent target)
         {
             mAgent =
@@ -976,6 +955,15 @@ Ponger (id 5)
             return (this);
         } // end of agent(IEfsAgent)
 
+        /**
+         * Sets dispatcher used to post events to
+         * encapsulated agent.
+         * @param dispatcher post events to encapsulated agent
+         * using this dispatcher.
+         * @return {@code this Builder} instance.
+         * @throws NullPointerException
+         * if {@code dispatcher} is {@code null}.
+         */
         public Builder dispatcher(final IEfsDispatcher dispatcher)
         {
             mDispatcher =
@@ -985,6 +973,14 @@ Ponger (id 5)
             return (this);
         } // end of dispatcher(IEfsDispatcher)
 
+        /**
+         * Set maximum allowed events per dispatch.
+         * @param maxEvents maximum number of events per
+         * dispatch.
+         * @return {@code this Builder} instance.
+         * @throws IllegalArgumentException
+         * if {@code maxEvents} &le; zero.
+         */
         public Builder maxEvents(final int maxEvents)
         {
             if (maxEvents <= 0)
@@ -1000,29 +996,19 @@ Ponger (id 5)
         } // end of maxEvents(int)
 
         /**
-         * Sets agent event queue capacity. If {@code capacity}
-         * is zero, then this is treated as an unbound event
-         * queue.
-         * <p>
-         * Note: if agent's dispatcher has multiple threads, then
-         * event queue <em>must</em> have an bounded capacity.
-         * This means that if event queue is set to unbounded, it
-         * is changed to
-         * {@link #UNBOUNDED_MULTI_THREAD_CAPACITY}.
-         * </p>
-         * @param capacity event queue capacity where zero means
-         * unbounded.
+         * Sets agent event queue capacity.
+         * @param capacity event queue capacity.
          * @return {@code this Builder} instance.
          * @throws IllegalArgumentException
-         * if {@code capacity} &lt; zero.
+         * if {@code capacity} &le; zero.
          */
         public Builder eventQueueCapacity(final int capacity)
         {
-            if (capacity < 0)
+            if (capacity <= 0)
             {
                 throw (
                     new IllegalArgumentException(
-                        "capacity < zero"));
+                        "capacity <= zero"));
             }
 
             mEventQueueCapacity = capacity;
@@ -1061,7 +1047,7 @@ Ponger (id 5)
                                  "maxEvents",
                                  Validator.NOT_SET)
                     .requireNotNull(mDispatcher, "dispatcher")
-                    .requireTrue((mEventQueueCapacity >= 0),
+                    .requireTrue((mEventQueueCapacity > 0),
                                  "eventQueueCapacity",
                                  Validator.NOT_SET)
                     .throwException(EfsAgent.class);
