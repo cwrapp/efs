@@ -1405,11 +1405,10 @@ public final class EfsDispatcher
      *     <td style="font-weight:bold;">event queue capacity</td>
      *     <td>{@code int}</td>
      *     <td>No</td>
-     *     <td>unlimited queue size</td>
+     *     <td>{@link #DEFAULT_EVENT_QUEUE_CAPACITY}</td>
      *     <td>
      *       Agent maximum event queue size assigned to agents
-     *       registered with this dispatcher. Defaults to an
-     *       unlimited event queue.
+     *       registered with this dispatcher.
      *     </td>
      *   </tr>
      *   <tr>
@@ -1466,8 +1465,7 @@ import org.efs.dispatcher.config.ThreadType;
                              .priority(Thread.MAX_PRIORITY)
                              // See {@link ThreadAffinityConfig}.
                              .threadAffinity(sFastAlgoAffinity)
-                             // Unlimited event queue capacity.
-                             .eventQueueCapacity(0)
+                             .eventQueueCapacity(128)
                              .runQueueCapacity(64)
                              .maxEvents(16)
                              .build();
@@ -1481,8 +1479,7 @@ import org.efs.dispatcher.config.ThreadType;
                              .parkTime(Duration.ofNanos(1_000L)
                              // See {@link ThreadAffinityConfig}.
                              .threadAffinity(sSlotAlgoffinity)
-                             // Unlimited event queue capacity.
-                             .eventQueueCapacity(0)
+                             .eventQueueCapacity(128)
                              .runQueueCapacity(64)
                              .maxEvents(16)
                              .build();
@@ -1491,8 +1488,7 @@ import org.efs.dispatcher.config.ThreadType;
                              .threadType(ThreadType.BLOCKING)
                              .numThreads(8)
                              .priority(Thread.MIN_PRIORITY)
-                             // Unlimited event queue capacity.
-                             .eventQueueCapacity(0)
+                             .eventQueueCapacity(128)
                              .runQueueCapacity(128)
                              .maxEvents(8)
                              .build();</code></pre>
@@ -1537,7 +1533,7 @@ import org.efs.dispatcher.config.ThreadType;
             mNumThreads = -1;
             mThreadType = DEFAULT_THREAD_TYPE;
             mPriority = DEFAULT_PRIORITY;
-            mEventQueueCapacity = 0;
+            mEventQueueCapacity = DEFAULT_EVENT_QUEUE_CAPACITY;
             mParkTime = DEFAULT_PARK_TIME;
             mSpinLimit = DEFAULT_SPIN_LIMIT;
             mMaxEvents = 0;
