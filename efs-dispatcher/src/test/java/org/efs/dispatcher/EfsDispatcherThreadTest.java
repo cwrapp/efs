@@ -16,6 +16,7 @@
 package org.efs.dispatcher;
 
 import java.time.Duration;
+import java.util.LinkedList;
 import java.util.Queue;
 import java.util.concurrent.LinkedBlockingQueue;
 import net.sf.eBus.util.ValidationException;
@@ -23,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.efs.dispatcher.EfsDispatcherThread.DispatcherThreadState;
 import org.efs.dispatcher.EfsDispatcherThread.DispatcherThreadStats;
 import org.efs.dispatcher.config.ThreadType;
+import org.jctools.queues.atomic.MpmcAtomicArrayQueue;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -55,7 +57,8 @@ public class EfsDispatcherThreadTest
     // Statics.
     //
 
-    private static Queue<EfsAgent> sRunQueue;
+    private static Queue<EfsAgent> sBlockingQueue;
+    private static Queue<EfsAgent> sNonBlockingQueue;
 
 //---------------------------------------------------------------
 // Member methods.
@@ -68,8 +71,10 @@ public class EfsDispatcherThreadTest
     @BeforeAll
     public static void setUpClass()
     {
-        sRunQueue =
+        sBlockingQueue =
             new LinkedBlockingQueue<>(TEST_RUN_QUEUE_CAPACITY);
+        sNonBlockingQueue =
+            new MpmcAtomicArrayQueue<>(TEST_RUN_QUEUE_CAPACITY);
     } // end of setUpClass()
 
     //
@@ -289,8 +294,7 @@ public class EfsDispatcherThreadTest
             assertThat(jex)
                 .hasMessageContainingAll(
                     "threadName: not set",
-                    "threadType: not set",
-                    "maxEvents: not set");
+                    "threadType: not set");
         }
     } // end of builderThreadTypeNotSet()
 
@@ -314,10 +318,39 @@ public class EfsDispatcherThreadTest
                 .isInstanceOf(ValidationException.class);
             assertThat(jex)
                 .hasMessageContainingAll(
-                    "maxEvents: not set",
                     "runQueue: not set");
         }
     } // end of builderInvalidBlockingSettings()
+
+    @Test
+    public void builderBlockingRunQueueMismatch()
+    {
+        final String threadName = TEST_THREAD_NAME;
+        final ThreadType threadType = ThreadType.BLOCKING;
+        final int priority = TEST_THREAD_PRIORITY;
+        final int maxEvents = TEST_MAX_EVENTS;
+        final Queue<EfsAgent> runQueue = new LinkedList<>();
+        final EfsDispatcherThread.Builder builder =
+            EfsDispatcherThread.builder();
+
+        try
+        {
+            builder.threadName(threadName)
+                   .threadType(threadType)
+                   .priority(priority)
+                   .maxEvents(maxEvents)
+                   .runQueue(runQueue)
+                   .build();
+        }
+        catch (Exception jex)
+        {
+            assertThat(jex)
+                .isInstanceOf(ValidationException.class);
+            assertThat(jex)
+                .hasMessageContainingAll(
+                    "runQueue: does not match thread type");
+        }
+    } // end of builderBlockingRunQueueMismatch()
 
     @Test
     public void builderInvalidSpinningSettings()
@@ -339,7 +372,6 @@ public class EfsDispatcherThreadTest
                 .isInstanceOf(ValidationException.class);
             assertThat(jex)
                 .hasMessageContainingAll(
-                    "maxEvents: not set",
                     "runQueue: not set");
         }
     } // end of builderInvalidSpinningSettings()
@@ -350,7 +382,7 @@ public class EfsDispatcherThreadTest
         final String threadName = "abc-123";
         final ThreadType threadType = ThreadType.SPINYIELD;
         final int maxEvents = TEST_MAX_EVENTS;
-        final Queue<EfsAgent> runQueue = sRunQueue;
+        final Queue<EfsAgent> runQueue = sBlockingQueue;
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
 
@@ -379,7 +411,7 @@ public class EfsDispatcherThreadTest
         final ThreadType threadType = ThreadType.SPINPARK;
         final int maxEvents = TEST_MAX_EVENTS;
         final long spinLimit = TEST_SPIN_LIMIT;
-        final Queue<EfsAgent> runQueue = sRunQueue;
+        final Queue<EfsAgent> runQueue = sBlockingQueue;
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
 
@@ -409,7 +441,7 @@ public class EfsDispatcherThreadTest
         final ThreadType threadType = ThreadType.BLOCKING;
         final int priority = TEST_THREAD_PRIORITY;
         final int maxEvents = TEST_MAX_EVENTS;
-        final Queue<EfsAgent> runQueue = sRunQueue;
+        final Queue<EfsAgent> runQueue = sBlockingQueue;
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
         final EfsDispatcherThread dthread =
@@ -437,7 +469,7 @@ public class EfsDispatcherThreadTest
         final ThreadType threadType = ThreadType.SPINNING;
         final int priority = TEST_THREAD_PRIORITY;
         final int maxEvents = TEST_MAX_EVENTS;
-        final Queue<EfsAgent> runQueue = sRunQueue;
+        final Queue<EfsAgent> runQueue = sNonBlockingQueue;
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
         final EfsDispatcherThread dthread =
@@ -466,7 +498,7 @@ public class EfsDispatcherThreadTest
         final int priority = TEST_THREAD_PRIORITY;
         final int maxEvents = TEST_MAX_EVENTS;
         final long spinLimit = TEST_SPIN_LIMIT;
-        final Queue<EfsAgent> runQueue = sRunQueue;
+        final Queue<EfsAgent> runQueue = sNonBlockingQueue;
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
         final EfsDispatcherThread dthread =
@@ -498,7 +530,7 @@ public class EfsDispatcherThreadTest
         final int maxEvents = TEST_MAX_EVENTS;
         final long spinLimit = TEST_SPIN_LIMIT;
         final Duration parkTime = TEST_PARK_TIME;
-        final Queue<EfsAgent> runQueue = sRunQueue;
+        final Queue<EfsAgent> runQueue = sNonBlockingQueue;
         final String text =
             String.format(
                 "[%s, type=%s, state=%s, spin limit=%s, park time=%d]",
@@ -539,7 +571,7 @@ public class EfsDispatcherThreadTest
             [thread=abc-123, start time=null, state=NOT_STARTED, agent=(idle), run count=0,
             (no agent statistics to report)
             (no agent statistics to report)
-            0]""";
+            (no agent statistics to report)]""";
 
         assertThat(threadStats.threadName())
             .isEqualTo(threadName);

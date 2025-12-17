@@ -38,7 +38,7 @@ available from GitHub Package Registry
     <dependency>
         <groupId>org.efs</groupId>
         <artifactId>efs-bom</artifactId>
-        <version>0.1.0</version>
+        <version>0.3.0</version>
     </dependency>
 
 ### Release Notes
@@ -48,7 +48,7 @@ https://github.com/cwrapp/efs
 
 ### API docs
 
-https://efs.github.io
+https://cwrapp.github.io/efs
 
 ### Learning efs
 

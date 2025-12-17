@@ -36,7 +36,7 @@ public final class TestAgent
     // Constants.
     //
 
-    public static final String AGENT_NAME = "test-agent";
+    public static final String AGENT_NAME = "test-agent-0";
 
 //---------------------------------------------------------------
 // Member methods.

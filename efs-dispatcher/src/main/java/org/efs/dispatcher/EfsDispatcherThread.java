@@ -37,7 +37,9 @@ import org.efs.dispatcher.config.ThreadType;
 import static org.efs.dispatcher.config.ThreadType.BLOCKING;
 import static org.efs.dispatcher.config.ThreadType.SPINNING;
 import static org.efs.dispatcher.config.ThreadType.SPINPARK;
+import static org.efs.dispatcher.config.ThreadType.SPINYIELD;
 import org.efs.logging.AsyncLoggerFactory;
+import org.jctools.queues.atomic.AtomicReferenceArrayQueue;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 
@@ -46,26 +48,26 @@ import org.slf4j.Logger;
  * {@link java.util.concurrent.ConcurrentLinkedQueue run queue}
  * for {@link EfsAgent} instances ready to run, attempting to
  * acquire the next ready agent. When this thread successfully
- * acquires a agent, it has the agent execute its pending
+ * acquires an agent, it has the agent execute its pending
  * events until either 1) the agent has no more events or 2) the
  * agent exhausts its maximum allowed event limit.
  * <p>
  * Each dispatcher has a configurable run-time maximum event
- * (defaults to {@link #DEFAULT_MAX_EVENTS}). When a agent
+ * (defaults to {@link #DEFAULT_MAX_EVENTS}). When an agent
  * exhausts this limit <em>and</em> still has events to process,
  * the agent is placed at the end of the run queue and the
  * agent's event limit is replenished.
  </p>
  * <p>
- * A agent instance is referenced by only one dispatcher thread
- * at a time. This means a agent is effectively single-threaded
+ * An agent instance is referenced by only one dispatcher thread
+ * at a time. This means an agent is effectively single-threaded
  * even though over time it may be dispatched by multiple,
  * different threads.
  * </p>
  * <p>
  * <strong>Note:</strong> this <em>only</em> applies to efs
  * dispatcher threads. Non-dispatcher threads may still access
- * a agent object at the same time.
+ * an agent object at the same time.
  * </p>
  *
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
@@ -192,7 +194,7 @@ public final class EfsDispatcherThread
      * Nanosecond park time used when
      * {@link #spinParkPoll()} poll method is used.
      */
-    @Nullable private final long mParkTime;
+    private final long mParkTime;
 
     /**
      * Thread affinity configuration. Used to associate thread
@@ -202,9 +204,15 @@ public final class EfsDispatcherThread
     @Nullable private final ThreadAffinityConfig mAffinity;
 
     /**
-     * Maximum number of events a agent may run per call out.
+     * Maximum number of events an agent may run per call out.
      */
     private final int mMaxEvents;
+
+    /**
+     * Dispatcher thread continues running while this flag is
+     * {@code true}.
+     */
+    private volatile boolean mRunFlag;
 
     //
     // Performance statistics.
@@ -247,6 +255,7 @@ public final class EfsDispatcherThread
         mParkTime = (builder.mParkTime).toNanos();
         mAffinity = builder.mAffinity;
         mMaxEvents = builder.mMaxEvents;
+        mRunFlag = true;
 
         mStats = new DispatcherThreadStats();
 
@@ -294,12 +303,8 @@ public final class EfsDispatcherThread
     public void run()
     {
         final String name = this.getName();
+        AffinityLock affinityLock = null;
         EfsAgent agent;
-        long readyTime;
-        long busyStart;
-        long busyStop;
-        long busyTime;
-        int eventCount;
 
         mStats.startTime(Instant.now());
         mStats.updateState(DispatcherThreadState.IDLE,
@@ -309,47 +314,38 @@ public final class EfsDispatcherThread
         // put that affinity in place here.
         if (mAffinity != null)
         {
-            setAffinity();
+            affinityLock = setAffinity();
         }
 
         sLogger.debug("{}: running.", name);
-        sLogger.trace("{}: polling run queue {}.",
-                      name,
-                      mRunQueue);
 
-        // Note: once started, a dispatcher thread runs until
-        // JVM is stopped - or the world comes to an end,
-        // whichever happens first.
-        while (true)
+        while (mRunFlag)
         {
+            sLogger.trace("{}: polling run queue.",
+                          name);
+
             // Get the next agent.
             // Note: poll *never* returns null.
             agent = mPollMethod.poll();
 
-            mStats.updateState(DispatcherThreadState.BUSY,
-                               agent.agentName());
-            busyStart = System.nanoTime();
-
-            sLogger.trace("{}: processing agent {}.",
-                          name,
-                          agent.agentName());
-
-
-            // Have the agent process its events.
-            eventCount = agent.processEvents();
-
-            busyStop = System.nanoTime();
-            readyTime =
-                (busyStart - agent.getAndClearReadyTimestamp());
-            busyTime = (busyStop - busyStart);
-
-            // Agent finished with its event processing.
-            mStats.updateState(DispatcherThreadState.IDLE,
-                               NO_EFS_AGENT);
-            mStats.updateAgentStats(readyTime,
-                                    busyTime,
-                                    eventCount);
+            // Was an agent returned?
+            // Again, is this thread still running?
+            // Return value may be null when shutting down this
+            // thread.
+            if (agent != null && mRunFlag)
+            {
+                processEvents(name, agent);
+            }
         }
+
+        // Did this thread acquire an cpu affinity lock?
+        if (affinityLock != null)
+        {
+            // Yes, close affinity lock.
+            affinityLock.close();
+        }
+
+        sLogger.debug("{}: stopped.", name);
     } // end of run()
 
     //
@@ -370,12 +366,12 @@ public final class EfsDispatcherThread
               .append(", type=").append(mThreadType)
               .append(", state=").append(mStats.threadState());
 
-        if (mThreadType == ThreadType.SPINPARK ||
-            mThreadType == ThreadType.SPINYIELD)
+        if (mThreadType == SPINPARK ||
+            mThreadType == SPINYIELD)
         {
             output.append(", spin limit=").append(mSpinLimit);
 
-            if (mThreadType == ThreadType.SPINPARK)
+            if (mThreadType == SPINPARK)
             {
                 output.append(", park time=").append(mParkTime);
             }
@@ -442,8 +438,15 @@ public final class EfsDispatcherThread
     } // end of parkTime()
 
     /**
-     * Returns this dispatcher threads performance statistics.
-     * The returned object is immutable from the
+     * Returns this dispatcher thread's performance statistics.
+     * <p>
+     * <strong>Note:</strong> the returned object is a live view
+     * of thread performance statistics and may be updated
+     * concurrently while the caller accesses these statistics.
+     * The returned {@link DispatcherThreadStats} are
+     * <em>approximate</em> and not meant to be a strictly
+     * accurate view of thread performance.
+     * </p>
      * @return dispatcher thread performance statistics.
      *
      * @see DispatcherThreadStats
@@ -473,11 +476,13 @@ public final class EfsDispatcherThread
      * @return next available agent. Does <em>not</em> return
      * {@code null}.
      */
-    @NonNull private EfsAgent blockingPoll()
+    private EfsAgent blockingPoll()
     {
         EfsAgent retval = null;
 
-        while (retval == null)
+        // Keep trying to acquire an agent until either the
+        // thread stops or an agent is acquired.
+        while (mRunFlag && retval == null)
         {
             try
             {
@@ -486,7 +491,9 @@ public final class EfsDispatcherThread
                         mRunQueue).take();
             }
             catch (InterruptedException interrupt)
-            {}
+            {
+                // Ignore and return null.
+            }
         }
 
         return (retval);
@@ -499,11 +506,11 @@ public final class EfsDispatcherThread
      * @return next available agent. Does <em>not</em> return
      * {@code null}.
      */
-    @NonNull private EfsAgent spinningPoll()
+    private EfsAgent spinningPoll()
     {
         EfsAgent retval = null;
 
-        while (retval == null)
+        while (mRunFlag && retval == null)
         {
             retval = mRunQueue.poll();
         }
@@ -520,12 +527,12 @@ public final class EfsDispatcherThread
      * @return next available agent. Does <em>not</em> return
      * {@code null}.
      */
-    @NonNull private EfsAgent spinParkPoll()
+    private EfsAgent spinParkPoll()
     {
         long counter = mSpinLimit;
         EfsAgent retval = null;
 
-        while (retval == null)
+        while (mRunFlag && retval == null)
         {
             // Spin limit reached?
             if (counter == 0)
@@ -552,12 +559,12 @@ public final class EfsDispatcherThread
      * {@code null}.
      */
     @SuppressWarnings ("CallToThreadYield")
-    @NonNull private EfsAgent spinYieldPoll()
+    private EfsAgent spinYieldPoll()
     {
         long counter = mSpinLimit;
         EfsAgent retval = null;
 
-        while (retval == null)
+        while (mRunFlag && retval == null)
         {
             // Spin limit reached?
             if (counter == 0)
@@ -580,6 +587,16 @@ public final class EfsDispatcherThread
     //-----------------------------------------------------------
 
     /**
+     * Sets run flag to {@code false} which eventually stops
+     * this dispatcher thread.
+     */
+    /* package */ void shutdown()
+    {
+        mRunFlag = false;
+        this.interrupt();
+    } // end of shutdown()
+
+    /**
      * Returns a new dispatcher thread builder instance.
      * @return dispatcher thread builder.
      */
@@ -588,27 +605,91 @@ public final class EfsDispatcherThread
         return (new Builder());
     } // end of Builder()
 
+    /**
+     * Returns acquired affinity lock using this thread's
+     * configured affinity type.
+     * @return acquired affinity lock.
+     */
     @SuppressWarnings ({"java:S2696", "java:S3776"})
-    private void setAffinity()
+    private AffinityLock setAffinity()
     {
+        final AffinityLock retval;
+
         // Is this a strategy affinity?
         if (mAffinity.getAffinityType() ==
                 AffinityType.CPU_STRATEGIES)
         {
             // Yes. Use the previous lock when selecting
             // this next lock.
-            sPreviousLock =
+            retval =
                 ThreadAffinity.acquireLock(
                     sPreviousLock, mAffinity);
+            sPreviousLock = retval;
         }
         // No. Apply the CPU selection independent of
         // previous lock.
         else
         {
-            sPreviousLock =
+            retval =
                 ThreadAffinity.acquireLock(mAffinity);
+            sPreviousLock = retval;
         }
+
+        return (retval);
     } // end of setAffinity()
+
+    /**
+     * Has given agent process its event queue. Updates thread
+     * and agent statistics as a side effect.
+     * @param threadName agent is running on this named thread.
+     * @param agent agent processing its event queue.
+     */
+    private void processEvents(@NonNull final String threadName,
+                               @NonNull final EfsAgent agent)
+    {
+        final long busyStart;
+        final long busyStop;
+        final long readyTime;
+        final long busyTime;
+        int eventCount = 0;
+
+        mStats.updateState(DispatcherThreadState.BUSY,
+                           agent.agentName());
+        busyStart = System.nanoTime();
+
+        sLogger.trace("{}: processing agent {}.",
+                      threadName,
+                      agent.agentName());
+
+
+        // Have the agent process its events.
+        try
+        {
+            eventCount = agent.processEvents();
+        }
+        catch (Throwable tex)
+        {
+            sLogger.warn(
+                "{}: agent {} event processing exception.",
+                threadName,
+                agent.agentName(),
+                tex);
+        }
+        finally
+        {
+            busyStop = System.nanoTime();
+            readyTime =
+                (busyStart - agent.getAndClearReadyTimestamp());
+            busyTime = (busyStop - busyStart);
+
+            // Agent finished with its event processing.
+            mStats.updateState(DispatcherThreadState.IDLE,
+                               NO_EFS_AGENT);
+            mStats.updateAgentStats(readyTime,
+                                    busyTime,
+                                    eventCount);
+        }
+    } // end of processEvents(String, EfsAgent)
 
 //---------------------------------------------------------------
 // Inner classes.
@@ -651,6 +732,7 @@ public final class EfsDispatcherThread
 
         private Builder()
         {
+            mMaxEvents = DEFAULT_MAX_EVENTS;
             mPriority = Thread.NORM_PRIORITY;
             mSpinLimit = 0;
             mParkTime = Duration.ZERO;
@@ -877,6 +959,12 @@ public final class EfsDispatcherThread
                           mParkTime.isPositive())),
                         "parkTime",
                         "not set for spin+park thread type")
+                    .requireTrue(((mThreadType == BLOCKING &&
+                                   mRunQueue instanceof BlockingQueue) ||
+                                  (mThreadType != BLOCKING &&
+                                   mRunQueue instanceof AtomicReferenceArrayQueue)),
+                                 "runQueue",
+                                 "does not match thread type")
                     .throwException(EfsDispatcherThread.class);
         }
     } // end of class Builder
@@ -1021,7 +1109,7 @@ public final class EfsDispatcherThread
                           .append('\n')
                           .append(mAgentRunTime)
                           .append('\n')
-                          .append(mAgentRunCount)
+                          .append(mAgentEvent)
                           .append(']')
                           .toString());
         } // end of toString()
@@ -1409,7 +1497,7 @@ public final class EfsDispatcherThread
         private void addAgentStat(final long datum)
         {
             // Make sure datum is valid.
-            if (datum >= 0L && datum < 1_000_000_000L)
+            if (datum >= 0L)
             {
                 final long removedValue = mStats[mNextIndex];
                 final long ma =

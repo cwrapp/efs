@@ -380,6 +380,7 @@ public final class ThreadAffinityConfigTest
                 strategies.get(2));
         final ThreadAffinityConfig config =
             new ThreadAffinityConfig();
+
         config.setAffinityType(affinityType);
         config.setStrategies(strategies);
 
@@ -393,4 +394,4 @@ public final class ThreadAffinityConfigTest
     //
     // end of JUnit Test Methods.
     //-----------------------------------------------------------
-}
+} // end of class ThreadAffinityConfigTest

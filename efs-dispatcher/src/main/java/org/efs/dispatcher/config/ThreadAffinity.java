@@ -124,8 +124,8 @@ public final class ThreadAffinity
         sAcquisitionLock.lock();
         try
         {
-            retval
-                = switch (type)
+            retval =
+                switch (type)
                 {
                     case ANY_CORE -> AffinityLock.acquireCore();
                     case ANY_CPU -> AffinityLock.acquireLock();

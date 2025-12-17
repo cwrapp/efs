@@ -287,6 +287,8 @@ public final class WorkflowStage
      * @param activator workflow activator.
      * @return {@code true} since all steps in this stage are
      * now executed.
+     * @throws IllegalStateException
+     * if activation fails.
      *
      * @see #setStepIndex(int)
      */

@@ -540,7 +540,7 @@ public class WorkflowBuildTest
         catch (IllegalArgumentException argex)
         {
             assertThat(argex).hasMessage(
-                "workflows contains duplicate names: test-workflow");
+                "workflows contains duplicate workflow test-workflow");
         }
     } // end of buildActivatorDuplicateWorkflowNames()
 
