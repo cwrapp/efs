@@ -113,7 +113,7 @@ public final class EfsDispatcherTest
         catch (IllegalArgumentException argex)
         {
             assertThat(argex)
-                .hasMessage("dispatcherName is either null or an empty string");
+                .hasMessage(EfsDispatcher.INVALID_NAME);
         }
     } // end of builderNullDispatcherName()
 
@@ -131,7 +131,7 @@ public final class EfsDispatcherTest
             assertThat(jex)
                 .isInstanceOf(IllegalArgumentException.class);
             assertThat(jex)
-                .hasMessage("dispatcherName is either null or an empty string");
+                .hasMessage(EfsDispatcher.INVALID_NAME);
         }
     } // end of builderEmptyDispatcherName()
 
@@ -437,8 +437,7 @@ public final class EfsDispatcherTest
         catch (IllegalArgumentException argex)
         {
             assertThat(argex)
-                .hasMessage(
-                    "agent name is either null or an empty string");
+                .hasMessage(EfsDispatcher.MISSING_AGENT_NAME);
         }
 
         try
@@ -448,8 +447,7 @@ public final class EfsDispatcherTest
         catch (IllegalArgumentException argex)
         {
             assertThat(argex)
-                .hasMessage(
-                    "dispatcherName is either null or an empty string");
+                .hasMessage(EfsDispatcher.INVALID_NAME);
         }
 
         try

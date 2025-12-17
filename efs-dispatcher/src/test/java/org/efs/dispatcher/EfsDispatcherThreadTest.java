@@ -294,8 +294,7 @@ public class EfsDispatcherThreadTest
             assertThat(jex)
                 .hasMessageContainingAll(
                     "threadName: not set",
-                    "threadType: not set",
-                    "maxEvents: not set");
+                    "threadType: not set");
         }
     } // end of builderThreadTypeNotSet()
 
@@ -319,7 +318,6 @@ public class EfsDispatcherThreadTest
                 .isInstanceOf(ValidationException.class);
             assertThat(jex)
                 .hasMessageContainingAll(
-                    "maxEvents: not set",
                     "runQueue: not set");
         }
     } // end of builderInvalidBlockingSettings()
@@ -374,7 +372,6 @@ public class EfsDispatcherThreadTest
                 .isInstanceOf(ValidationException.class);
             assertThat(jex)
                 .hasMessageContainingAll(
-                    "maxEvents: not set",
                     "runQueue: not set");
         }
     } // end of builderInvalidSpinningSettings()
@@ -574,7 +571,7 @@ public class EfsDispatcherThreadTest
             [thread=abc-123, start time=null, state=NOT_STARTED, agent=(idle), run count=0,
             (no agent statistics to report)
             (no agent statistics to report)
-            0]""";
+            (no agent statistics to report)]""";
 
         assertThat(threadStats.threadName())
             .isEqualTo(threadName);

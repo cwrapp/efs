@@ -38,11 +38,6 @@
  *     publish timestamp and event identifier together uniquely
  *     identify an event.
  *   </li>
- *   <li>
- *     {@link EfsEventLayout}: contains mapping of event field
- *     names (both defined in the class and inherited) and field
- *     type.
- *   </li>
  * </ul>
  */
 

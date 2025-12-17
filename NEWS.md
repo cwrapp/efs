@@ -12,3 +12,11 @@
     EfsScheduledExecutor-related classes to this new module.
   - Created org.efs.timer module and moved
   - Improved code correctness in general.
+
+# 0.3.0: December 17, 2025
+
+  - Created org.efs.event.type package.
+  - Create org.efs.event.type.EfsEventLayout class which provides
+    a reflective view into an IEfsEvent class layout. The purpose
+    is for future event encoding and decoding.
+  - Improved code correctness in general.

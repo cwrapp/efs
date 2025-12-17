@@ -24,7 +24,7 @@ limitations under the License.
 
   <groupId>org.efs</groupId>
   <artifactId>efs-parent</artifactId>
-  <version>0.2.0</version>
+  <version>0.3.0</version>
 
   <packaging>pom</packaging>
 
@@ -73,18 +73,6 @@ limitations under the License.
 
   <distributionManagement>
 
-<!-- Delete?
-    <snapshotRepository>
-      <id>ossrh</id>
-      <url>https://oss.sonatype.org/content/repositories/snapshots</url>
-    </snapshotRepository>
-
-    <repository>
-      <id>ossrh</id>
-      <url>https://oss.sonatype.org/service/local/staging/deploy/maven2</url>
-    </repository>
-  -->
-
     <repository>
       <id>github</id>
       <name>GitHub cwrapp Apache Maven Packages</name>
@@ -104,20 +92,22 @@ limitations under the License.
     <javadoc-version>3.12.0</javadoc-version>
     <source-version>3.3.1</source-version>
 
-    <ebus.version>7.6.0</ebus.version>
+    <ebus.version>7.6.1</ebus.version>
     <guava.version>33.5.0-jre</guava.version>
     <decimal4j.version>1.0.3</decimal4j.version>
     <openhft.version>3.27ea1</openhft.version>
     <typesafe.version>1.4.5</typesafe.version>
     <jctools.version>4.0.5</jctools.version>
+    <javassist.version>3.30.2-GA</javassist.version>
+    <reflections.version>0.10.2</reflections.version>
 
     <slf4j.version>2.0.17</slf4j.version>
-    <logback.version>1.5.20</logback.version>
+    <logback.version>1.5.21</logback.version>
 
-    <junit.version>6.0.0</junit.version>
-    <assertj.version>3.27.4</assertj.version>
-    <mockito.version>5.19.0</mockito.version>
-    <bytebuddy.version>1.15.11</bytebuddy.version>
+    <junit.version>6.0.1</junit.version>
+    <assertj.version>3.27.6</assertj.version>
+    <mockito.version>5.20.0</mockito.version>
+    <bytebuddy.version>1.17.8</bytebuddy.version>
     <awaitility.version>4.3.0</awaitility.version>
     <jacoco.version>0.8.14</jacoco.version>
 
@@ -213,6 +203,18 @@ limitations under the License.
         <groupId>org.jctools</groupId>
         <artifactId>jctools-core</artifactId>
         <version>${jctools.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.javassist</groupId>
+        <artifactId>javassist</artifactId>
+        <version>${javassist.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.reflections</groupId>
+        <artifactId>reflections</artifactId>
+        <version>${reflections.version}</version>
       </dependency>
 
       <!-- Test dependencies -->

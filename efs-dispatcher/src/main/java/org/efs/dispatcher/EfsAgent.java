@@ -363,7 +363,7 @@ import org.slf4j.LoggerFactory;
      * <p>
      * The following is an example output of the returned list:
      * </p>
-     * <pre><code>ConnectionPublisher (id 0)
+     * <pre><code>ConnectionPublisher
     min run time: 1,364 nanos
     max run time: 32,743,678 nanos
   total run time: 34,189,949 nanos
@@ -372,7 +372,7 @@ import org.slf4j.LoggerFactory;
       dispatcher: general
       max events: 16
 
-MulticastConnectionPublisher (id 1)
+MulticastConnectionPublisher
     min run time: 613 nanos
     max run time: 751,792 nanos
   total run time: 763,513 nanos
@@ -381,7 +381,7 @@ MulticastConnectionPublisher (id 1)
       dispatcher: general
       max events: 15
 
-PingPong Main (id 2)
+PingPong Main
     min run time: 10,541 nanos
     max run time: 3,700,790 nanos
   total run time: 3,711,331 nanos
@@ -390,7 +390,7 @@ PingPong Main (id 2)
       dispatcher: general
       max events: 4
 
-Ping! Pong! Timer (id 3)
+Ping! Pong! Timer
     min run time: 1,260 nanos
     max run time: 9,877,401 nanos
   total run time: 10,195,402 nanos
@@ -399,7 +399,7 @@ Ping! Pong! Timer (id 3)
       dispatcher: general
       max events: 32
 
-Pinger (id 4)
+Pinger
     min run time: 61 nanos
     max run time: 33,913,494 nanos
   total run time: 953,601,532 nanos
@@ -408,7 +408,7 @@ Pinger (id 4)
       dispatcher: ping
       max events: 32
 
-Ponger (id 5)
+Ponger
     min run time: 164 nanos
     max run time: 4,439,180 nanos
   total run time: 926,228,288 nanos
@@ -505,7 +505,7 @@ Ponger (id 5)
                 new IllegalStateException(
                     String.format(
                         "failed to add %s task to event queue; task will not be run",
-                        task.getClass())));
+                        (task.getClass()).getSimpleName())));
         }
         // This agent has at least one event to run so put it on
         // the dispatcher run queue.
@@ -906,9 +906,7 @@ Ponger (id 5)
         private int mMaxEvents;
 
         /**
-         * efs agent is associated with this dispatcher. If
-         * not set, then an appropriate dispatcher is found based
-         * on the agent's class.
+         * efs agent is associated with this dispatcher.
          */
         private IEfsDispatcher mDispatcher;
 
@@ -1124,9 +1122,10 @@ Ponger (id 5)
             catch (Exception jex)
             {
                 sLogger.warn(
-                    "{}: exception when forwarding {} event.",
+                    "{}: exception when forwarding {} event\n{}.",
                     mAgent.name(),
                     (mEvent.getClass()).getName(),
+                    mEvent,
                     jex);
             }
         } // end of run()

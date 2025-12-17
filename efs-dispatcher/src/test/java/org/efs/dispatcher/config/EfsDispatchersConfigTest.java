@@ -85,8 +85,7 @@ public final class EfsDispatchersConfigTest
         catch (IllegalArgumentException argex)
         {
             assertThat(argex)
-                .hasMessage(
-                    "fileName is either null or an empty string");
+                .hasMessage(EfsDispatcher.INVALID_NAME);
         }
     } // end of nullNameDispatchersFile()
 
@@ -102,8 +101,7 @@ public final class EfsDispatchersConfigTest
         catch (IllegalArgumentException argex)
         {
             assertThat(argex)
-                .hasMessage(
-                    "fileName is either null or an empty string");
+                .hasMessage(EfsDispatcher.INVALID_NAME);
         }
     } // end of emptyNameDispatchersFile()
 

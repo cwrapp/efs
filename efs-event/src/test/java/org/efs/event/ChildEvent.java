@@ -17,6 +17,8 @@
 package org.efs.event;
 
 import java.time.Instant;
+import java.util.Objects;
+import org.efs.event.type.EfsEventLayout;
 
 /**
  * {@link BaseEvent} sub-class. Used to test
@@ -47,15 +49,12 @@ public final class ChildEvent
     // Constructors.
     //
 
-    public ChildEvent(final String name,
-                      final int id,
-                      final double price,
-                      final Instant timestamp)
+    public ChildEvent(final Builder builder)
     {
-        super (name, id);
+        super (builder);
 
-        mPrice = price;
-        mTimestamp = timestamp;
+        mPrice = builder.mPrice;
+        mTimestamp = builder.mTimestamp;
     } // end of ChildEvent()
 
     //
@@ -79,4 +78,87 @@ public final class ChildEvent
     //
     // end of Get Methods.
     //-----------------------------------------------------------
+
+    public static Builder builder()
+    {
+        return (new Builder());
+    } // end of builder()
+
+
+//---------------------------------------------------------------
+// Inner classes.
+//
+
+    public static final class Builder
+        extends BaseBuilder<ChildEvent, Builder>
+    {
+    //-----------------------------------------------------------
+    // Member data.
+    //
+
+        //-------------------------------------------------------
+        // Locals.
+        //
+
+        private double mPrice;
+        private Instant mTimestamp;
+
+    //-----------------------------------------------------------
+    // Member methods.
+    //
+
+        //-------------------------------------------------------
+        // Constructors.
+        //
+
+        private Builder()
+        {}
+
+        //
+        // end of Constructors.
+        //-------------------------------------------------------
+
+        //-------------------------------------------------------
+        // Abstract Method Implementations.
+        //
+
+        @Override
+        protected Builder self()
+        {
+            return (this);
+        } // end of self()
+
+        @Override
+        public ChildEvent build()
+        {
+            throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+        }
+
+        //
+        // end of Abstract Method Implementations.
+        //-------------------------------------------------------
+
+        //-------------------------------------------------------
+        // Set Methods.
+        //
+
+        public Builder setPrice(final double px)
+        {
+            mPrice = px;
+
+            return (this);
+        } // end of setPrice(double)
+
+        public Builder setTimestamp(final Instant ts)
+        {
+            mTimestamp =
+                Objects.requireNonNull(ts, "ts is null");
+
+            return (this);
+        } // end of setTimestamp(Instant)
+
+        //
+        // end of Set Methods.
+        //-------------------------------------------------------
+    } // end of class Builder
 } // end of class ChildEvent

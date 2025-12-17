@@ -32,7 +32,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.LinkedBlockingDeque;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.annotation.Nullable;
@@ -397,6 +397,12 @@ public final class EfsDispatcher
         "name is either null or an empty string";
 
     /**
+     * Missing agent name message is {@value}.
+     */
+    public static final String MISSING_AGENT_NAME =
+        "agent name is either null or an empty string";
+
+    /**
      * Invalid dispatcher type {@code NullPointerException}
      * message is {@value}.
      */
@@ -413,6 +419,19 @@ public final class EfsDispatcher
      * message is {@value}.
      */
     public static final String NULL_TASK = "task is null";
+
+    /**
+     * Invalid callback {@code NullPointerException} message is
+     * {@value}.
+     */
+    public static final String NULL_CALLBACK =
+        "callback is null";
+
+    /**
+     * Invalid event {@code NullPointerException} message is
+     * {@value}.
+     */
+    public static final String NULL_EVENT = "event is null";
 
     //-----------------------------------------------------------
     // Statics.
@@ -668,7 +687,7 @@ public final class EfsDispatcher
 
     /**
      * Returns text containing efs dispatcher settings.
-     * @return efx dispatcher settings in text.
+     * @return efs dispatcher settings in text.
      */
     @Override
     public String toString()
@@ -739,12 +758,16 @@ public final class EfsDispatcher
      * efs dispatcher.
      * @return {@code true} if {@code agent} is currently
      * registered.
+     * @throws NullPointerException
+     * if {@code agent} is {@code null}.
      *
      * @see #register(IEfsAgent, String)
      * @see #deregister(IEfsAgent)
      */
     public static boolean isRegistered(final IEfsAgent agent)
     {
+        Objects.requireNonNull(agent, NULL_AGENT);
+
         return (sAgents.containsKey(agent.name()));
     } // end of isRegistered(IEfsAgent)
 
@@ -902,8 +925,8 @@ public final class EfsDispatcher
                                                       final E event,
                                                       final IEfsAgent agent)
     {
-        Objects.requireNonNull(callback, "callback is null");
-        Objects.requireNonNull(event, "event is null");
+        Objects.requireNonNull(callback, NULL_CALLBACK);
+        Objects.requireNonNull(event, NULL_EVENT);
         Objects.requireNonNull(agent, NULL_AGENT);
         validateAgentDispatch(agent);
 
@@ -953,7 +976,7 @@ public final class EfsDispatcher
      * Returns a new dispatcher configuration builder. It is
      * <em>strongly</em> that a new builder be used for each
      * new dispatcher configuration.
-     * @param dispatcherName unique dispatcher name.
+     * @param name unique dispatcher name.
      * @return a new dispatcher configuration builder.
      * @throws IllegalArgumentException
      * if {@code dispatcherName} is either {@code null} or an
@@ -962,25 +985,23 @@ public final class EfsDispatcher
      * if there already is a dispatcher named
      * {@code dispatcherName}.
      */
-    public static Builder builder(final String dispatcherName)
+    public static Builder builder(final String name)
     {
-        if (Strings.isNullOrEmpty(dispatcherName))
+        if (Strings.isNullOrEmpty(name))
         {
-            throw (
-                new IllegalArgumentException(
-                    "dispatcherName is either null or an empty string"));
+            throw (new IllegalArgumentException(INVALID_NAME));
         }
 
-        if (sDispatchers.containsKey(dispatcherName))
+        if (sDispatchers.containsKey(name))
         {
             throw (
                 new IllegalStateException(
                     "dispatcher " +
-                    dispatcherName +
+                    name +
                     " already exists"));
         }
 
-        return (new Builder(dispatcherName));
+        return (new Builder(name));
     } // end of builder()
 
     /**
@@ -995,7 +1016,7 @@ public final class EfsDispatcher
      * will fail with an {@code IllegalArgumentException} due to
      * unknown dispatcher.
      * </p>
-     * @param fileName name of file containing efs dispatcher
+     * @param name name of file containing efs dispatcher
      * definitions.
      * @throws IllegalArgumentException
      * if:
@@ -1020,40 +1041,38 @@ public final class EfsDispatcher
      * @throws ThreadStartException
      * if an efs dispatcher thread fails to start.
      */
-    public static void loadDispatchersConfigFile(final String fileName)
+    public static void loadDispatchersConfigFile(final String name)
     {
         final File configFile;
         final Config configSource;
         final EfsDispatchersConfig dispatchersConfig;
 
-        if (Strings.isNullOrEmpty(fileName))
+        if (Strings.isNullOrEmpty(name))
         {
-            throw (
-                new IllegalArgumentException(
-                    "fileName is either null or an empty string"));
+            throw (new IllegalArgumentException(INVALID_NAME));
         }
 
-        configFile = new File(fileName);
+        configFile = new File(name);
 
         if (!configFile.exists())
         {
             throw (
                 new IllegalArgumentException(
-                    "\"" + fileName + "\" does not exist"));
+                    "\"" + name + "\" does not exist"));
         }
 
         if (!configFile.isFile())
         {
             throw (
                 new IllegalArgumentException(
-                    "\"" + fileName + "\" not regular file"));
+                    "\"" + name + "\" not regular file"));
         }
 
         if (!configFile.canRead())
         {
             throw (
                 new IllegalArgumentException(
-                    "\"" + fileName + "\" unreadable"));
+                    "\"" + name + "\" unreadable"));
         }
 
         configSource = ConfigFactory.parseFile(configFile);
@@ -1120,9 +1139,9 @@ public final class EfsDispatcher
     {
         for (IEfsDispatcher d : sDispatchers.values())
         {
-            if (d instanceof EfsDispatcher)
+            if (d instanceof EfsDispatcher efsDispatcher)
             {
-                ((EfsDispatcher) d).stopThreads();
+                efsDispatcher.stopThreads();
             }
         }
     } // end of stopDispatchers()
@@ -1152,7 +1171,6 @@ public final class EfsDispatcher
 
         try
         {
-
             // Yes. Then create dispatcher threads and start them
             // running.
             // Note: if dispatcher type is special then
@@ -1216,7 +1234,7 @@ public final class EfsDispatcher
         {
             throw (
                 new IllegalArgumentException(
-                    "agent name is either null or an empty string"));
+                    MISSING_AGENT_NAME));
         }
 
         // Is this efs agent currently registered?
@@ -1259,27 +1277,25 @@ public final class EfsDispatcher
      * Validates that {@code dispatcherName} has a
      * non-{@code null}, non-empty, unique name, and references
      * a known dispatcher.
-     * @param dispatcherName validate this dispatcher name.
+     * @param name validate this dispatcher name.
      * @throws IllegalArgumentException
      * if {@code dispatcherName} is either {@code null}, an
      * empty string, or does not reference a known dispatcher.
      */
-    private static void validateDispatcherName(final String dispatcherName)
+    private static void validateDispatcherName(final String name)
     {
-        if (Strings.isNullOrEmpty(dispatcherName))
+        if (Strings.isNullOrEmpty(name))
         {
-            throw (
-                new IllegalArgumentException(
-                    "dispatcherName is either null or an empty string"));
+            throw (new IllegalArgumentException(INVALID_NAME));
         }
 
         // Is this a known dispatcher?
-        if (!sDispatchers.containsKey(dispatcherName))
+        if (!sDispatchers.containsKey(name))
         {
             throw (
                 new IllegalArgumentException(
                     "unknown dispatcher \"" +
-                    dispatcherName +
+                    name +
                     "\""));
         }
     } // end of validateDispatcherName(String)
@@ -1569,11 +1585,10 @@ public final class EfsDispatcher
      *     <td style="font-weight:bold;">event queue capacity</td>
      *     <td>{@code int}</td>
      *     <td>No</td>
-     *     <td>unlimited queue size</td>
+     *     <td>{@link #DEFAULT_EVENT_QUEUE_CAPACITY}</td>
      *     <td>
      *       Agent maximum event queue size assigned to agents
-     *       registered with this dispatcher. Defaults to an
-     *       unlimited event queue.
+     *       registered with this dispatcher.
      *     </td>
      *   </tr>
      *   <tr>
@@ -1630,8 +1645,7 @@ import org.efs.dispatcher.config.ThreadType;
                              .priority(Thread.MAX_PRIORITY)
                              // See {@link ThreadAffinityConfig}.
                              .threadAffinity(sFastAlgoAffinity)
-                             // Unlimited event queue capacity.
-                             .eventQueueCapacity(0)
+                             .eventQueueCapacity(128)
                              .runQueueCapacity(64)
                              .maxEvents(16)
                              .build();
@@ -1645,8 +1659,7 @@ import org.efs.dispatcher.config.ThreadType;
                              .parkTime(Duration.ofNanos(1_000L)
                              // See {@link ThreadAffinityConfig}.
                              .threadAffinity(sSlotAlgoffinity)
-                             // Unlimited event queue capacity.
-                             .eventQueueCapacity(0)
+                             .eventQueueCapacity(128)
                              .runQueueCapacity(64)
                              .maxEvents(16)
                              .build();
@@ -1655,8 +1668,7 @@ import org.efs.dispatcher.config.ThreadType;
                              .threadType(ThreadType.BLOCKING)
                              .numThreads(8)
                              .priority(Thread.MIN_PRIORITY)
-                             // Unlimited event queue capacity.
-                             .eventQueueCapacity(0)
+                             .eventQueueCapacity(128)
                              .runQueueCapacity(128)
                              .maxEvents(8)
                              .build();</code></pre>
@@ -1710,8 +1722,7 @@ import org.efs.dispatcher.config.ThreadType;
             mNumThreads = -1;
             mThreadType = DEFAULT_THREAD_TYPE;
             mPriority = DEFAULT_PRIORITY;
-            mEventQueueCapacity = 0;
-            mRunQueueCapacity = 0;
+            mEventQueueCapacity = DEFAULT_EVENT_QUEUE_CAPACITY;
             mParkTime = DEFAULT_PARK_TIME;
             mSpinLimit = DEFAULT_SPIN_LIMIT;
             mMaxEvents = 0;
@@ -2113,11 +2124,6 @@ import org.efs.dispatcher.config.ThreadType;
                         "not set for spin+park thread type")
                     .requireNotNull(mDispatcherType,
                                     DISPATCHER_TYPE_KEY)
-                    .requireTrue(
-                        (mDispatcherType == DispatcherType.EFS ||
-                         mSpecialDispatcher != null),
-                        DISPATCHER_KEY,
-                        "not set for non-efs dispatcher")
                     // Make sure that is dispatcher is set for
                     // a special dispatcher type.
                     .requireTrue(mDispatcherType != null &&
@@ -2144,7 +2150,7 @@ import org.efs.dispatcher.config.ThreadType;
             {
                 // Yes, blocking.
                 retval =
-                    new LinkedBlockingDeque<>(mRunQueueCapacity);
+                    new LinkedBlockingQueue<>(mRunQueueCapacity);
 
             }
             // No, not blocking.
@@ -2176,11 +2182,20 @@ import org.efs.dispatcher.config.ThreadType;
          */
         private int nextPowerOfTwo(final int n)
         {
-            final double nextNum =
-                Math.ceil(Math.log(n) / Math.log(2));
-            final double retval = Math.pow(2, nextNum);
+            final int retval;
 
-            return ((int) retval);
+            if (n <= 1)
+            {
+                retval = 1;
+            }
+            else
+            {
+                final int highest = Integer.highestOneBit(n);
+
+                retval = (highest == n ? n : (highest << 1));
+            }
+
+            return (retval);
         } // end of nextPowerOfTwo(int)
     } // end of class Builder
 
@@ -2221,14 +2236,29 @@ import org.efs.dispatcher.config.ThreadType;
         private DispatcherStats()
         {
             final int numThreads = mThreads.length;
+            int numStats = 0;
             int ti;
+            int si;
 
-            mThreadStats = new DispatcherThreadStats[numThreads];
-
+            // Count up number of non-null threads.
             for (ti = 0; ti < numThreads; ++ti)
             {
-                mThreadStats[ti] =
-                    mThreads[ti].performanceStats();
+                if (mThreads[ti] != null)
+                {
+                    ++numStats;
+                }
+            }
+
+            mThreadStats = new DispatcherThreadStats[numStats];
+
+            for (ti = 0, si = 0; ti < numThreads; ++ti)
+            {
+                if (mThreads[ti] != null)
+                {
+                    mThreadStats[si] =
+                        mThreads[ti].performanceStats();
+                    ++si;
+                }
             }
         } // end of DispatcherStats()
 
@@ -2409,31 +2439,39 @@ import org.efs.dispatcher.config.ThreadType;
          * Returns aggregated dispatcher thread performance stats
          * into a single result. Total number of stats is equal
          * to summation of all dispatcher thread stats.
-         * @param stats
-         * @return
+         * @param f function used to extract appropriate agent
+         * stats from dispatcher thread stats.
+         * @return agent run stats.
          */
         private EfsDispatcher.AgentStats mergeAgentStats(final Function<DispatcherThreadStats, EfsDispatcherThread.AgentStats> f)
         {
             final List<EfsDispatcherThread.AgentStats> stats =
                 collectAgentStats(f);
-            final EfsDispatcherThread.AgentStats firstStats =
-                stats.getFirst();
-            final String statsName = firstStats.statsName();
-            final String unit = firstStats.unit();
-            long[] data = new long[0];
+            String statsName = "(no stats)";
+            String unit = "";
             int agentRunCount = 0;
+            long[] data = new long[0];
 
-            for (EfsDispatcherThread.AgentStats as : stats)
+            if (!stats.isEmpty())
             {
-                data = mergeSortedArrays(data, as.stats());
-                agentRunCount += as.agentRunCount();
+                final EfsDispatcherThread.AgentStats firstStats =
+                    stats.getFirst();
+
+                statsName = firstStats.statsName();
+                unit = firstStats.unit();
+
+                for (EfsDispatcherThread.AgentStats as : stats)
+                {
+                    data = mergeSortedArrays(data, as.stats());
+                    agentRunCount += as.agentRunCount();
+                }
             }
 
             return (new EfsDispatcher.AgentStats(statsName,
                                                  unit,
                                                  agentRunCount,
                                                  data));
-        } // end of mergeAgentStats(List<>)
+        } // end of mergeAgentStats(Function)
 
         /**
          * Returns list of dispatcher thread agent performance
@@ -2597,11 +2635,6 @@ import org.efs.dispatcher.config.ThreadType;
         @Override
         public String toString()
         {
-            final int p50 = (int) (mCount * 0.5d);
-            final int p75 = (int) (mCount * 0.75d);
-            final int p90 = (int) (mCount * 0.9d);
-            final int p95 = (int) (mCount * 0.95d);
-            final int p99 = (int) (mCount * 0.99d);
             final String retval;
 
             try (final Formatter output = new Formatter())
@@ -2609,30 +2642,45 @@ import org.efs.dispatcher.config.ThreadType;
                 output.format("%s %s stats:%n",
                               mDispatcherName,
                               mStatsName);
-                output.format(" min: %,d %s%n",
-                              mStats[0],
-                              mUnit);
-                output.format(" max: %,d %s%n",
-                              mStats[mCount - 1],
-                              mUnit);
-                output.format(" med: %,d %s%n",
-                              mStats[p50],
-                              mUnit);
-                output.format(" 75%%: %,d %s%n",
-                              mStats[p75],
-                              mUnit);
-                output.format(" 90%%: %,d %s%n",
-                              mStats[p90],
-                              mUnit);
-                output.format(" 95%%: %,d %s%n",
-                              mStats[p95],
-                              mUnit);
-                output.format(" 99%%: %,d %s%n",
-                              mStats[p99],
-                              mUnit);
-                output.format(" avg: %,d %s",
-                              mAverage,
-                              mUnit);
+
+                if (mCount == 0)
+                {
+                    output.format(
+                        "  No agent statistics available.%n");
+                }
+                else
+                {
+                    final int p50 = calculateIndex(0.5d);
+                    final int p75 = calculateIndex(0.75d);
+                    final int p90 = calculateIndex(0.9d);
+                    final int p95 = calculateIndex(0.95d);
+                    final int p99 = calculateIndex(0.99d);
+
+                    output.format(" min: %,d %s%n",
+                                  mStats[0],
+                                  mUnit);
+                    output.format(" max: %,d %s%n",
+                                  mStats[mCount - 1],
+                                  mUnit);
+                    output.format(" med: %,d %s%n",
+                                  mStats[p50],
+                                  mUnit);
+                    output.format(" 75%%: %,d %s%n",
+                                  mStats[p75],
+                                  mUnit);
+                    output.format(" 90%%: %,d %s%n",
+                                  mStats[p90],
+                                  mUnit);
+                    output.format(" 95%%: %,d %s%n",
+                                  mStats[p95],
+                                  mUnit);
+                    output.format(" 99%%: %,d %s%n",
+                                  mStats[p99],
+                                  mUnit);
+                    output.format(" avg: %,d %s",
+                                  mAverage,
+                                  mUnit);
+                }
 
                 retval = output.toString();
             }
@@ -2698,5 +2746,15 @@ import org.efs.dispatcher.config.ThreadType;
         //
         // end of Get Methods.
         //-------------------------------------------------------
+
+        private int calculateIndex(final double percentile)
+        {
+            return (
+                Math.max(
+                    0,
+                    Math.min(
+                        (mCount - 1),
+                        (int) (mCount * percentile))));
+        } // end of calculateIndex(double)
     } // end of class AgentStats
 } // end of class EfsDispatcher
