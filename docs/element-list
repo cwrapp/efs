@@ -5,6 +5,6 @@ org.efs.dispatcher
 org.efs.dispatcher.config
 org.efs.event
 org.efs.event.type
+org.efs.feed
 org.efs.logging
 org.efs.timer
-org.efs.timer.config

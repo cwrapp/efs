@@ -426,6 +426,11 @@ public final class EfsDispatcherTest
                .threadAffinity(affinityConfig)
                .build();
 
+        assertThat(EfsDispatcher.isDispatcher(dispatcherName))
+            .isTrue();
+        assertThat(EfsDispatcher.getDispatcher(dispatcherName))
+            .isNotNull();
+
         assertThat(runStats).isNotNull();
         assertThat(runStats).isNotEmpty();
 
@@ -656,7 +661,7 @@ public final class EfsDispatcherTest
         catch (IllegalArgumentException argex)
         {
             assertThat(argex)
-                .hasMessage("name is null or an empty string");
+                .hasMessage(EfsDispatcher.INVALID_NAME);
         }
     } // end of getDispatcherNullName()
 
@@ -672,9 +677,41 @@ public final class EfsDispatcherTest
         catch (IllegalArgumentException argex)
         {
             assertThat(argex)
-                .hasMessage("name is null or an empty string");
+                .hasMessage(EfsDispatcher.INVALID_NAME);
         }
     } // end of getDispatcherEmptyName()
+
+    @Test
+    public void isDispatcherNullName()
+    {
+        final String dispatcherName = null;
+
+        try
+        {
+            EfsDispatcher.isDispatcher(dispatcherName);
+        }
+        catch (IllegalArgumentException argex)
+        {
+            assertThat(argex)
+                .hasMessage(EfsDispatcher.INVALID_NAME);
+        }
+    } // end of isDispatcherNullName()
+
+    @Test
+    public void isDispatcherEmptyName()
+    {
+        final String dispatcherName = "";
+
+        try
+        {
+            EfsDispatcher.isDispatcher(dispatcherName);
+        }
+        catch (IllegalArgumentException argex)
+        {
+            assertThat(argex)
+                .hasMessage(EfsDispatcher.INVALID_NAME);
+        }
+    } // end of isDispatcherEmptyName()
 
     //
     // end of JUnit Test Methods.

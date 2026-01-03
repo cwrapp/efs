@@ -206,6 +206,8 @@ public class EfsAgentTest
         assertThat(agent.agent()).isEqualTo(sEfsObject);
         assertThat(agent.agentName())
             .isEqualTo(EFS_AGENT_NAME);
+        assertThat(agent.eventQueueCapacity())
+            .isEqualTo(EVENT_QUEUE_CAPACITY);
         assertThat(agent.maxEvents()).isEqualTo(TEST_MAX_EVENTS);
         assertThat(agent.dispatcher()).isEqualTo(sDispatcher);
         assertThat(agent.runState()).isEqualTo(RunState.IDLE);
@@ -271,6 +273,22 @@ public class EfsAgentTest
         assertThat(agentInfo.toString())
             .startsWith(EFS_AGENT_NAME);
     } // end of builderSuccess()
+
+    @Test
+    public void builderIncreaseCapacity()
+    {
+        final int capacity = (EVENT_QUEUE_CAPACITY + 1);
+        final EfsAgent.Builder builder = EfsAgent.builder();
+        final EfsAgent agent =
+            builder.agent(sEfsObject)
+                   .dispatcher(sDispatcher)
+                   .maxEvents(TEST_MAX_EVENTS)
+                   .eventQueueCapacity(capacity)
+                   .build();
+
+        assertThat(agent.eventQueueCapacity())
+            .isEqualTo(EVENT_QUEUE_CAPACITY * 2);
+    } // end of builderIncreaseCapacity()
 
     //
     // end of JUnit Test Methods.

@@ -17,6 +17,7 @@
 package org.efs.dispatcher;
 
 import com.google.common.base.Strings;
+import jakarta.annotation.Nullable;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
@@ -25,8 +26,9 @@ import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.LockSupport;
-import javax.annotation.Nullable;
+import java.util.concurrent.locks.ReentrantLock;
 import net.openhft.affinity.AffinityLock;
 import net.sf.eBus.util.ValidationException;
 import net.sf.eBus.util.Validator;
@@ -155,7 +157,13 @@ public final class EfsDispatcherThread
      * thread. This lock is used when affinity type is a
      * CPU selection strategy.
      */
-    private static AffinityLock sPreviousLock = null;
+    @Nullable private static volatile AffinityLock sPreviousLock = null;
+
+    /**
+     * Acquire this lock prior to setting thread affinity.
+     */
+    private static final Lock sAffinityAccessLock =
+        new ReentrantLock();
 
     /**
      * Logging subsystem interface.
@@ -473,8 +481,14 @@ public final class EfsDispatcherThread
     /**
      * Returns the next available agent from the run queue,
      * blocking until the agent arrives.
+     * <p>
+     * While {@link BlockingQueue#take()} may return {@code null},
+     * this method continues looping until either a
+     * non-{@code null} agent is returned or this dispatcher
+     * thread is no longer running.
+     * </p>
      * @return next available agent. Does <em>not</em> return
-     * {@code null}.
+     * {@code null} while dispatcher thread is still running.
      */
     private EfsAgent blockingPoll()
     {
@@ -492,7 +506,8 @@ public final class EfsDispatcherThread
             }
             catch (InterruptedException interrupt)
             {
-                // Ignore and return null.
+                // Allow interrupt to flow up.
+                (Thread.currentThread()).interrupt();
             }
         }
 
@@ -504,7 +519,7 @@ public final class EfsDispatcherThread
      * {@link ConcurrentLinkedQueue#poll()} to extract the
      * next available agent from the run queue.
      * @return next available agent. Does <em>not</em> return
-     * {@code null}.
+     * {@code null} while dispatcher thread is still running.
      */
     private EfsAgent spinningPoll()
     {
@@ -525,7 +540,7 @@ public final class EfsDispatcherThread
      * spin limit is reached, then parks for a fixed number
      * of nanoseconds.
      * @return next available agent. Does <em>not</em> return
-     * {@code null}.
+     * {@code null} while dispatcher thread is still running.
      */
     private EfsAgent spinParkPoll()
     {
@@ -556,7 +571,7 @@ public final class EfsDispatcherThread
      * spin limit is reached, then this Dispatcher thread
      * yields.
      * @return next available agent. Does <em>not</em> return
-     * {@code null}.
+     * {@code null} while dispatcher thread is still running.
      */
     @SuppressWarnings ("CallToThreadYield")
     private EfsAgent spinYieldPoll()
@@ -615,24 +630,32 @@ public final class EfsDispatcherThread
     {
         final AffinityLock retval;
 
-        // Is this a strategy affinity?
-        if (mAffinity.getAffinityType() ==
-                AffinityType.CPU_STRATEGIES)
+        sAffinityAccessLock.lock();
+        try
         {
-            // Yes. Use the previous lock when selecting
-            // this next lock.
-            retval =
-                ThreadAffinity.acquireLock(
-                    sPreviousLock, mAffinity);
-            sPreviousLock = retval;
+            // Is this a strategy affinity?
+            if (mAffinity.getAffinityType() ==
+                    AffinityType.CPU_STRATEGIES)
+            {
+                // Yes. Use the previous lock when selecting
+                // this next lock.
+                retval =
+                    ThreadAffinity.acquireLock(
+                        sPreviousLock, mAffinity);
+                sPreviousLock = retval;
+            }
+            // No. Apply the CPU selection independent of
+            // previous lock.
+            else
+            {
+                retval =
+                    ThreadAffinity.acquireLock(mAffinity);
+                sPreviousLock = retval;
+            }
         }
-        // No. Apply the CPU selection independent of
-        // previous lock.
-        else
+        finally
         {
-            retval =
-                ThreadAffinity.acquireLock(mAffinity);
-            sPreviousLock = retval;
+            sAffinityAccessLock.unlock();
         }
 
         return (retval);
@@ -1528,9 +1551,10 @@ public final class EfsDispatcherThread
     {
         /**
          * Returns item removed from the queue's head. Note
-         * that this method never returns a {@code null} value.
-         * @return the queue's head.
+         * that this method never returns a {@code null} value
+         * as long as dispatcher thread is running.
+         * @return queue head.
          */
-        @NonNull T poll();
+        @Nullable T poll();
     } // end of interface IPollInterface
 } // end of class EfsDispatcherThread

@@ -16,7 +16,6 @@
 
 package org.efs.event.type;
 
-import net.sf.eBus.util.ValidationException;
 import net.sf.eBus.util.Validator;
 import org.efs.event.IEfsEvent;
 
@@ -65,6 +64,12 @@ public abstract class BaseBean
     // Member data.
     //
 
+        //-------------------------------------------------------
+        // Locals.
+        //
+
+        private final Class<? extends BaseBean> mTargetClass;
+
     //-----------------------------------------------------------
     // Member methods.
     //
@@ -73,8 +78,10 @@ public abstract class BaseBean
         // Constructors.
         //
 
-        protected BaseBuilder()
-        {}
+        protected BaseBuilder(final Class<? extends BaseBean> tc)
+        {
+            mTargetClass = tc;
+        } // end of BaseBuilder(Class)
 
         //
         // end of Constructors.
@@ -96,7 +103,7 @@ public abstract class BaseBean
             final Validator problems = new Validator();
 
             validate(problems)
-                .throwException(ValidationException.class);
+                .throwException(mTargetClass);
 
             return (buildImpl());
         } // end of build()

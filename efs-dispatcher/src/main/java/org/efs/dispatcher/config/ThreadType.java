@@ -16,7 +16,7 @@
 
 package org.efs.dispatcher.config;
 
-import javax.annotation.Nullable;
+import jakarta.annotation.Nullable;
 
 /**
  * Lists thread types available to efs users when configuring

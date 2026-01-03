@@ -15,6 +15,7 @@
 //
 package org.efs.timer;
 
+import jakarta.annotation.Nullable;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -24,22 +25,22 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import javax.annotation.Nullable;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import org.efs.dispatcher.EfsDispatcher;
 import org.efs.dispatcher.IEfsAgent;
 import org.efs.dispatcher.config.ThreadType;
 import org.efs.logging.AsyncLoggerFactory;
-import org.efs.timer.EfsScheduledExecutor.CancelReason;
-import org.efs.timer.EfsScheduledExecutor.IEfsTimer;
-import org.efs.timer.EfsScheduledExecutor.TimerState;
-import org.efs.timer.EfsScheduledExecutor.TimerType;
-import org.efs.timer.config.EfsScheduledExecutorConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -60,12 +61,6 @@ public final class ScheduledExecutorTest
     //
 
     private static final String TIMER_NAME_PREFIX = "timer-";
-    private static final long SPIN_LIMIT = 2_500_000L;
-    private static final Duration PARK_TIME =
-        Duration.ofNanos(500L);
-
-    private static final String EXECUTOR_NAME_PREFIX =
-        "executor-";
     private static final String AGENT_NAME_PREFIX = "agent-";
 
     //
@@ -105,16 +100,16 @@ public final class ScheduledExecutorTest
     // Statics.
     //
 
-    private static int sExecutorIndex = 0;
     private static int sAgentIndex = 0;
-
-    private static EfsScheduledExecutorConfig sBlockingConfig;
-    private static EfsScheduledExecutorConfig sSpinningConfig;
-    private static EfsScheduledExecutorConfig sSpinParkConfig;
-    private static EfsScheduledExecutorConfig sSpinYieldConfig;
 
     private static final Logger sLogger =
         AsyncLoggerFactory.getLogger();
+
+    //-----------------------------------------------------------
+    // Locals.
+    //
+
+    private ScheduledExecutorService mService;
 
 //---------------------------------------------------------------
 // Member methods.
@@ -127,32 +122,6 @@ public final class ScheduledExecutorTest
     @BeforeAll
     public static void setUpClass()
     {
-        // Create a spinning dispatcher so timer events are
-        // delivered with minimal delay.
-
-        sBlockingConfig = new EfsScheduledExecutorConfig();
-        sBlockingConfig.setExecutorName("BlockingExecutor");
-        sBlockingConfig.setThreadType(ThreadType.BLOCKING);
-        sBlockingConfig.setPriority(Thread.NORM_PRIORITY);
-
-        sSpinningConfig = new EfsScheduledExecutorConfig();
-        sSpinningConfig.setExecutorName("SpinningExectuor");
-        sSpinningConfig.setThreadType(ThreadType.SPINNING);
-        sSpinningConfig.setPriority(Thread.MAX_PRIORITY);
-
-        sSpinParkConfig = new EfsScheduledExecutorConfig();
-        sSpinParkConfig.setExecutorName("SpinParkExectur");
-        sSpinParkConfig.setThreadType(ThreadType.SPINPARK);
-        sSpinParkConfig.setPriority(Thread.MAX_PRIORITY - 1);
-        sSpinParkConfig.setSpinLimit(SPIN_LIMIT);
-        sSpinParkConfig.setParkTime(PARK_TIME);
-
-        sSpinYieldConfig = new EfsScheduledExecutorConfig();
-        sSpinYieldConfig.setExecutorName("SpinYieldExecutor");
-        sSpinYieldConfig.setThreadType(ThreadType.SPINYIELD);
-        sSpinYieldConfig.setPriority(Thread.MAX_PRIORITY - 2);
-        sSpinYieldConfig.setSpinLimit(SPIN_LIMIT);
-
         // Create dispatchers used in this test.
         final long spinLimit = 1_000_000L;
         final Duration parkTime = Duration.ofNanos(500L);
@@ -213,6 +182,21 @@ public final class ScheduledExecutorTest
             .build();
     } // end of setUpClass()
 
+    @BeforeEach
+    public void testSetUp()
+    {
+        mService = Executors.newSingleThreadScheduledExecutor();
+    } // end of testSetUp()
+
+    @AfterEach
+    public void testCleanup()
+    {
+        if (!mService.isShutdown())
+        {
+            mService.shutdown();
+        }
+    } // end of testCleanup()
+
     //
     // end of JUnit Initialization.
     //-----------------------------------------------------------
@@ -226,39 +210,58 @@ public final class ScheduledExecutorTest
     //
 
     @Test
-    public void createAndRetrieveScheduledExecutor()
+    public void createScheduledExecutorNullExecutor()
     {
-        final String executorName = nextExecutorName();
-        final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(sBlockingConfig)
-                .executorName(executorName)
-                .build();
-
-        assertThat(executor.isRunning()).isTrue();
-        assertThat(EfsScheduledExecutor.isExecutor("fubar"))
-            .isFalse();
-        assertThat(EfsScheduledExecutor.isExecutor(executorName))
-            .isTrue();
+        final ScheduledExecutorService service = null;
 
         try
         {
-            EfsScheduledExecutor.getExecutor(null);
+            new EfsScheduledExecutor(service);
+        }
+        catch (NullPointerException nullex)
+        {
+            assertThat(nullex)
+                .hasMessage(EfsScheduledExecutor.NULL_EXECUTOR);
+        }
+    } // end of createScheduledExecutorNullExecutor()
+
+    @Test
+    public void createScheduledExecutorShutdownExecutor()
+    {
+        mService.shutdownNow();
+
+        try
+        {
+            new EfsScheduledExecutor(mService);
         }
         catch (IllegalArgumentException argex)
         {
             assertThat(argex)
-                .hasMessage("name is null or an empty string");
+                .hasMessage(
+                    EfsScheduledExecutor.INVALID_EXECUTOR);
         }
+    } // end of createScheduledExecutorShutdownExecutor()
 
-        final EfsScheduledExecutor executorOut =
-            EfsScheduledExecutor.getExecutor(executorName);
+    @Test
+    public void createScheduledExecutor()
+    {
+        final EfsScheduledExecutor executor =
+            new EfsScheduledExecutor(mService);
 
-        assertThat(executorOut).isSameAs(executor);
+        assertThat(executor.isRunning()).isTrue();
+        assertThat(executor.isShutdown()).isFalse();
+        assertThat(executor.isTerminated()).isFalse();
+        assertThat(executor.service()).isSameAs(mService);
 
         executor.shutdown();
 
         assertThat(executor.isRunning()).isFalse();
+        assertThat(executor.isShutdown()).isTrue();
+        assertThat(executor.isTerminated()).isTrue();
+
+        final List<Runnable> tasks = executor.shutdownNow();
+
+        assertThat(tasks).isEmpty();
     } // end of createAndRetrieveScheduledExecutor()
 
     //
@@ -269,16 +272,15 @@ public final class ScheduledExecutorTest
     public void singleTimerNegativeDelay()
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(sBlockingConfig)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final CountDownLatch signal =
             new CountDownLatch(1);
         final String timerName = "test-timer";
         final TimerAgent agent =
             new TimerAgent(nextAgentName(), signal, executor);
         final Duration delay = Duration.ofSeconds(-5L);
+
+        EfsDispatcher.register(agent, TEST_AGENT_DISPATCHER);
 
         try
         {
@@ -292,20 +294,13 @@ public final class ScheduledExecutorTest
             assertThat(rejex)
                 .hasMessage(EfsScheduledExecutor.NEGATIVE_DELAY);
         }
-        finally
-        {
-            executor.shutdown();
-        }
     } // end of singleTimerNegativeDelay()
 
     @Test
     public void singleTimerUnregisteredAgent()
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(sBlockingConfig)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final CountDownLatch signal =
             new CountDownLatch(1);
         final String timerName = "test-timer";
@@ -320,16 +315,12 @@ public final class ScheduledExecutorTest
                               agent,
                               delay);
         }
-        catch (IllegalStateException statex)
+        catch (RejectedExecutionException rejex)
         {
-            assertThat(statex)
+            assertThat(rejex)
                 .hasMessage(
                     agent.name() +
                     EfsScheduledExecutor.UNREGISTERED_AGENT);
-        }
-        finally
-        {
-            executor.shutdown();
         }
     } // end of singleTimerUnregisteredAgent()
 
@@ -337,10 +328,7 @@ public final class ScheduledExecutorTest
     public void singleTimerExecutorShutdown()
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(sBlockingConfig)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final CountDownLatch signal =
             new CountDownLatch(1);
         final String timerName = "test-timer";
@@ -358,14 +346,10 @@ public final class ScheduledExecutorTest
                               agent,
                               delay);
         }
-        catch (IllegalStateException statex)
+        catch (RejectedExecutionException rejex)
         {
-            assertThat(statex)
+            assertThat(rejex)
                 .hasMessage(EfsScheduledExecutor.EXEC_SHUT_DOWN);
-        }
-        finally
-        {
-            EfsDispatcher.deregister(agent);
         }
     } // end of singleTimerExecutorShutdown()
 
@@ -373,10 +357,7 @@ public final class ScheduledExecutorTest
     public void fixedRateTimerNegativeInitialDelay()
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(sBlockingConfig)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final CountDownLatch signal =
             new CountDownLatch(1);
         final String timerName = "test-timer";
@@ -384,6 +365,8 @@ public final class ScheduledExecutorTest
             new TimerAgent(nextAgentName(), signal, executor);
         final Duration initialDelay = Duration.ofSeconds(-5L);
         final Duration period = Duration.ofSeconds(10L);
+
+        EfsDispatcher.register(agent, TEST_AGENT_DISPATCHER);
 
         try
         {
@@ -399,20 +382,13 @@ public final class ScheduledExecutorTest
                 .hasMessage(
                     EfsScheduledExecutor.NEGATIVE_INIT_DELAY);
         }
-        finally
-        {
-            executor.shutdown();
-        }
     } // end of fixedRateTimerNegativeInitialDelay()
 
     @Test
     public void fixedRateTimerZeroPeriod()
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(sBlockingConfig)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final CountDownLatch signal =
             new CountDownLatch(1);
         final String timerName = "test-timer";
@@ -420,6 +396,8 @@ public final class ScheduledExecutorTest
             new TimerAgent(nextAgentName(), signal, executor);
         final Duration initialDelay = Duration.ofSeconds(5L);
         final Duration period = Duration.ZERO;
+
+        EfsDispatcher.register(agent, TEST_AGENT_DISPATCHER);
 
         try
         {
@@ -435,20 +413,13 @@ public final class ScheduledExecutorTest
                 .hasMessage(
                     EfsScheduledExecutor.NEGATIVE_PERIOD);
         }
-        finally
-        {
-            executor.shutdown();
-        }
     } // end of fixedRateTimerZeroPeriod()
 
     @Test
     public void fixedRateTimerUnregisteredAgent()
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(sBlockingConfig)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final CountDownLatch signal =
             new CountDownLatch(1);
         final String timerName = "test-timer";
@@ -465,16 +436,12 @@ public final class ScheduledExecutorTest
                                          initialDelay,
                                          period);
         }
-        catch (IllegalStateException statex)
+        catch (RejectedExecutionException rejex)
         {
-            assertThat(statex)
+            assertThat(rejex)
                 .hasMessage(
                     agent.name() +
                     EfsScheduledExecutor.UNREGISTERED_AGENT);
-        }
-        finally
-        {
-            executor.shutdown();
         }
     } // end of fixedRateTimerUnregisteredAgent()
 
@@ -482,10 +449,7 @@ public final class ScheduledExecutorTest
     public void fixedRateTimerExecutorShutdown()
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(sBlockingConfig)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final CountDownLatch signal =
             new CountDownLatch(1);
         final String timerName = "test-timer";
@@ -505,14 +469,10 @@ public final class ScheduledExecutorTest
                                          initialDelay,
                                          period);
         }
-        catch (IllegalStateException statex)
+        catch (RejectedExecutionException rejex)
         {
-            assertThat(statex)
+            assertThat(rejex)
                 .hasMessage(EfsScheduledExecutor.EXEC_SHUT_DOWN);
-        }
-        finally
-        {
-            EfsDispatcher.deregister(agent);
         }
     } // end of fixedRateTimerExecutorShutdown()
 
@@ -520,10 +480,7 @@ public final class ScheduledExecutorTest
     public void fixedDelayTimerNegativeInitialDelay()
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(sBlockingConfig)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final CountDownLatch signal =
             new CountDownLatch(1);
         final String timerName = "test-timer";
@@ -531,6 +488,8 @@ public final class ScheduledExecutorTest
             new TimerAgent(nextAgentName(), signal, executor);
         final Duration initialDelay = Duration.ofSeconds(-5L);
         final Duration delay = Duration.ofSeconds(10L);
+
+        EfsDispatcher.register(agent, TEST_AGENT_DISPATCHER);
 
         try
         {
@@ -546,20 +505,13 @@ public final class ScheduledExecutorTest
                 .hasMessage(
                     EfsScheduledExecutor.NEGATIVE_INIT_DELAY);
         }
-        finally
-        {
-            executor.shutdown();
-        }
     } // end of fixedDelayTimerNegativeInitialDelay()
 
     @Test
     public void fixedDelayTimerZeroDelay()
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(sBlockingConfig)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final CountDownLatch signal =
             new CountDownLatch(1);
         final String timerName = "test-timer";
@@ -567,6 +519,8 @@ public final class ScheduledExecutorTest
             new TimerAgent(nextAgentName(), signal, executor);
         final Duration initialDelay = Duration.ofSeconds(5L);
         final Duration delay = Duration.ofSeconds(-10L);
+
+        EfsDispatcher.register(agent, TEST_AGENT_DISPATCHER);
 
         try
         {
@@ -582,20 +536,13 @@ public final class ScheduledExecutorTest
                 .hasMessage(
                     EfsScheduledExecutor.NEGATIVE_REPEAT_DELAY);
         }
-        finally
-        {
-            executor.shutdown();
-        }
     } // end of fixedDelayTimerZeroDelay()
 
     @Test
     public void fixedDelayTimerUnregisteredAgent()
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(sBlockingConfig)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final CountDownLatch signal =
             new CountDownLatch(1);
         final String timerName = "test-timer";
@@ -612,16 +559,12 @@ public final class ScheduledExecutorTest
                                             initialDelay,
                                             delay);
         }
-        catch (IllegalStateException statex)
+        catch (RejectedExecutionException rejex)
         {
-            assertThat(statex)
+            assertThat(rejex)
                 .hasMessage(
                     agent.name() +
                     EfsScheduledExecutor.UNREGISTERED_AGENT);
-        }
-        finally
-        {
-            executor.shutdown();
         }
     } // end of fixedDelayTimerUnregisteredAgent()
 
@@ -629,10 +572,7 @@ public final class ScheduledExecutorTest
     public void fixedDelayTimerExecutorShutdown()
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(sBlockingConfig)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final CountDownLatch signal =
             new CountDownLatch(1);
         final String timerName = "test-timer";
@@ -652,14 +592,10 @@ public final class ScheduledExecutorTest
                                             initialDelay,
                                             delay);
         }
-        catch (IllegalStateException statex)
+        catch (RejectedExecutionException rejex)
         {
-            assertThat(statex)
+            assertThat(rejex)
                 .hasMessage(EfsScheduledExecutor.EXEC_SHUT_DOWN);
-        }
-        finally
-        {
-            EfsDispatcher.deregister(agent);
         }
     } // end of fixedDelayTimerExecutorShutdown()
 
@@ -667,10 +603,7 @@ public final class ScheduledExecutorTest
     public void startMultipleSingleTimersThenStopExecutor()
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(sBlockingConfig)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final int numTimers = 4;
         final CountDownLatch signal =
             new CountDownLatch(numTimers);
@@ -692,232 +625,106 @@ public final class ScheduledExecutorTest
                               delay);
         }
 
-        executor.shutdown();
+        final List<Runnable> tasks =  executor.shutdownNow();
+        boolean termFlag = false;
+
+        try
+        {
+            termFlag =
+                executor.awaitTermination(1L, TimeUnit.SECONDS);
+        }
+        catch (InterruptedException interrupt)
+        {}
+
+        assertThat(tasks).isNotEmpty();
+        assertThat(termFlag).isTrue();
+
         EfsDispatcher.deregister(agent);
     } // end of startMultipleSingleTimersThenStopExecutor()
 
     //
-    // Blocking scheduled executor.
+    // Scheduling timers test.
     //
 
     @Test
-    public void singleTimerBlockingExecutor()
+    public void singleTimerTest()
     {
-        runSingleTimer(sBlockingConfig);
-    } // end of singleTimerBlockingExecutor()
+        runSingleTimer();
+    } // end of singleTimerTest()
 
     @Test
-    public void multipleTimersBlockingExecutor()
+    public void multipleTimersTest()
     {
-        runMultipleTimers(sBlockingConfig);
-    } // end of multipleTimersBlockingExecutor()
+        runMultipleTimers();
+    } // end of multipleTimersTest()
 
     @Test
-    public void multipleTimersEarlierBlockingExecutor()
+    public void multipleTimersEarlierTest()
     {
-        runMultipleTimersEarlier(sBlockingConfig);
-    } // end of multipleTimersEarlierBlockingExecutor()
+        runMultipleTimersEarlier();
+    } // end of multipleTimersEarlierTest()
 
     @Test
-    public void cancelTimerBlockingExecutor()
+    public void cancelTimerTest()
     {
-        runCancelTimer(sBlockingConfig);
-    } // end of cancelTimerBlockingExecutor()
+        runCancelTimer();
+    } // end of cancelTimerTest()
 
     @Test
-    public void singleFixRateTimerBlockingExecutor()
+    public void singleFixRateTimerTest()
     {
-        runSingleFixRateTimer(sBlockingConfig);
-    } // end of singleFixRateTimerBlockingExecutor()
+        runSingleFixRateTimer();
+    } // end of singleFixRateTimerTest()
 
     @Test
-    public void singleFixDelayTimerBlockingExecutor()
+    public void singleFixDelayTimerTest()
     {
-        runSingleFixDelayTimer(sBlockingConfig);
-    } // end of singleFixDelayTimerBlockingExecutor()
+        runSingleFixDelayTimer();
+    } // end of singleFixDelayTimerTest()
 
     @Test
-    public void mixedTimersBlockingExecutor()
+    public void mixedTimersTest()
     {
-        runMixedTimers(sBlockingConfig);
-    } // end of mixedTimersBlockingExecutor()
-
-    //
-    // Spinning scheduled executor.
-    //
-
-    @Test
-    public void singleTimerSpinningExecutor()
-    {
-        runSingleTimer(sSpinningConfig);
-    } // end of singleTimerSpinningExecutor()
-
-    @Test
-    public void multipleTimersSpinningExecutor()
-    {
-        runMultipleTimers(sSpinningConfig);
-    } // end of multipleTimersSpinningExecutor()
-
-    @Test
-    public void multipleTimersEarlierSpinningExecutor()
-    {
-        runMultipleTimersEarlier(sSpinningConfig);
-    } // end of multipleTimersEarlierSpinningExecutor()
-
-    @Test
-    public void cancelTimerSpinningExecutor()
-    {
-        runCancelTimer(sSpinningConfig);
-    } // end of cancelTimerSpinningExecutor()
-
-    @Test
-    public void singleFixRateTimerSpinningExecutor()
-    {
-        runSingleFixRateTimer(sSpinningConfig);
-    } // end of singleFixRateTimerSpinningExecutor()
-
-    @Test
-    public void singleFixDelayTimerSpinningExecutor()
-    {
-        runSingleFixDelayTimer(sSpinningConfig);
-    } // end of singleFixDelayTimerSpinningExecutor()
-
-    @Test
-    public void mixedTimersSpinningExecutor()
-    {
-        runMixedTimers(sSpinningConfig);
-    } // end of mixedTimersSpinningExecutor()
-
-    //
-    // Spin+park scheduled executor.
-    //
-
-    @Test
-    public void singleTimerSpinParkExecutor()
-    {
-        runSingleTimer(sSpinParkConfig);
-    } // end of singleTimerSpinParkExecutor()
-
-    @Test
-    public void multipleTimersSpinParkExecutor()
-    {
-        runMultipleTimers(sSpinParkConfig);
-    } // end of multipleTimersSpinParkExecutor()
-
-    @Test
-    public void multipleTimersEarlierSpinParkExecutor()
-    {
-        runMultipleTimersEarlier(sSpinParkConfig);
-    } // end of multipleTimersEarlierSpinParkExecutor()
-
-    @Test
-    public void cancelTimerSpinParkExecutor()
-    {
-        runCancelTimer(sSpinParkConfig);
-    } // end of cancelTimerSpinParkExecutor()
-
-    @Test
-    public void singleFixRateTimerSpinParkExecutor()
-    {
-        runSingleFixRateTimer(sSpinParkConfig);
-    } // end of singleFixRateTimerSpinParkExecutor()
-
-    @Test
-    public void singleFixDelayTimerSpinParkExecutor()
-    {
-        runSingleFixDelayTimer(sSpinParkConfig);
-    } // end of singleFixDelayTimerSpinParkExecutor()
-
-    @Test
-    public void mixedTimersSpinParkExecutor()
-    {
-        runMixedTimers(sSpinParkConfig);
-    } // end of mixedTimersSpinParkExecutor()
-
-    //
-    // Spin+yield scheduled executor.
-    //
-
-    @Test
-    public void singleTimerSpinYieldExecutor()
-    {
-        runSingleTimer(sSpinYieldConfig);
-    } // end of singleTimerSpinYieldExecutor()
-
-    @Test
-    public void multipleTimersSpinYieldExecutor()
-    {
-        runMultipleTimers(sSpinYieldConfig);
-    } // end of multipleTimersSpinYieldExecutor()
-
-    @Test
-    public void multipleTimersEarlierSpinYieldExecutor()
-    {
-        runMultipleTimersEarlier(sSpinYieldConfig);
-    } // end of multipleTimersEarlierSpinYieldExecutor()
-
-    @Test
-    public void cancelTimerSpinYieldExecutor()
-    {
-        runCancelTimer(sSpinYieldConfig);
-    } // end of cancelTimerSpinYieldExecutor()
-
-    @Test
-    public void singleFixRateTimerSpinYieldExecutor()
-    {
-        runSingleFixRateTimer(sSpinYieldConfig);
-    } // end of singleFixRateTimerSpinYieldExecutor()
-
-    @Test
-    public void singleFixDelayTimerSpinYieldExecutor()
-    {
-        runSingleFixDelayTimer(sSpinYieldConfig);
-    } // end of singleFixDelayTimerSpinYieldExecutor()
-
-    @Test
-    public void mixedTimersSpinYieldExecutor()
-    {
-        runMixedTimers(sSpinYieldConfig);
-    } // end of mixedTimersSpinYieldExecutor()
+        runMixedTimers();
+    } // end of mixedTimersTest()
 
     //
     // Performance tests.
     //
-    // Blocking scheduled executor.
+    // Note: when running any of the following four tests,
+    // edit src/test/resources/logback-test.xml and make sure
+    // <root level="INFO"> is set. Do not set log level to
+    // WARN or ERROR.
     //
-
 
     @Disabled
     @Test
-    public void fixRatePerformanceBlockingExecutorBlockingDispatcher()
+    public void fixRatePerformanceBlockingDispatcher()
     {
         final int expirationCount = 1_000_000;
 
         runFixRatePerformanceTest(expirationCount,
-                                  BLOCKING_DISPATCHER,
-                                  sBlockingConfig);
+                                  BLOCKING_DISPATCHER);
     } // end of fixRatePerformanceBlockingExecutorBlockingDispatcher()
 
     @Disabled
     @Test
-    public void fixRatePerformanceBlockingExecutorSpinningDispatcher()
+    public void fixRatePerformanceSpinningDispatcher()
     {
         final int expirationCount = 1_000_000;
 
         runFixRatePerformanceTest(expirationCount,
-                                  SPINNING_DISPATCHER,
-                                  sBlockingConfig);
+                                  SPINNING_DISPATCHER);
     } // end of fixRatePerformanceBlockingExecutorSpinningDispatcher()
 
     @Disabled
     @Test
-    public void fixRatePerformanceBlockingExecutorSpinParkDispatcher()
+    public void fixRatePerformanceSpinParkDispatcher()
     {
         final int expirationCount = 1_000_000;
 
         runFixRatePerformanceTest(expirationCount,
-                                  SPIN_PARK_DISPATCHER,
-                                  sBlockingConfig);
+                                  SPIN_PARK_DISPATCHER);
     } // end of fixRatePerformanceBlockingExecutorSpinParkDispatcher()
 
     @Disabled
@@ -927,165 +734,17 @@ public final class ScheduledExecutorTest
         final int expirationCount = 1_000_000;
 
         runFixRatePerformanceTest(expirationCount,
-                                  SPIN_YIELD_DISPATCHER,
-                                  sBlockingConfig);
+                                  SPIN_YIELD_DISPATCHER);
     } // end of fixRatePerformanceBlockingExecutorSpinYieldDispatcher()
-
-    //
-    // Spinning scheduled executor.
-    //
-
-    @Disabled
-    @Test
-    public void fixRatePerformanceSpinningExecutorBlockingDispatcher()
-    {
-        final int expirationCount = 1_000_000;
-
-        runFixRatePerformanceTest(expirationCount,
-                                  BLOCKING_DISPATCHER,
-                                  sSpinningConfig);
-    } // end of fixRatePerformanceSpinningExecutorBlockingDispatcher()
-
-    @Disabled
-    @Test
-    public void fixRatePerformanceSpinningExecutorSpinningDispatcher()
-    {
-        final int expirationCount = 1_000_000;
-
-        runFixRatePerformanceTest(expirationCount,
-                                  SPINNING_DISPATCHER,
-                                  sSpinningConfig);
-    } // end of fixRatePerformanceSpinningExecutorSpinningDispatcher()
-
-    @Disabled
-    @Test
-    public void fixRatePerformanceSpinningExecutorSpinParkDispatcher()
-    {
-        final int expirationCount = 1_000_000;
-
-        runFixRatePerformanceTest(expirationCount,
-                                  SPIN_PARK_DISPATCHER,
-                                  sSpinningConfig);
-    } // end of fixRatePerformanceSpinningExecutorSpinParkDispatcher()
-
-    @Disabled
-    @Test
-    public void fixRatePerformanceSpinningExecutorSpinYieldDispatcher()
-    {
-        final int expirationCount = 1_000_000;
-
-        runFixRatePerformanceTest(expirationCount,
-                                  SPIN_YIELD_DISPATCHER,
-                                  sSpinningConfig);
-    } // end of fixRatePerformanceSpinningExecutorSpinYieldDispatcher()
-
-    //
-    // Spin+park scheduled executor.
-    //
-
-    @Disabled
-    @Test
-    public void fixRatePerformanceSpinParkExecutorBlockingDispatcher()
-    {
-        final int expirationCount = 1_000_000;
-
-        runFixRatePerformanceTest(expirationCount,
-                                  BLOCKING_DISPATCHER,
-                                  sSpinParkConfig);
-    } // end of fixRatePerformanceSpinParkExecutorBlockingDispatcher()
-
-    @Disabled
-    @Test
-    public void fixRatePerformanceSpinParkExecutorSpinningDispatcher()
-    {
-        final int expirationCount = 1_000_000;
-
-        runFixRatePerformanceTest(expirationCount,
-                                  SPINNING_DISPATCHER,
-                                  sSpinParkConfig);
-    } // end of fixRatePerformanceSpinParkExecutorSpinningDispatcher()
-
-    @Disabled
-    @Test
-    public void fixRatePerformanceSpinParkExecutorSpinParkDispatcher()
-    {
-        final int expirationCount = 1_000_000;
-
-        runFixRatePerformanceTest(expirationCount,
-                                  SPIN_PARK_DISPATCHER,
-                                  sSpinParkConfig);
-    } // end of fixRatePerformanceSpinParkExecutorSpinParkDispatcher()
-
-    @Disabled
-    @Test
-    public void fixRatePerformanceSpinParkExecutorSpinYieldDispatcher()
-    {
-        final int expirationCount = 1_000_000;
-
-        runFixRatePerformanceTest(expirationCount,
-                                  SPIN_YIELD_DISPATCHER,
-                                  sSpinParkConfig);
-    } // end of fixRatePerformanceSpinParkExecutorSpinYieldDispatcher()
-
-    //
-    // Spin+yield scheduled executor.
-    //
-
-    @Disabled
-    @Test
-    public void fixRatePerformanceSpinYieldExecutorBlockingDispatcher()
-    {
-        final int expirationCount = 1_000_000;
-
-        runFixRatePerformanceTest(expirationCount,
-                                  BLOCKING_DISPATCHER,
-                                  sSpinYieldConfig);
-    } // end of fixRatePerformanceSpinYieldExecutorBlockingDispatcher()
-
-    @Disabled
-    @Test
-    public void fixRatePerformanceSpinYieldExecutorSpinningDispatcher()
-    {
-        final int expirationCount = 1_000_000;
-
-        runFixRatePerformanceTest(expirationCount,
-                                  SPINNING_DISPATCHER,
-                                  sSpinYieldConfig);
-    } // end of fixRatePerformanceSpinYieldExecutorSpinningDispatcher()
-
-    @Disabled
-    @Test
-    public void fixRatePerformanceSpinYieldExecutorSpinParkDispatcher()
-    {
-        final int expirationCount = 1_000_000;
-
-        runFixRatePerformanceTest(expirationCount,
-                                  SPIN_PARK_DISPATCHER,
-                                  sSpinYieldConfig);
-    } // end of fixRatePerformanceSpinYieldExecutorSpinParkDispatcher()
-
-    @Disabled
-    @Test
-    public void fixRatePerformanceSpinYieldExecutorSpinYieldDispatcher()
-    {
-        final int expirationCount = 1_000_000;
-
-        runFixRatePerformanceTest(expirationCount,
-                                  SPIN_YIELD_DISPATCHER,
-                                  sSpinYieldConfig);
-    } // end of fixRatePerformanceSpinYieldExecutorSpinYieldDispatcher()
 
     //
     // end of JUnit Tests.
     //-----------------------------------------------------------
 
-    private void runSingleTimer(final EfsScheduledExecutorConfig config)
+    private void runSingleTimer()
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(config)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final int timerId = 0;
         final Duration expiration = Duration.ofMillis(500L);
         final int numTimers = 1;
@@ -1108,18 +767,12 @@ public final class ScheduledExecutorTest
         assertThat(agent.timerCount()).isEqualTo(numTimers);
         assertThat(agent.expirationCount()).isEqualTo(numTimers);
         assertThat(agent.isDone(timerId)).isTrue();
-        assertThat(agent.cancelReason(timerId))
-            .isEqualTo(CancelReason.SINGLE_SHOT_TIMER_EXPIRED);
-        assertThat(agent.cancelException(timerId)).isNull();
-    } // end of runSingleTimer(EfsScheduledExecutorConfig)
+    } // end of runSingleTimer()
 
-    private void runMultipleTimers(final EfsScheduledExecutorConfig config)
+    private void runMultipleTimers()
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(config)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final Duration[] expirations =
         {
             Duration.ofMillis(500L),
@@ -1158,19 +811,13 @@ public final class ScheduledExecutorTest
         for (timerId = 0; timerId < numTimers; ++timerId)
         {
             assertThat(agent.isDone(timerId)).isTrue();
-            assertThat(agent.cancelReason(timerId))
-                .isEqualTo(CancelReason.SINGLE_SHOT_TIMER_EXPIRED);
-            assertThat(agent.cancelException(timerId)).isNull();
         }
-    } // end of runMultipleTimers(EfsScheduledExecutorConfig)
+    } // end of runMultipleTimers()
 
-    private void runMultipleTimersEarlier(final EfsScheduledExecutorConfig config)
+    private void runMultipleTimersEarlier()
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(config)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final Duration[] expirations =
         {
             Duration.ofSeconds(1L),
@@ -1207,19 +854,13 @@ public final class ScheduledExecutorTest
         for (timerId = 0; timerId < numTimers; ++timerId)
         {
             assertThat(agent.isDone(timerId)).isTrue();
-            assertThat(agent.cancelReason(timerId))
-                .isEqualTo(CancelReason.SINGLE_SHOT_TIMER_EXPIRED);
-            assertThat(agent.cancelException(timerId)).isNull();
         }
-    } // end of runMultipleTimersEarlier(...)
+    } // end of runMultipleTimersEarlier()
 
-    private void runCancelTimer(final EfsScheduledExecutorConfig config)
+    private void runCancelTimer()
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(config)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final Duration[] expirations =
         {
             Duration.ofMillis(500L),
@@ -1254,15 +895,14 @@ public final class ScheduledExecutorTest
         assertThat(agent.timerCount()).isEqualTo(numTimers);
         assertThat(agent.expirationCount()).isEqualTo(1);
         assertThat(agent.isCanceled(0)).isTrue();
-    } // end of runCancelTimer(EfsScheduledExecutorConfig)
+        assertThat(agent.state(0))
+            .isEqualTo(Future.State.CANCELLED);
+    } // end of runCancelTimer()
 
-    private void runSingleFixRateTimer(final EfsScheduledExecutorConfig config)
+    private void runSingleFixRateTimer()
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(config)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final int timerId = 0;
         final int numExpirations = 10;
         final Duration initialDelay = Duration.ofMillis(200L);
@@ -1292,15 +932,14 @@ public final class ScheduledExecutorTest
         assertThat(agent.expirationCount())
             .isEqualTo(numExpirations);
         assertThat(agent.isCanceled(timerId)).isTrue();
-    } // end of runSingleFixRateTimer(EfsScheduledExecutorConfig)
+        assertThat(agent.state(timerId))
+            .isEqualTo(Future.State.CANCELLED);
+    } // end of runSingleFixRateTimer()
 
-    private void runSingleFixDelayTimer(final EfsScheduledExecutorConfig config)
+    private void runSingleFixDelayTimer()
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(config)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final int timerId = 0;
         final int numExpirations = 10;
         final Duration initialDelay = Duration.ofMillis(200L);
@@ -1330,15 +969,14 @@ public final class ScheduledExecutorTest
         assertThat(agent.expirationCount())
             .isEqualTo(numExpirations);
         assertThat(agent.isCanceled(timerId)).isTrue();
-    } // end of runSingleFixDelayTimer(...)
+        assertThat(agent.state(timerId))
+            .isEqualTo(Future.State.CANCELLED);
+    } // end of runSingleFixDelayTimer()
 
-    private void runMixedTimers(final EfsScheduledExecutorConfig config)
+    private void runMixedTimers()
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(config)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final int numExpirations = 30;
         final Duration[] singleShotExpirations =
         {
@@ -1378,20 +1016,24 @@ public final class ScheduledExecutorTest
         assertThat(agent.expirationCount())
             .isGreaterThanOrEqualTo(numExpirations);
         assertThat(agent.isDone(0)).isTrue();
+        assertThat(agent.state(0))
+            .isEqualTo(Future.State.SUCCESS);
         assertThat(agent.isCanceled(1)).isTrue();
+        assertThat(agent.state(1))
+            .isEqualTo(Future.State.CANCELLED);
         assertThat(agent.isCanceled(2)).isTrue();
+        assertThat(agent.state(2))
+            .isEqualTo(Future.State.CANCELLED);
         assertThat(agent.isDone(3)).isTrue();
-    } // end of runMixedTimers(EfsScheduledExecutorConfig)
+        assertThat(agent.state(3))
+            .isEqualTo(Future.State.SUCCESS);
+    } // end of runMixedTimers()
 
     private void runFixRatePerformanceTest(final int numExpirations,
-                                           final String dispatcherName,
-                                           final EfsScheduledExecutorConfig config)
+                                           final String dispatcherName)
     {
         final EfsScheduledExecutor executor =
-            (EfsScheduledExecutor.builder())
-                .set(config)
-                .executorName(nextExecutorName())
-                .build();
+            new EfsScheduledExecutor(mService);
         final int timerId = 0;
         final Duration initialDelay = Duration.ofNanos(200_000L);
         final Duration period = Duration.ofNanos(100_000L);
@@ -1424,26 +1066,13 @@ public final class ScheduledExecutorTest
 
         agent.cancelTimer(timerId);
 
-        sLogger.info(
-            "\n{} scheduled executor, {} dispatcher.",
-            config.getThreadType(),
-            dispatcherName);
+        sLogger.info("\n{} dispatcher.", dispatcherName);
 
         sLogger.info(
             "\nRun time: {}\n\n", formatDuration(runTime));
 
         sLogger.info(agent.generateResults());
     } // end of runFixRatePerformanceTest(...)
-
-    private String nextExecutorName()
-    {
-        final String retval =
-            EXECUTOR_NAME_PREFIX + sExecutorIndex;
-
-        ++sExecutorIndex;
-
-        return (retval);
-    } // end of nextExecutorName()
 
     private String nextAgentName()
     {
@@ -1496,7 +1125,7 @@ public final class ScheduledExecutorTest
         private final String mName;
         private final CountDownLatch mSignal;
         private final EfsScheduledExecutor mExecutor;
-        private final Map<Integer, IEfsTimer> mTimers;
+        private final Map<Integer, ScheduledFuture<?>> mTimers;
 
         private final AtomicInteger mTimerCounter;
         private final AtomicInteger mExpirationCounter;
@@ -1558,35 +1187,24 @@ public final class ScheduledExecutorTest
 
         public boolean isDone(final int id)
         {
-            final IEfsTimer timer = mTimers.get(id);
+            final ScheduledFuture<?> timer = mTimers.get(id);
 
             return (timer == null || timer.isDone());
         } // end of isExpired(int)
 
         public boolean isCanceled(final int id)
         {
-            final IEfsTimer timer = mTimers.get(id);
+            final ScheduledFuture<?> timer = mTimers.get(id);
 
-            return (timer != null && timer.isCanceled());
+            return (timer != null && timer.isCancelled());
         } // end of isCanceled(int)
 
-        @Nullable public CancelReason cancelReason(final int id)
+        @Nullable public Future.State state(final int id)
         {
-            final IEfsTimer timer = mTimers.get(id);
+            final ScheduledFuture<?> timer = mTimers.get(id);
 
-            return (timer == null ?
-                    null :
-                    timer.cancelReason());
-        } // end of cancelReason(int)
-
-        @Nullable public Exception cancelException(final int id)
-        {
-            final IEfsTimer timer = mTimers.get(id);
-
-            return (timer == null ?
-                    null :
-                    timer.cancelException());
-        } // end of cancelException(int)
+            return (timer == null ? null : timer.state());
+        } // end of state(int)
 
         //
         // end of Get Methods.
@@ -1606,31 +1224,19 @@ public final class ScheduledExecutorTest
             if (!mTimers.containsKey(id))
             {
                 final String timerName = TIMER_NAME_PREFIX + id;
-                final IEfsTimer timer =
+                final ScheduledFuture<?> timer =
                     mExecutor.schedule(
                         timerName,
                         this::onTimeout,
                         this,
                         delay);
-                final String text =
-                    String.format("[type=%s, state=%s",
-                                   TimerType.SINGLE_SHOT,
-                                   TimerState.ACTIVE);
 
                 mTimerCounter.incrementAndGet();
                 mTimers.put(id, timer);
-
-                assertThat(timer.timerName())
-                    .isEqualTo(timerName);
-                assertThat(timer.timerState())
-                    .isEqualTo(TimerState.ACTIVE);
-                assertThat(timer.timerType())
-                    .isEqualTo(TimerType.SINGLE_SHOT);
-                assertThat(timer.isCanceled()).isFalse();
-                assertThat(timer.cancelException()).isNull();
-                assertThat(timer.isRepeating()).isFalse();
+                assertThat(timer.isCancelled()).isFalse();
                 assertThat(timer.isDone()).isFalse();
-                assertThat(timer.toString()).startsWith(text);
+                assertThat(timer.state())
+                    .isEqualTo(Future.State.RUNNING);
             }
         } // end of setTimer(int, Duration)
 
@@ -1641,32 +1247,21 @@ public final class ScheduledExecutorTest
             if (!mTimers.containsKey(id))
             {
                 final String timerName = TIMER_NAME_PREFIX + id;
-                final IEfsTimer timer =
+                final ScheduledFuture<?> timer =
                     mExecutor.scheduleAtFixedRate(
                         timerName,
                         this::onTimeout,
                         this,
                         initialDelay,
                         period);
-                final String text =
-                    String.format("[type=%s, state=%s",
-                                   TimerType.REPEAT_FIXED_RATE,
-                                   TimerState.ACTIVE);
 
                 mTimerCounter.incrementAndGet();
                 mTimers.put(id, timer);
 
-                assertThat(timer.timerName())
-                    .isEqualTo(timerName);
-                assertThat(timer.timerState())
-                    .isEqualTo(TimerState.ACTIVE);
-                assertThat(timer.timerType())
-                    .isEqualTo(TimerType.REPEAT_FIXED_RATE);
-                assertThat(timer.isCanceled()).isFalse();
-                assertThat(timer.cancelException()).isNull();
-                assertThat(timer.isRepeating()).isTrue();
+                assertThat(timer.state())
+                    .isEqualTo(Future.State.RUNNING);
+                assertThat(timer.isCancelled()).isFalse();
                 assertThat(timer.isDone()).isFalse();
-                assertThat(timer.toString()).startsWith(text);
             }
         } // end of setFixedRateTimer(int, Duration, Duration)
 
@@ -1677,32 +1272,21 @@ public final class ScheduledExecutorTest
             if (!mTimers.containsKey(id))
             {
                 final String timerName = TIMER_NAME_PREFIX + id;
-                final IEfsTimer timer =
+                final ScheduledFuture<?> timer =
                     mExecutor.scheduleWithFixedDelay(
                         timerName,
                         this::onTimeout,
                         this,
                         initialDelay,
                         delay);
-                final String text =
-                    String.format("[type=%s, state=%s",
-                                   TimerType.REPEAT_FIXED_DELAY,
-                                   TimerState.ACTIVE);
 
                 mTimerCounter.incrementAndGet();
                 mTimers.put(id, timer);
 
-                assertThat(timer.timerName())
-                    .isEqualTo(timerName);
-                assertThat(timer.timerState())
-                    .isEqualTo(TimerState.ACTIVE);
-                assertThat(timer.timerType())
-                    .isEqualTo(TimerType.REPEAT_FIXED_DELAY);
-                assertThat(timer.isCanceled()).isFalse();
-                assertThat(timer.cancelException()).isNull();
-                assertThat(timer.isRepeating()).isTrue();
+                assertThat(timer.state())
+                    .isEqualTo(Future.State.RUNNING);
+                assertThat(timer.isCancelled()).isFalse();
                 assertThat(timer.isDone()).isFalse();
-                assertThat(timer.toString()).startsWith(text);
             }
         } // end of setFixedDelayTimer(int, Duration, Duration)
 
@@ -1710,18 +1294,18 @@ public final class ScheduledExecutorTest
         {
             if (mTimers.containsKey(id))
             {
-                final IEfsTimer timer = mTimers.get(id);
+                final ScheduledFuture<?> timer = mTimers.get(id);
 
                 if (!timer.isDone())
                 {
                     try
                     {
-                        timer.close();
+                        timer.cancel(true);
                     }
                     catch (Exception jex)
                     {
-                        sLogger.warn("{} cancel failed.",
-                                     timer.timerName(),
+                        sLogger.warn("{}: timer cancel failed.",
+                                     mName,
                                      jex);
                     }
                 }
