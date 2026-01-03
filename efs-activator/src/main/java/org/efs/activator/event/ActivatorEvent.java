@@ -17,10 +17,10 @@
 package org.efs.activator.event;
 
 import com.google.common.base.Strings;
+import jakarta.annotation.Nullable;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.function.Consumer;
-import javax.annotation.Nullable;
 import net.sf.eBus.util.ValidationException;
 import net.sf.eBus.util.Validator;
 import org.efs.activator.EfsActivator;

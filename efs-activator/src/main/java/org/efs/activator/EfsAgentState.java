@@ -17,9 +17,9 @@
 package org.efs.activator;
 
 import com.google.common.collect.ImmutableMap;
+import jakarta.annotation.Nullable;
 import java.util.Map;
 import java.util.Optional;
-import javax.annotation.Nullable;
 import net.sf.eBus.util.MultiKey2;
 
 /**

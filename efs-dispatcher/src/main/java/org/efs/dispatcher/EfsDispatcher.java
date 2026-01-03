@@ -23,6 +23,7 @@ import com.typesafe.config.Config;
 import com.typesafe.config.ConfigBeanFactory;
 import com.typesafe.config.ConfigException;
 import com.typesafe.config.ConfigFactory;
+import jakarta.annotation.Nullable;
 import java.io.File;
 import java.time.Duration;
 import java.util.Arrays;
@@ -35,7 +36,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import javax.annotation.Nullable;
 import net.sf.eBus.util.ValidationException;
 import net.sf.eBus.util.Validator;
 import org.efs.dispatcher.EfsDispatcherThread.DispatcherThreadStats;
@@ -668,6 +668,9 @@ public final class EfsDispatcher
     /**
      * Enqueues given agent to this dispatcher's run queue.
      * @param agent enqueue this efs agent.
+     * @throws IllegalStateException
+     * if dispatcher run queue is full and {@code agent} was not
+     * enqueued.
      */
     @Override
     public void dispatch(final EfsAgent agent)
@@ -809,6 +812,25 @@ public final class EfsDispatcher
     } // end of dispatcher(IEfsAgent)
 
     /**
+     * Returns {@code true} if given name is a known dispatcher
+     * and {@code false} otherwise.
+     * @param name unique dispatcher name.
+     * @return {@code true} if {@code name} is a known
+     * dispatcher.
+     * @throws IllegalArgumentException
+     * if {@code name} is either {@code null} or an empty string.
+     */
+    public static boolean isDispatcher(final String name)
+    {
+        if (Strings.isNullOrEmpty(name))
+        {
+            throw (new IllegalArgumentException(INVALID_NAME));
+        }
+
+        return (sDispatchers.containsKey(name));
+    } // end of isDispatcher(String)
+
+    /**
      * Returns an immutable copy of dispatcher names.
      * @return dispatcher names list.
      */
@@ -829,9 +851,7 @@ public final class EfsDispatcher
     {
         if (Strings.isNullOrEmpty(name))
         {
-            throw (
-                new IllegalArgumentException(
-                    "name is null or an empty string"));
+            throw (new IllegalArgumentException(INVALID_NAME));
         }
 
         return (sDispatchers.get(name));
@@ -992,14 +1012,8 @@ public final class EfsDispatcher
             throw (new IllegalArgumentException(INVALID_NAME));
         }
 
-        if (sDispatchers.containsKey(name))
-        {
-            throw (
-                new IllegalStateException(
-                    "dispatcher " +
-                    name +
-                    " already exists"));
-        }
+        // Note: duplicate dispatchers with the same name is
+        // checked for *when* Builder.build() is called.
 
         return (new Builder(name));
     } // end of builder()
@@ -1217,36 +1231,23 @@ public final class EfsDispatcher
 
     /**
      * Validates that {@code agent} has a non-{@code null},
-     * non-empty, unique name. This method is called for effect
-     * only.
+     * non-empty, name. This method is called for effect only.
      * @param agent validate agent's name.
      * @throws IllegalArgumentException
      * if {@code agent.name()} returns a {@code null} or empty
      * string.
-     * @throws IllegalStateException
-     * if {@code agent} is already registered.
      */
     private static void validateAgentRegister(final IEfsAgent agent)
     {
-        final String agentName = agent.name();
-
-        if (Strings.isNullOrEmpty(agentName))
+        if (Strings.isNullOrEmpty(agent.name()))
         {
             throw (
                 new IllegalArgumentException(
                     MISSING_AGENT_NAME));
         }
 
-        // Is this efs agent currently registered?
-        if (sAgents.containsKey(agentName))
-        {
-            // Yes, and that is not allowed.
-            throw (
-                new IllegalStateException(
-                    "efs agent \"" +
-                    agentName +
-                    "\" currently registered"));
-        }
+        // Check for duplicate agents with the same name is
+        // performed in doRegister.
     } // end of validateAgentRegister(IEfsAgent)
 
     /**
@@ -1302,26 +1303,40 @@ public final class EfsDispatcher
 
     /**
      * Creates a {@link EfsAgent} instance encapsulating given
-     * efs object and associated with the given dispatcher.
-     * efs agent is stopped and must be explicitly
-     * {@link #startup(net.sf.efs.dispatcher.IEfsObject...) started}.
-     * @param eobj register this efs object.
-     * @param dispatcher associated {@code eobj} with this
+     * efs agent and associated with the given dispatcher.
+     * Created efs agent is initially stopped and must be
+     * explicitly started.
+     * @param agent register this efs agent.
+     * @param dispatcher associate {@code agent} with this
      * dispatcher.
+     * @throws IllegalStateException
+     * if {@code agent} is already registered.
      */
-    private static void doRegister(final IEfsAgent eobj,
+    private static void doRegister(final IEfsAgent agent,
                                    final IEfsDispatcher dispatcher)
     {
-        final String efsName = eobj.name();
+        final String agentName = agent.name();
         final EfsAgent.Builder builder = EfsAgent.builder();
+        final EfsAgent newAgent =
+             builder.agent(agent)
+                    .dispatcher(dispatcher)
+                    .maxEvents(dispatcher.maxEvents())
+                    .eventQueueCapacity(
+                        dispatcher.eventQueueCapacity())
+                    .build();
+        final EfsAgent existingAgent =
+            sAgents.putIfAbsent(agentName, newAgent);
 
-        sAgents.put(efsName,
-                     builder.agent(eobj)
-                            .dispatcher(dispatcher)
-                            .maxEvents(dispatcher.maxEvents())
-                            .eventQueueCapacity(
-                                dispatcher.eventQueueCapacity())
-                            .build());
+        // Is this agent currently registered?
+        if (existingAgent != null)
+        {
+            // Yes, and that is not allowed.
+            throw (
+                new IllegalStateException(
+                    "efs agent \"" +
+                    agentName +
+                    "\" currently registered"));
+        }
     } // end of doRegister(IEfsAgent, EfsDispatcher)
 
     /**
@@ -1380,16 +1395,17 @@ public final class EfsDispatcher
      * Posts agent to run queue so that it may be picked up by
      * {@link EfsDispatcherThread dispatcher thread}.
      * @param agent post this agent to run queue.
+     * @throws IllegalStateException
+     * if dispatcher run queue is full and {@code agent} was not
+     * enqueued.
      */
     private void doDispatch(final EfsAgent agent)
     {
         // Put event on agent's queue.
-        if (!mRunQueue.offer(agent))
-        {
-            sLogger.warn("{}: failed to post {} to run queue.",
-                         mDispatcherName,
-                         agent.agentName());
-        }
+        // Let IllegalStateException flow back to
+        // EfsAgent.postToRunQueue so that it can handle this
+        // exception.
+        mRunQueue.add(agent);
     } // end of doDispatch(EfsAgent)
 
     /**
@@ -1902,7 +1918,8 @@ import org.efs.dispatcher.config.ThreadType;
                         "capacity < " + MIN_EVENT_QUEUE_SIZE));
             }
 
-            mEventQueueCapacity = nextPowerOfTwo(capacity);
+            mEventQueueCapacity =
+                EfsAgent.roundToPowerOfTwo(capacity);
 
             return (this);
         } // end of eventQueueCapacity(int)
@@ -1928,7 +1945,8 @@ import org.efs.dispatcher.config.ThreadType;
                         "capacity <= zero"));
             }
 
-            mRunQueueCapacity = nextPowerOfTwo(capacity);
+            mRunQueueCapacity =
+                EfsAgent.roundToPowerOfTwo(capacity);
 
             return (this);
         } // end of runQueueCapacity(int)
@@ -2023,53 +2041,65 @@ import org.efs.dispatcher.config.ThreadType;
         //-------------------------------------------------------
 
         /**
-         * Creates a new {@code EfsDispatcher} instance based on
-         * this builder's settings and stores in dispatcher
-         * map.
-         * <p>
-         * <strong>Note:</strong> this method does <em>not</em>
-         * return an {@code EfsDispatcher} instance. User
-         * accesses this instance using the configured dispatcher
-         * name. This violates Builder pattern but is done to
-         * limit access to dispatcher instances.
-         * </p>
+         * Returns a new {@code IEfsDispatcher} instance based on
+         * this builder's settings. Has side effect of storing
+         * returned dispatcher in dispatcher map and starting
+         * this dispatcher running prior to return.
+         * @return new dispatcher created from this builder's
+         * settings.
          * @throws ValidationException
          * if {@code this Builder} instance contains one or more
          * invalid settings.
+         * @throws IllegalStateException
+         * if a dispatcher with configured name already exists.
          * @throws ThreadStartException
          * if an underlying dispatcher thread fails to start.
          */
-        public void build()
+        public IEfsDispatcher build()
         {
+            final boolean isEfsDispatcher =
+                (mDispatcherType == DispatcherType.EFS);
+            final IEfsDispatcher existingDispatcher;
             final EfsDispatcher retval;
 
-            // Limit building to one at a time.
-            synchronized (sDispatchers)
+            // Validate this builder's settings.
+            validate();
+
+            // Is this an efs dispatcher?
+            if (isEfsDispatcher)
             {
-                validate();
-
-                // Is this an efs dispatcher?
-                if (mDispatcherType == DispatcherType.EFS)
-                {
-                    // Then create the run queue based on the
-                    // thread type. Set queue capacity to
-                    // configured maximum.
-                    mRunQueue = createRunQueue();
-                }
-
-                retval = new EfsDispatcher(this);
-
-                sDispatchers.put(mDispatcherName, retval);
-
-                // Now start the dispatcher running - if it is
-                // *not* a special dispatcher. Special
-                // dispatchers are expected to be already
-                // running.
-                if (mDispatcherType == DispatcherType.EFS)
-                {
-                    retval.startup();
-                }
+                // Then create run queue based on thread type.
+                // Set queue capacity to configured maximum.
+                mRunQueue = createRunQueue();
             }
+
+            // Limit building to one at a time.
+            retval = new EfsDispatcher(this);
+            existingDispatcher =
+                sDispatchers.putIfAbsent(mDispatcherName, retval);
+
+            // Does a dispatcher with the same name already
+            // exist?
+            if (existingDispatcher != null)
+            {
+                // Yes, and that is not allowed.
+                throw (
+                    new IllegalStateException(
+                        "dispatcher " +
+                        mDispatcherName +
+                        " already exists"));
+            }
+
+            // Now start the dispatcher running - if it is
+            // *not* a special dispatcher. Special
+            // dispatchers are expected to be already
+            // running.
+            if (isEfsDispatcher)
+            {
+                retval.startup();
+            }
+
+            return (retval);
         } // end of build()
 
         /**
@@ -2131,8 +2161,8 @@ import org.efs.dispatcher.config.ThreadType;
                                       DispatcherType.EFS ||
                                   mSpecialDispatcher != null),
                                  DISPATCHER_TYPE_KEY,
-                                 "either dispatcher type is EFS and dispatcher not set " +
-                                 "or dispatcher type is SPECIAL and dispatcher must be set")
+                                 "dispatcher type is null or, " +
+                                 "if SPECIAL, dispatcher lambda must be provided")
                     .throwException(EfsDispatcher.class);
         } // end of validate()
 
@@ -2174,29 +2204,6 @@ import org.efs.dispatcher.config.ThreadType;
 
             return (retval);
         } // end of createRunQueue()
-
-        /**
-         * Returns a {@code 2 ^ n} value &ge; given value.
-         * @param n initial integer value.
-         * @return {@code 2 ^ n} value.
-         */
-        private int nextPowerOfTwo(final int n)
-        {
-            final int retval;
-
-            if (n <= 1)
-            {
-                retval = 1;
-            }
-            else
-            {
-                final int highest = Integer.highestOneBit(n);
-
-                retval = (highest == n ? n : (highest << 1));
-            }
-
-            return (retval);
-        } // end of nextPowerOfTwo(int)
     } // end of class Builder
 
     /**

@@ -24,7 +24,7 @@ limitations under the License.
 
   <groupId>org.efs</groupId>
   <artifactId>efs-parent</artifactId>
-  <version>0.3.0</version>
+  <version>0.4.0</version>
 
   <packaging>pom</packaging>
 
@@ -67,6 +67,7 @@ limitations under the License.
     <module>efs-bom</module>
     <module>efs-event</module>
     <module>efs-dispatcher</module>
+    <module>efs-feed</module>
     <module>efs-activator</module>
     <module>efs-timer</module>
   </modules>
@@ -90,9 +91,9 @@ limitations under the License.
     <maven.compiler.testTarget>21</maven.compiler.testTarget>
 
     <javadoc-version>3.12.0</javadoc-version>
-    <source-version>3.3.1</source-version>
+    <source-version>3.4.0</source-version>
 
-    <ebus.version>7.6.1</ebus.version>
+    <ebus.version>7.6.2</ebus.version>
     <guava.version>33.5.0-jre</guava.version>
     <decimal4j.version>1.0.3</decimal4j.version>
     <openhft.version>3.27ea1</openhft.version>
@@ -100,14 +101,15 @@ limitations under the License.
     <jctools.version>4.0.5</jctools.version>
     <javassist.version>3.30.2-GA</javassist.version>
     <reflections.version>0.10.2</reflections.version>
+    <jakarta.version>3.0.0</jakarta.version>
 
     <slf4j.version>2.0.17</slf4j.version>
-    <logback.version>1.5.21</logback.version>
+    <logback.version>1.5.23</logback.version>
 
     <junit.version>6.0.1</junit.version>
     <assertj.version>3.27.6</assertj.version>
-    <mockito.version>5.20.0</mockito.version>
-    <bytebuddy.version>1.17.8</bytebuddy.version>
+    <mockito.version>5.21.0</mockito.version>
+    <bytebuddy.version>1.18.2</bytebuddy.version>
     <awaitility.version>4.3.0</awaitility.version>
     <jacoco.version>0.8.14</jacoco.version>
 
@@ -142,6 +144,18 @@ limitations under the License.
           </exclusion>
         </exclusions>
       </dependency>
+
+     <dependency>
+       <groupId>net.sf.ebus</groupId>
+       <artifactId>extensions</artifactId>
+       <version>${ebus.version}</version>
+       <exclusions>
+         <exclusion>
+           <groupId>junit</groupId>
+           <artifactId>junit</artifactId>
+         </exclusion>
+       </exclusions>
+     </dependency>
 
       <!-- google dependencies -->
 
@@ -215,6 +229,12 @@ limitations under the License.
         <groupId>org.reflections</groupId>
         <artifactId>reflections</artifactId>
         <version>${reflections.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>jakarta.annotation</groupId>
+        <artifactId>jakarta.annotation-api</artifactId>
+        <version>${jakarta.version}</version>
       </dependency>
 
       <!-- Test dependencies -->
@@ -291,11 +311,11 @@ limitations under the License.
           <failOnError>false</failOnError>
           <outputDirectory>${project.build.directory}</outputDirectory>
           <stylesheetfile>src/main/javadoc/overview.css</stylesheetfile>
-          <doctitle><![CDATA[efs v. ${version}<br>API Specification]]></doctitle>
-          <header><![CDATA[efs<br>v. ${version}]]></header>
+          <doctitle><![CDATA[efs v. ${project.version}<br>API Specification]]></doctitle>
+          <header><![CDATA[efs<br>v. ${project.version}]]></header>
           <bottom><![CDATA[Copyright &#169; 2025. Charles W. Rapp<br>All rights reserved]]></bottom>
           <encoding>UTF-8</encoding>
-          <windowtitle>efs ${version} API</windowtitle>
+          <windowtitle>efs ${project.version} API</windowtitle>
           <additionalJOptions>--allow-script-in-comments</additionalJOptions>
         </configuration>
 

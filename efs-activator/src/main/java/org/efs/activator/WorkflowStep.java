@@ -18,6 +18,7 @@ package org.efs.activator;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
+import jakarta.annotation.Nullable;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
@@ -27,7 +28,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import javax.annotation.Nullable;
 import net.sf.eBus.util.MultiKey2;
 import net.sf.eBus.util.ValidationException;
 import net.sf.eBus.util.Validator;

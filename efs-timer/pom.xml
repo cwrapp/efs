@@ -26,7 +26,7 @@ limitations under the License.
   <parent>
     <groupId>org.efs</groupId>
     <artifactId>efs-parent</artifactId>
-    <version>0.3.0</version>
+    <version>0.4.0</version>
   </parent>
 
   <artifactId>efs-timer</artifactId>
@@ -51,11 +51,21 @@ limitations under the License.
       <version>${project.version}</version>
     </dependency>
 
+    <dependency>
+      <groupId>jakarta.annotation</groupId>
+      <artifactId>jakarta.annotation-api</artifactId>
+    </dependency>
+
     <!-- Test dependencies -->
 
     <dependency>
       <groupId>org.assertj</groupId>
       <artifactId>assertj-core</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>ch.qos.logback</groupId>
+      <artifactId>logback-classic</artifactId>
     </dependency>
 
     <dependency>
