@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Consumer;
 import net.sf.eBus.util.ValidationException;
 import net.sf.eBus.util.Validator;
@@ -136,6 +138,11 @@ import org.slf4j.LoggerFactory;
     private final Queue<Runnable> mEvents;
 
     /**
+     * efs agent's event queue capacity.
+     */
+    private final int mEventQueueCapacity;
+
+    /**
      * When {@code true}, agent is either on the run queue and
      * ready to run or running. Agent may only be placed on run
      * queue when false.
@@ -172,31 +179,38 @@ import org.slf4j.LoggerFactory;
      * is denied access to a dispatcher thread beyond the
      * monitor time limit.
      */
-    private volatile long mReadyTimestamp;
+    private final AtomicLong mReadyTimestamp;
 
     //
     // Execution statistics.
     //
 
     /**
+     * Tracks number of events on agent's event queue. This
+     * number is not expected to be exactly correct but roughly
+     * correct.
+     */
+    private final LongAdder mQueueSize;
+
+    /**
      * Minimum nanoseconds spent processing messages.
      */
-    private long mMinimumRunTime;
+    private final AtomicLong mMinimumRunTime;
 
     /**
      * Maximum nanoseconds spent processing messages.
      */
-    private long mMaximumRunTime;
+    private final AtomicLong mMaximumRunTime;
 
     /**
      * Total nanoseconds spent processing messages.
      */
-    private long mTotalRunTime;
+    private final LongAdder mTotalRunTime;
 
     /**
      * Number of times this agent has been on core.
      */
-    private long mRunCount;
+    private final LongAdder mRunCount;
 
 //---------------------------------------------------------------
 // Member methods.
@@ -216,17 +230,19 @@ import org.slf4j.LoggerFactory;
         mMaxEvents = builder.mMaxEvents;
         mOnRunQueue = new AtomicBoolean();
         mDispatcher = builder.mDispatcher;
+        mEventQueueCapacity = builder.mEventQueueCapacity;
         mEvents =
-            createEventQueue(builder.mEventQueueCapacity,
+            createEventQueue(mEventQueueCapacity,
                              mDispatcher.threadCount());
 
         mRunState = RunState.IDLE;
-        mReadyTimestamp = 0L;
+        mReadyTimestamp = new AtomicLong();
 
-        mMinimumRunTime = 0L;
-        mMaximumRunTime = 0L;
-        mTotalRunTime = 0L;
-        mRunCount = 0L;
+        mQueueSize = new LongAdder();
+        mMinimumRunTime = new AtomicLong();
+        mMaximumRunTime = new AtomicLong();
+        mTotalRunTime = new LongAdder();
+        mRunCount = new LongAdder();
     } // end of EfsAgent(Builder)
 
     //
@@ -297,6 +313,15 @@ import org.slf4j.LoggerFactory;
     } // end of agentName()
 
     /**
+     * Returns event queue capacity.
+     * @return event queue capacity.
+     */
+    public int eventQueueCapacity()
+    {
+        return (mEventQueueCapacity);
+    } // end of eventQueueCapacity()
+
+    /**
      * Returns efs agent's maximum allowed events processed per
      * run.
      * @return agent maximum allowed events.
@@ -323,11 +348,7 @@ import org.slf4j.LoggerFactory;
      */
     public long getAndClearReadyTimestamp()
     {
-        final long retval = mReadyTimestamp;
-
-        mReadyTimestamp = 0L;
-
-        return (retval);
+        return (mReadyTimestamp.getAndSet(0L));
     } // end of readyTimestamp()
 
     /**
@@ -347,11 +368,11 @@ import org.slf4j.LoggerFactory;
     public AgentStats generateRunStats()
     {
         return (new AgentStats(agentName(),
-                               mEvents.size(),
-                               mMinimumRunTime,
-                               mMaximumRunTime,
-                               mTotalRunTime,
-                               mRunCount,
+                               mQueueSize.sum(),
+                               mMinimumRunTime.get(),
+                               mMaximumRunTime.get(),
+                               mTotalRunTime.sum(),
+                               mRunCount.sum(),
                                mDispatcher.name(),
                                mMaxEvents));
     } // end of generateRunStats()
@@ -467,6 +488,7 @@ Ponger
 
         // Clear out undelivered events.
         mEvents.clear();
+        mQueueSize.reset();
     } // end of deregister()
 
     /**
@@ -485,7 +507,7 @@ Ponger
     /* package */ <E extends IEfsEvent> void dispatch(final Consumer<E> callback,
                                                       final E event)
     {
-        dispatch(new EventTask<>(event, callback));
+        dispatch(new EventTask<>(mAgent.name(), event, callback));
     } // end of dispatch(Consumer<>, E)
 
     /**
@@ -511,6 +533,7 @@ Ponger
         // the dispatcher run queue.
         else
         {
+            mQueueSize.increment();
             postToRunQueue();
         }
     } // end of dispatch(Runnable)
@@ -524,19 +547,15 @@ Ponger
     {
         if (runTime > 0L)
         {
-            if (mMinimumRunTime == 0 ||
-                runTime < mMinimumRunTime)
-            {
-                mMinimumRunTime = runTime;
-            }
+            mMinimumRunTime.updateAndGet(
+                prev -> (prev == 0L ?
+                         runTime :
+                         Math.min(prev, runTime)));
+            mMaximumRunTime.updateAndGet(
+                prev -> Math.max(prev, runTime));
 
-            if (runTime > mMaximumRunTime)
-            {
-                mMaximumRunTime = runTime;
-            }
-
-            mTotalRunTime += runTime;
-            ++mRunCount;
+            mTotalRunTime.add(runTime);
+            mRunCount.increment();
         }
     } // end of updateRunStats(long)
 
@@ -571,6 +590,7 @@ Ponger
             // forwardEvent catches any agent-thrown exceptions,
             // so a try-catch block is not needed here.
             ++retval;
+            mQueueSize.decrement();
             startTime = System.nanoTime();
             task.run();
             timeUsed = (System.nanoTime() - startTime);
@@ -598,6 +618,37 @@ Ponger
     {
         return (new Builder());
     } // end of builder()
+
+    /**
+     * Returns next greater power of 2 value if given capacity is
+     * not a power of 2. If this value exceeds
+     * {@link Integer#MAX_VALUE}, then returns argument.
+     * @param capacity find next greater power of 2 from this
+     * value.
+     * @return power of 2 value &ge; {@code capacity}.
+     */
+    /* package */ static int roundToPowerOfTwo(final int capacity)
+    {
+        final int retval;
+
+        // If this integer has only one bit set, then
+        // capacity is, by definition, a power of two.
+        if (Integer.bitCount(capacity) == 1)
+        {
+            retval = capacity;
+        }
+        // More than one bit is set.
+        else
+        {
+            final int highest =
+                Integer.highestOneBit(capacity);
+            final int next = highest << 1;
+
+            retval = (next > 0 ? next : capacity);
+        }
+
+        return (retval);
+    } // end of roundToPowerOfTwo(int)
 
     /**
      * Posts this agent to dispatcher run queue if:
@@ -632,10 +683,24 @@ Ponger
             // Mark this agent as in the ready state and
             // timestamp when this occurred.
             runState(RunState.READY);
-            mReadyTimestamp = System.nanoTime();
+            mReadyTimestamp.set(System.nanoTime());
 
             // No. Place this agent on the run queue.
-            mDispatcher.dispatch(this);
+            try
+            {
+                mDispatcher.dispatch(this);
+            }
+            catch (Exception jex)
+            {
+                // Dispatcher run queue is full so agent is not
+                // on the run queue. Make note of this.
+                mOnRunQueue.set(false);
+
+                sLogger.warn(
+                    "{}: failed to post this agent to {} dispatcher due to run queue overflow.",
+                    mAgent.name(),
+                    mDispatcher.name());
+            }
         }
         // Else if this agent is either stopped or currently on
         // the run queue or running, so nothing has changed.
@@ -649,12 +714,6 @@ Ponger
      * dispatcher thread count. If dispatcher has only one
      * thread, then a {@code MpscAtomicArrayQueue} is returned;
      * otherwise a {@code MpmcAtomicArrayQueue}.
-     * <p>
-     * Note: if dispatcher has multiple threads, then event queue
-     * <em>must</em> have an bounded capacity. This means that
-     * if event queue is set to unbounded, it is changed to
-     * {@link #UNBOUNDED_MULTI_THREAD_CAPACITY}.
-     * </p>
      * @param capacity event queue capacity.
      * @param threadCount dispatcher thread count.
      * @return event queue for given capacity and dispatcher
@@ -725,7 +784,7 @@ Ponger
         /**
          * Agent event queue size as of this report.
          */
-        private final int mEventQueueSize;
+        private final long mEventQueueSize;
 
         /**
          * Minimum nanoseconds spent processing messages.
@@ -767,7 +826,7 @@ Ponger
 
         @SuppressWarnings({"java:S107"})
         private AgentStats(final String agentName,
-                           final int eventQueueSize,
+                           final long eventQueueSize,
                            final long minRunTime,
                            final long maxRunTime,
                            final long totalRunTime,
@@ -840,7 +899,7 @@ Ponger
             return (mAgentName);
         } // end of getAgentName()
 
-        public int getEventQueueSize()
+        public long getEventQueueSize()
         {
             return (mEventQueueSize);
         } // end of getEventQueueSize()
@@ -994,7 +1053,10 @@ Ponger
         } // end of maxEvents(int)
 
         /**
-         * Sets agent event queue capacity.
+         * Sets agent event queue capacity. If capacity is not a
+         * power of 2, then increases capacity to next highest
+         * power of 2 - if it is not &gt;
+         * {@link Integer#MAX_VALUE}.
          * @param capacity event queue capacity.
          * @return {@code this Builder} instance.
          * @throws IllegalArgumentException
@@ -1009,7 +1071,7 @@ Ponger
                         "capacity <= zero"));
             }
 
-            mEventQueueCapacity = capacity;
+            mEventQueueCapacity = roundToPowerOfTwo(capacity);
 
             return (this);
         } // end of eventQueueCapacity(int)
@@ -1058,7 +1120,7 @@ Ponger
      *
      * @param <E> event class.
      */
-    private final class EventTask<E extends IEfsEvent>
+    private static final class EventTask<E extends IEfsEvent>
         implements Runnable
     {
     //-----------------------------------------------------------
@@ -1068,6 +1130,11 @@ Ponger
         //-------------------------------------------------------
         // Locals.
         //
+
+        /**
+         * Forwarding task to this agent.
+         */
+        private final String mAgentName;
 
         /**
          * Deliver this event to efs agent.
@@ -1090,16 +1157,19 @@ Ponger
         /**
          * Creates an event delivery task for given event and
          * lambda expression.
+         * @param agentName deliver event to this named agent.
          * @param event deliver this event.
          * @param callback consumer lambda expression used to
          * deliver this event.
          */
-        private EventTask(final E event,
+        private EventTask(final String agentName,
+                          final E event,
                           final Consumer<E> callback)
         {
+            mAgentName = agentName;
             mEvent = event;
             mCallback = callback;
-        } // end of EventTask(IEfsEvent, Consumer<>)
+        } // end of EventTask(String, IEfsEvent, Consumer<>)
 
         //
         // end of Constructors.
@@ -1122,10 +1192,9 @@ Ponger
             catch (Exception jex)
             {
                 sLogger.warn(
-                    "{}: exception when forwarding {} event\n{}.",
-                    mAgent.name(),
+                    "{}: exception when forwarding {} event.",
+                    mAgentName,
                     (mEvent.getClass()).getName(),
-                    mEvent,
                     jex);
             }
         } // end of run()

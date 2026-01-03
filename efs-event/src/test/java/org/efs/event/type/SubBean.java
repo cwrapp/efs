@@ -120,7 +120,9 @@ public final class SubBean
         //
 
         private Builder()
-        {}
+        {
+            super (SubBean.class);
+        } // end of Builder()
 
         //
         // end of Constructors.

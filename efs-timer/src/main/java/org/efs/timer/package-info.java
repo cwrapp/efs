@@ -15,14 +15,28 @@
 //
 
 /**
- * efs provides a high precision timer via
- * {@link org.efs.timer.EfsScheduledExecutor} which provides a
- * similar functionality as
- * {@link java.util.concurrent.ScheduledExecutorService} with the
- * difference that expired timer tasks are dispatched to an efs
- * agent's event queue. This means timer events are processed
- * on a efs dispatcher thread which means the efs agent remains
- * effectively single threaded.
+ * efs timer package provides
+ * {@link org.efs.timer.EfsScheduledExecutor EfsScheduledExecutor}
+ * which encapsulates a
+ * {@link java.util.concurrent.ScheduledExecutorService ScheduledExecutorService}.
+ * The idea is that {@code EfsScheduledExecutor} translates timer
+ * expirations into
+ * {@link org.efs.timer.EfsTimerEvent timer events} dispatched to
+ * an {@link org.efs.dispatcher.IEfsAgent efs agent}.
+ * <p>
+ * The reason for this efs scheduled executor is to make it
+ * possible for efs agents to process timer events solely within
+ * the agent's dispatcher. This means agents remain effectively
+ * single threaded. If {@code ScheduledExecutorService} were used
+ * to directly access an efs agent, then the efs agent is no
+ * longer singled threaded and thread safety measures are needed.
+ * </p>
+ * <p>
+ * Note that the user-provided {@code ScheduledExecutorService}
+ * may be used independently of the {@code EfsScheduledExecutor}
+ * to execute other tasks and even be shut down outside of the
+ * efs scheduled executor.
+ * </p>
  * <h2>Scheduling Timers</h2>
  * <p>
  * {@code EfsScheduledExecutor} provides timer scheduling methods
@@ -40,22 +54,39 @@
  *    </li>
  *  </ul>
  * <p>
- * The main difference between Java and efs schedulers is that
- * efs requires an {@code IEfsAgent } argument and does not
- * support scheduling a {@link java.util.concurrent.Callable}.
- * </p>
+ * The main differences between Java and efs schedulers are:
+ * <ul>
+ *   <li>
+ *     efs requires {@code IEfsAgent} and
+ *     {@code Consumer<EfsTimerEvent>} arguments and does not
+ *     support scheduling
+ *     {@link java.util.concurrent.Callable Callable} or
+ *     {@link java.lang.Runnable Runnable} commands.
+ *     <strong>Note: </strong> the provided efs agent must be
+ *     registered with an efs dispatcher prior to using that
+ *     agent to schedule a timer.
+ *   </li>
+ *   <li>
+ *     {@code EfsScheduledExecutor} uses
+ *     {@link java.time.Duration Duration} to specify
+ *     delay/period values rather than a {@code long} and
+ *     {@link java.util.concurrent.TimeUnit TimeUnit}.
+ *   </li>
+ * </ul>
  * <h2>Creating efs Scheduled Executors</h2>
  * <p>
- * {@link org.efs.timer.EfsScheduledExecutor} class
- * documentation provides detailed description on how to create a
- * new efs scheduled executor. Like efs dispatcher threads,
- * efs schedulers come in four flavor: blocking, spinning,
- * spin+park, and spin+yield.
+ * Creating an efs scheduled executor is as simple as:
  * </p>
- * <p>
- * <strong>Note:</strong> a default efs scheduled executor is
- * <em>not</em> provided.
- * </p>
+ * <ol>
+ *   <li>
+ *     Creating a {@code ScheduledExecutorService} instance and
+ *   </li>
+ *   <li>
+ *     passing that {@code ScheduledExecutorService} instance to
+ *     the efs scheduled executor constructor
+ *     {@link org.efs.timer.EfsScheduledExecutor#EfsScheduledExecutor(java.util.concurrent.ScheduledExecutorService) EfsScheduleExecutor(ScheduledExecutorService)}.
+ *   </li>
+ * </ol>
  */
 
 package org.efs.timer;

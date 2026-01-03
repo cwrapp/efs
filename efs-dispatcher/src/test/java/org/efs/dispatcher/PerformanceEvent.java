@@ -16,7 +16,8 @@
 
 package org.efs.dispatcher;
 
-import javax.annotation.Nullable;
+import jakarta.annotation.Nullable;
+import javax.annotation.concurrent.Immutable;
 import org.efs.event.IEfsEvent;
 
 /**
@@ -26,6 +27,7 @@ import org.efs.event.IEfsEvent;
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
 
+@Immutable
 public final class PerformanceEvent
     implements IEfsEvent
 {

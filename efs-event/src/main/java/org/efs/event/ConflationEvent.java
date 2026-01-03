@@ -16,10 +16,10 @@
 
 package org.efs.event;
 
+import jakarta.annotation.Nullable;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import javax.annotation.Nullable;
 
 /**
  * This <em>mutable</em> event allows changing the encapsulated
@@ -66,7 +66,7 @@ public final class ConflationEvent<E extends IEfsEvent>
      * Contains current missed count when conflation event is
      * {@link #poll() polled}.
      */
-    private int mMissedCount;
+    private volatile int mMissedCount;
 
 //---------------------------------------------------------------
 // Member methods.

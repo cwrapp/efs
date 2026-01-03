@@ -16,16 +16,30 @@
 
 package org.efs.timer;
 
-import javax.annotation.Nullable;
+import jakarta.annotation.Nullable;
+import javax.annotation.concurrent.Immutable;
 import org.efs.event.IEfsEvent;
 
 /**
- * Event reporting a timer expiration. Contains user-specified
- * timer name which may be {@code null} or an empty string.
+ * Event reporting a timer expiration. Contains:
+ * <ul>
+ *   <li>
+ *     user-specified timer name which may be {@code null} or an
+ *     empty string.
+ *   </li>
+ *   <li>
+ *     {@link System#nanoTime()} timestamp when timer was
+ *     dispatched to agent. Provided so agent can determine delta
+ *     between timer expiration and timer event delivery.
+ *   </li>
+ * </ul>
+ *
+ *
  *
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
 
+@Immutable
 public final class EfsTimerEvent
     implements IEfsEvent
 {
@@ -44,9 +58,9 @@ public final class EfsTimerEvent
     @Nullable private final String mTimerName;
 
     /**
-     * {@code java.lang.System.nanoTime} when timer was scheduled
-     * to expire. Provided so agent can determine delta between
-     * timer expiration and timer delivery.
+     * {@code java.lang.System.nanoTime} when timer event was
+     * dispatched to agent. Provided so agent can determine
+     * delta between timer expiration and timer event delivery.
      */
     private final long mExpiration;
 
@@ -77,6 +91,16 @@ public final class EfsTimerEvent
     //-----------------------------------------------------------
 
     //-----------------------------------------------------------
+    // Object Method Overrides.
+    //
+
+
+
+    //
+    // end of Object Method Overrides.
+    //-----------------------------------------------------------
+
+    //-----------------------------------------------------------
     // Get Methods.
     //
 
@@ -91,13 +115,13 @@ public final class EfsTimerEvent
     } // end of timerName()
 
     /**
-     * Returns timer's scheduled expiration time in Java
+     * Returns when timer event dispatched to agent in Java
      * nanoseconds (see {@link System#nanoTime()}). This value
      * allows agent to determine delay between timer's expiration
      * and delivery to agent. The idea being that an agent may
-     * decide to take alternative action is timer delivery was
+     * decide to take alternative action if timer delivery was
      * delayed beyond an acceptable time limit.
-     * @return timer's scheduled expiration time in nanoseconds.
+     * @return timer event dispatch time in nanoseconds.
      */
     public long expiration()
     {
