@@ -34,6 +34,8 @@ public final class ThreadStartExceptionTest
     // Constants.
     //
 
+    private static final String DISPATCHER_NAME =
+        "test-dispatcher";
     private static final String THREAD_NAME = "test-thread";
     private static final String EXCEPTION_MESSAGE = "BOOM!";
 
@@ -49,8 +51,12 @@ public final class ThreadStartExceptionTest
     public void ctorThreadName()
     {
         final ThreadStartException tsex =
-            new ThreadStartException(THREAD_NAME);
+            new ThreadStartException(
+                DISPATCHER_NAME, THREAD_NAME);
 
+        assertThat(tsex.dispatcherName())
+            .isEqualTo(DISPATCHER_NAME);
+        assertThat(tsex.threadName()).isEqualTo(THREAD_NAME);
         assertThat(tsex.threadName()).isEqualTo(THREAD_NAME);
     } // end of ctorThreadName()
 
@@ -59,8 +65,10 @@ public final class ThreadStartExceptionTest
     {
         final ThreadStartException tsex =
             new ThreadStartException(
-                THREAD_NAME, EXCEPTION_MESSAGE);
+                DISPATCHER_NAME, THREAD_NAME, EXCEPTION_MESSAGE);
 
+        assertThat(tsex.dispatcherName())
+            .isEqualTo(DISPATCHER_NAME);
         assertThat(tsex.threadName()).isEqualTo(THREAD_NAME);
         assertThat(tsex).hasMessage(EXCEPTION_MESSAGE);
     } // end of ctorThreadNameMessage()
@@ -71,9 +79,14 @@ public final class ThreadStartExceptionTest
         final RuntimeException cause =
             new RuntimeException("I made a boo-boo");
         final ThreadStartException tsex =
-            new ThreadStartException(
-                THREAD_NAME, EXCEPTION_MESSAGE, cause);
+            new ThreadStartException(DISPATCHER_NAME,
+                                     THREAD_NAME,
+                                     EXCEPTION_MESSAGE,
+                                     cause);
 
+        assertThat(tsex.dispatcherName())
+            .isEqualTo(DISPATCHER_NAME);
+        assertThat(tsex.threadName()).isEqualTo(THREAD_NAME);
         assertThat(tsex.threadName()).isEqualTo(THREAD_NAME);
         assertThat(tsex).hasMessage(EXCEPTION_MESSAGE);
         assertThat(tsex).hasCause(cause);

@@ -17,6 +17,7 @@
 package org.efs.timer;
 
 import jakarta.annotation.Nullable;
+import java.util.Objects;
 import javax.annotation.concurrent.Immutable;
 import org.efs.event.IEfsEvent;
 
@@ -30,7 +31,7 @@ import org.efs.event.IEfsEvent;
  *   <li>
  *     {@link System#nanoTime()} timestamp when timer was
  *     dispatched to agent. Provided so agent can determine delta
- *     between timer expiration and timer event delivery.
+ *     between timer dispatchTimestamp and timer event delivery.
  *   </li>
  * </ul>
  *
@@ -58,11 +59,18 @@ public final class EfsTimerEvent
     @Nullable private final String mTimerName;
 
     /**
+     * User-specified datum forwarded in timer event. May be
+     * {@code null}. This object is <em>not</em> included in the
+     * timer event hash code.
+     */
+    @Nullable private final Object mDatum;
+
+    /**
      * {@code java.lang.System.nanoTime} when timer event was
      * dispatched to agent. Provided so agent can determine
      * delta between timer expiration and timer event delivery.
      */
-    private final long mExpiration;
+    private final long mDispatchTimestamp;
 
 //---------------------------------------------------------------
 // Member methods.
@@ -76,15 +84,19 @@ public final class EfsTimerEvent
      * Creates a new timer event with the given timer name.
      * @param timerName expired timer's name. May be {@code null}
      * or an empty string.
-     * @param expiration timer's scheduled expiration time in
-     * Java nanoseconds.
+     * @param daturm user-specified datum forwarded in this timer
+     * event.
+     * @param dispatchTimestamp Java nanosecond timestamp when
+     * this timer event was dispatched to agent.
      */
-    public EfsTimerEvent(@Nullable final String timerName,
-                         final long expiration)
+    /* package */ EfsTimerEvent(@Nullable final String timerName,
+                                @Nullable final Object datum,
+                                final long dispatchTimestamp)
     {
         mTimerName = timerName;
-        mExpiration = expiration;
-    } // end of EfsTimerEvent(String, long)
+        mDatum = datum;
+        mDispatchTimestamp = dispatchTimestamp;
+    } // end of EfsTimerEvent(String, Object, long)
 
     //
     // end of Constructors.
@@ -94,7 +106,57 @@ public final class EfsTimerEvent
     // Object Method Overrides.
     //
 
+    /**
+     * Returns {@code true} if {@code o} is a non-{@code null}
+     * timer event with the same name and dispatcher timestamp as
+     * this timer event.
+     * @param o comparison object.
+     * @return {@code true} if {@code o} equals this timer event.
+     */
+    @Override
+    public boolean equals(final Object o)
+    {
+        boolean retcode = (this == o);
 
+        if (!retcode && o instanceof EfsTimerEvent)
+        {
+            final EfsTimerEvent e = (EfsTimerEvent) o;
+
+            retcode =
+                (Objects.equals(mTimerName, e.mTimerName) &&
+                 mDispatchTimestamp == e.mDispatchTimestamp);
+        }
+
+        return (retcode);
+    } // end of equals(Object)
+
+    /**
+     * Returns hash code based on timer name and dispatch
+     * timestamp.
+     * @return hash code based on timer name and dispatch
+     * timestamp.
+     */
+    @Override
+    public int hashCode()
+    {
+        return (Objects.hash(mTimerName, mDispatchTimestamp));
+    } // end of hashCode()
+
+    /**
+     * Returns textual representation of timer event.
+     * @return textual representation of timer event.
+     */
+    @Override
+    public String toString()
+    {
+        return (
+            String.format(
+                "[timer name=%s, dispatch timestamp=%,d]",
+                (mTimerName == null ?
+                 "(not set)" :
+                 mTimerName),
+                mDispatchTimestamp));
+    } // end to toString()
 
     //
     // end of Object Method Overrides.
@@ -115,6 +177,16 @@ public final class EfsTimerEvent
     } // end of timerName()
 
     /**
+     * Returns optional user-provided datum forwarded in this
+     * timer. May be {@code null}
+     * @return optional, user-provided datum.
+     */
+    @Nullable public Object datum()
+    {
+        return (mDatum);
+    } // end of datum()
+
+    /**
      * Returns when timer event dispatched to agent in Java
      * nanoseconds (see {@link System#nanoTime()}). This value
      * allows agent to determine delay between timer's expiration
@@ -123,10 +195,10 @@ public final class EfsTimerEvent
      * delayed beyond an acceptable time limit.
      * @return timer event dispatch time in nanoseconds.
      */
-    public long expiration()
+    public long dispatchTimestamp()
     {
-        return (mExpiration);
-    } // end of expiration()
+        return (mDispatchTimestamp);
+    } // end of dispatchTimestamp()
 
     //
     // end of Get Methods.

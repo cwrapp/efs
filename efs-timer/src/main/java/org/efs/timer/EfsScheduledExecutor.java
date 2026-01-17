@@ -31,7 +31,6 @@ import javax.annotation.concurrent.Immutable;
 import org.efs.dispatcher.EfsDispatcher;
 import org.efs.dispatcher.IEfsAgent;
 import org.efs.dispatcher.config.ThreadType;
-import org.efs.event.IEfsEvent;
 import org.efs.logging.AsyncLoggerFactory;
 import org.slf4j.Logger;
 
@@ -39,14 +38,14 @@ import org.slf4j.Logger;
  * Executes given timer, {@link IEfsAgent} pairs at a specified
  * time. When task timer expires, timer event is dispatched to
  * {@code IEfsAgent} via
- * {@link EfsDispatcher#dispatch(Consumer, IEfsEvent, IEfsAgent)}.
+ * {@link EfsDispatcher#dispatch(Consumer, org.efs.dispatcher.IEfsEvent, IEfsAgent)}.
  * <p>
  * Schedule methods are used to create timers with various
  * delays, returning a {@link ScheduledFuture} which can
  * be used to cancel the timer or check its status. Methods
- * {@link #scheduleAtFixedRate(String, Consumer, IEfsAgent, Duration, Duration)}
+ * {@link #scheduleAtFixedRate(String, Object, Consumer, IEfsAgent, Duration, Duration)}
  * and
- * {@link #scheduleWithFixedDelay(String, Consumer, IEfsAgent, Duration, Duration)}
+ * {@link #scheduleWithFixedDelay(String, Object, Consumer, IEfsAgent, Duration, Duration)}
  * create and execute timer tasks which run periodically until
  * canceled.
  * </p>
@@ -105,7 +104,8 @@ public class MyAgent implements IEfsAgent {
         // Do some work at a fixed delay.
         mExecutor = EfsScheduledExecutor(Executors.newSingleThreadScheduledExecutor());
 
-        mUpdateTimer = service.scheduleWithFixedDelay(UPDATE_TIMER_NAME, this::onTimeout, this, TIMER_DELAY, TIMER_DELAY);
+        // No data is forwarded to onTimeout.
+        mUpdateTimer = service.scheduleWithFixedDelay(UPDATE_TIMER_NAME, null, this::onTimeout, this, TIMER_DELAY, TIMER_DELAY);
     }
 
     public void shutdown() {
@@ -119,7 +119,7 @@ public class MyAgent implements IEfsAgent {
         ...
     }
 
-    private void onTimeout() {
+    private void onTimeout(final EfsTimerEvent timerEvent) {
         final Duration delta = Duration.between(mLatestUpdate, Instant.now());
 
         // Did an update arrive within the last minute?
@@ -132,11 +132,11 @@ public class MyAgent implements IEfsAgent {
     private void stopTimer() {
         if (mUpdateTimer != null) {
             try {
-                mTimer.cancel();
+                mUpdateTimer.cancel();
             } catch (Exception jex) {
                 // Do nothing.
             } finally {
-                mTimer = null;
+                mUpdateTimer = null;
                 mLatestUpdate = null;
             }
         }
@@ -189,93 +189,98 @@ public final class EfsScheduledExecutor
     //
 
     /**
-     * Null scheduled service {@code NullPointerException}
-     * message is {@value}.
+     * {@code null} scheduled service  message is {@value}.
      */
     public static final String NULL_EXECUTOR = "executor is null";
 
     /**
-     * Invalid service {@code IllegalArgumentException} message
-     * is {@value}.
+     * Invalid executor service message is {@value}.
      */
     public static final String INVALID_EXECUTOR =
         "executor is shutdown";
 
     /**
-     * Invalid thread type {@code NullPointerException}
-     * message is {@value}.
+     * Invalid thread type message is {@value}.
      */
     public static final String NULL_TYPE = "type is null";
 
     /**
-     * Null callback lambda {@code NullPointerException}
-     * message is {@value}.
+     * {@code null} callback lambda message is {@value}.
      */
     public static final String NULL_CALLBACK =
         "callback is null";
 
     /**
-     * Invalid efs agent {@code NullPointerException} message
-     * is {@value}.
+     * {@code null} efs agent message is {@value}.
      */
     public static final String NULL_AGENT = "agent is null";
 
     /**
-     * Invalid delay {@code NullPointerException} message
-     * is {@value}.
+     * {@code null} delay message is {@value}.
      */
     public static final String NULL_DELAY = "delay is null";
 
     /**
-     * Invalid initial delay {@code NullPointerException} message
-     * is {@value}.
+     * {@code null} initial delay message is {@value}.
      */
     public static final String NULL_INIT_DELAY =
         "initial delay is null";
 
     /**
-     * Invalid period {@code NullPointerException} message is
-     * {@value}.
+     * Invalid {@code null} period message is {@value}.
      */
     public static final String NULL_PERIOD = "period is null";
 
     /**
-     * Invalid negative delay {@code IllegalArgumentException}
-     * message is {@value}.
+     * Invalid negative delay message is {@value}.
      */
     public static final String NEGATIVE_DELAY = "delay < zero";
 
     /**
-     * Invalid negative initial delay
-     * {@code IllegalArgumentException} message is {@value}.
+     * Invalid delay exceeding long size message is {@value}.
+     */
+    public static final String EXCESSIVE_DELAY =
+        "delay > Long.MAX_VALUE";
+
+    /**
+     * Invalid negative initial delay message is {@value}.
      */
     public static final String NEGATIVE_INIT_DELAY =
         "initial delay < zero";
 
     /**
-     * Invalid period {@code IllegalArgumentException}
-     * message is {@value}.
+     * Invalid initial delay exceeding long size message is
+     * {@value}.
+     */
+    public static final String EXCESSIVE_INIT_DELAY =
+        "initial delay > Long.MAX_VALUE";
+
+    /**
+     * Invalid negative period  message is {@value}.
      */
     public static final String NEGATIVE_PERIOD =
         "period <= zero";
 
     /**
-     * Invalid repeat delay {@code IllegalArgumentException}
-     * message is {@value}.
+     * Invalid period exceeding long size message is {@value}.
+     */
+    public static final String EXCESSIVE_PERIOD =
+        "period > Long.MAX_VALUE";
+
+    /**
+     * Negative repeat delay message is {@value}.
      */
     public static final String NEGATIVE_REPEAT_DELAY =
         "delay <= zero";
 
     /**
-     * Unregistered agent {@code IllegalStateException}
-     * message is {@value}.
+     * Unregistered agent message is {@value}.
      */
     public static final String UNREGISTERED_AGENT =
         " is not registered with a dispatcher";
 
     /**
-     * Shut down scheduler {@code IllegalStateException}
-     * message is {@value}.
+     * Shut down scheduler message is {@value}.
      */
     public static final String EXEC_SHUT_DOWN =
         "scheduled executor is shut down";
@@ -309,9 +314,9 @@ public final class EfsScheduledExecutor
 
     /**
      * Creates a new efs scheduled service instance for the
-given Java scheduled service.
+     * given Java scheduled service.
      * @param executor encapsulated Java scheduled service
-service.
+     * service.
      * @throws NullPointerException
      * if {@code service} is {@code null}.
      * @throws IllegalArgumentException
@@ -481,11 +486,16 @@ service.
 
     /**
      * Submits a single-shot timer which expires after the given
-     * delay.
+     * delay. Note that once a callback begins executing, it will
+     * <em>not</em> be stopped if returned future is canceled or
+     * the underlying executor service is shut down.
      * @param timerName timer name meaningful to caller. This
      * name may be {@code null} or an empty string.
+     * @param datum user-provided data which will be forwarded
+     * to {@code callback} in {@link EfsTimerEvent}. May be
+     * {@code null}.
      * @param callback execute this task when timer expires.
-     * @param agent dispatch timer expiration event to this
+     * @param agent dispatch timer dispatchTimestamp event to this
      * agent's queue.
      * @param delay timer expires after this delay.
      * @return a {@code ScheduledFuture} representing pending
@@ -495,14 +505,31 @@ service.
      * if {@code callback}, {@code agent}, or {@code delay} is
      * {@code null}.
      * @throws RejectedExecutionException
-     * if {@code delay} &lt; zero, this service is shut down, or
-if {@code agent} is not registered with a dispatcher.
+     * if:
+     * <ul>
+     *   <li>
+     *     {@code delay} &lt; zero or &gt; {@link Long#MAX_VALUE}
+     *     nanoseconds,
+     *   </li>
+     *   <li>
+     *     this service is shut down,
+     *   </li>
+     *   <li>
+     *     {@code agent} is not registered with a dispatcher, or
+     *   </li>
+     *   <li>
+     *     {@link ScheduledExecutorService#schedule(Runnable, long, TimeUnit) underlying executor}
+     *     throws this exception.
+     *   </li>
+     * </ul>
      */
     public ScheduledFuture<?> schedule(@Nullable final String timerName,
+                                       @Nullable final Object datum,
                                        final Consumer<EfsTimerEvent> callback,
                                        final IEfsAgent agent,
                                        final Duration delay)
     {
+        final long nanosDelay;
         final EfsTimerTask task;
         final ScheduledFuture<?> retval;
 
@@ -511,29 +538,38 @@ if {@code agent} is not registered with a dispatcher.
         Objects.requireNonNull(agent, NULL_AGENT);
         Objects.requireNonNull(delay, NULL_DELAY);
 
-        if (!EfsDispatcher.isRegistered(agent))
+        // Make sure delay is >= zero.
+        if (delay.compareTo(Duration.ZERO) < 0)
+        {
+            throw (
+                new RejectedExecutionException(NEGATIVE_DELAY));
+        }
+
+        try
+        {
+            nanosDelay = delay.toNanos();
+        }
+        catch (ArithmeticException arthex)
         {
             throw (
                 new RejectedExecutionException(
-                    agent.name() + UNREGISTERED_AGENT));
+                    EXCESSIVE_DELAY, arthex));
         }
 
-        if (mExecutor.isShutdown())
-        {
-            throw (
-                new RejectedExecutionException(EXEC_SHUT_DOWN));
-        }
+        validateAgent(agent);
 
         sLogger.debug(
-            "scheduling single shot timer, delay={}, agent={}.",
+            "scheduling single shot timer, delay={}, agent={}, timer={}.",
             delay,
-            agent.name());
+            agent.name(),
+            timerName);
 
         // Create timer task and schedule with service.
         task =
-            new EfsTimerTask(timerName, callback, agent, this);
+            new EfsTimerTask(
+                timerName, datum, callback, agent, this);
         retval = mExecutor.schedule(task,
-                                    delay.toNanos(),
+                                    nanosDelay,
                                     TimeUnit.NANOSECONDS);
 
         return (retval);
@@ -553,14 +589,18 @@ if {@code agent} is not registered with a dispatcher.
      *   <li>
      *     The timer is explicitly canceled via the returned
      *     {@link ScheduledFuture} instance.
+     *   </li>
      *   <li>
-    The service is terminated which results in all
-    scheduled tasks being canceled.
-  </li>
+     *     The service is terminated which results in all
+     *     scheduled tasks being canceled.
+     *   </li>
      *   <li>
      *     The task's execution results in a thrown exception.
      *   </li>
      * </ul>
+     * Note that once a callback begins executing, it will
+     * <em>not</em> be stopped if returned future is canceled or
+     * the underlying executor service is shut down.
      * Once a timer is canceled, subsequent executions are
      * suppressed and {@link ScheduledFuture#isDone() isDone}
      * returns {@code true}.
@@ -571,10 +611,13 @@ if {@code agent} is not registered with a dispatcher.
      * </p>
      * @param timerName timer name meaningful to caller. This
      * name may be {@code null} or an empty string.
+     * @param datum user-provided data which will be forwarded
+     * to {@code callback} in {@link EfsTimerEvent}. May be
+     * {@code null}.
      * @param callback execute this task when timer expires.
-     * @param agent dispatch timer expiration event to this
+     * @param agent dispatch timer dispatchTimestamp event to this
      * agent's queue.
-     * @param initialDelay timer first expiration after this
+     * @param initialDelay timer first dispatchTimestamp after this
      * delay.
      * @param period timer subsequent expirations after this
      * period.
@@ -585,16 +628,37 @@ if {@code agent} is not registered with a dispatcher.
      * if {@code callback}, {@code agent}, {@code initialDelay},
      * or {@code period} is {@code null}.
      * @throws RejectedExecutionException
-     * if {@code initialDelay} &lt; zero, {@code period} &le;
-zero, this service is shut down, or if {@code agent} is
-     * not registered with a dispatcher.
+     * if:
+     * <ul>
+     *   <li>
+     *     {@code initialDelay} &lt; zero or &gt;
+     *     {@link Long#MAX_VALUE} nanoseconds,
+     *   </li>
+     *   <li>
+     *     {@code period} &le; zero or &gt;
+     *     {@link Long#MAX_VALUE} nanoseconds,
+     *   </li>
+     *   <li>
+     *     this service is shut down,
+     *   </li>
+     *   <li>
+     *     {@code agent} is not registered with a dispatcher, or
+     *   </li>
+     *   <li>
+     *     {@link ScheduledExecutorService#scheduleAtFixedRate(Runnable, long, long, TimeUnit) underlying executor}
+     *     throws this exception.
+     *   </li>
+     * </ul>
      */
     public ScheduledFuture<?> scheduleAtFixedRate(@Nullable final String timerName,
+                                                  @Nullable final Object datum,
                                                   final Consumer<EfsTimerEvent> callback,
                                                   final IEfsAgent agent,
                                                   final Duration initialDelay,
                                                   final Duration period)
     {
+        final long nanosInitDelay;
+        final long nanosPeriod;
         final EfsTimerTask task;
         final ScheduledFuture<?> retval;
 
@@ -605,6 +669,36 @@ zero, this service is shut down, or if {@code agent} is
             initialDelay, NULL_INIT_DELAY);
         Objects.requireNonNull(period, NULL_PERIOD);
 
+        // Make sure initial delay is >= zero.
+        if (initialDelay.compareTo(Duration.ZERO) < 0)
+        {
+            throw (
+                new RejectedExecutionException(
+                    NEGATIVE_INIT_DELAY));
+        }
+
+        try
+        {
+            nanosInitDelay = initialDelay.toNanos();
+        }
+        catch (ArithmeticException arthex)
+        {
+            throw (
+                new RejectedExecutionException(
+                    EXCESSIVE_INIT_DELAY, arthex));
+        }
+
+        try
+        {
+            nanosPeriod = period.toNanos();
+        }
+        catch (ArithmeticException arthex)
+        {
+            throw (
+                new RejectedExecutionException(
+                    EXCESSIVE_PERIOD, arthex));
+        }
+
         // Make sure period is > zero.
         if (period.compareTo(Duration.ZERO) <= 0)
         {
@@ -612,32 +706,23 @@ zero, this service is shut down, or if {@code agent} is
                 new RejectedExecutionException(NEGATIVE_PERIOD));
         }
 
-        if (!EfsDispatcher.isRegistered(agent))
-        {
-            throw (
-                new RejectedExecutionException(
-                    agent.name() + UNREGISTERED_AGENT));
-        }
-
-        if (mExecutor.isShutdown())
-        {
-            throw (
-                new RejectedExecutionException(EXEC_SHUT_DOWN));
-        }
+        validateAgent(agent);
 
         sLogger.debug(
-            "scheduling fix rate timer, initial delay: {}, period: {}, agent={}.",
+            "scheduling fixed rate timer, initial delay: {}, period: {}, agent={}, timer={}.",
             initialDelay,
             period,
-            agent.name());
+            agent.name(),
+            timerName);
 
         // Create timer task and store in timer priority queue.
         task =
-            new EfsTimerTask(timerName, callback, agent, this);
+            new EfsTimerTask(
+                timerName, datum, callback, agent, this);
         retval =
             mExecutor.scheduleAtFixedRate(task,
-                                          initialDelay.toNanos(),
-                                          period.toNanos(),
+                                          nanosInitDelay,
+                                          nanosPeriod,
                                           TimeUnit.NANOSECONDS);
 
         return (retval);
@@ -661,23 +746,29 @@ zero, this service is shut down, or if {@code agent} is
      *     {@link ScheduledFuture} instance.
      *   </li>
      *   <li>
-    The service is terminated which results in all
-    scheduled tasks being canceled.
-  </li>
+     *     The service is terminated which results in all
+     *     scheduled tasks being canceled.
+     *   </li>
      *   <li>
      *     The callback's execution results in a thrown
      *     exception.
      *   </li>
      * </ul>
+     * Note that once a callback begins executing, it will
+     * <em>not</em> be stopped if returned future is canceled or
+     * the underlying executor service is shut down.
      * Once a timer is canceled, subsequent executions are
      * suppressed and {@link ScheduledFuture#isDone() isDone}
      * returns {@code true}.
      * @param timerName timer name meaningful to caller. This
      * name may be {@code null} or an empty string.
+     * @param datum user-provided data which will be forwarded
+     * to {@code callback} in {@link EfsTimerEvent}. May be
+     * {@code null}.
      * @param callback execute this task when timer expires.
      * @param agent dispatch timer event to this agent's event
      * queue.
-     * @param initialDelay timer first expiration after this
+     * @param initialDelay timer first dispatchTimestamp after this
      * delay.
      * @param delay timer subsequence expirations after this
      * delay.
@@ -688,16 +779,37 @@ zero, this service is shut down, or if {@code agent} is
      * if {@code callback}, {@code agent}, {@code initialDelay},
      * or {@code delay} is {@code null}.
      * @throws RejectedExecutionException
-     * if {@code initialDelay} &lt; zero, {@code delay} &le;
-zero, this service is shut down, or if {@code agent} is
-     * not registered with a dispatcher.
+     * <ul>
+     *   <li>
+     *     if {@code initialDelay} &lt; zero or &gt;
+     *     {@link Long#MAX_VALUE} nanoseconds,
+     *   </li>
+     *   <li>
+     *     {@code delay} &le; zero or &gt;
+     *     {@link Long#MAX_VALUE} nanoseconds,
+     *   </li>
+     *   <li>
+     *     this service is shut down,
+     *   </li>
+     *   <li>
+     *     {@code agent} is not registered with a dispatcher,
+     *   </li>
+     *   <li>
+     *     {@link ScheduledExecutorService#scheduleWithFixedDelay(Runnable, long, long, TimeUnit) underlying executor}
+     *     throws this exception.
+     *   </li>
+     * </ul>
+     *
      */
     public ScheduledFuture<?> scheduleWithFixedDelay(@Nullable final String timerName,
+                                                     @Nullable final Object datum,
                                                      final Consumer<EfsTimerEvent> callback,
                                                      final IEfsAgent agent,
                                                      final Duration initialDelay,
                                                      final Duration delay)
     {
+        final long nanosInitDelay;
+        final long nanosDelay;
         final EfsTimerTask task;
         final ScheduledFuture<?> retval;
 
@@ -708,6 +820,25 @@ zero, this service is shut down, or if {@code agent} is
             initialDelay, NULL_INIT_DELAY);
         Objects.requireNonNull(delay, NULL_DELAY);
 
+        // Make sure initial delay is >= zero.
+        if (initialDelay.compareTo(Duration.ZERO) < 0)
+        {
+            throw (
+                new RejectedExecutionException(
+                    NEGATIVE_INIT_DELAY));
+        }
+
+        try
+        {
+            nanosInitDelay = initialDelay.toNanos();
+        }
+        catch (ArithmeticException arthex)
+        {
+            throw (
+                new RejectedExecutionException(
+                    EXCESSIVE_INIT_DELAY, arthex));
+        }
+
         // Make sure repeating delay is > zero.
         if (delay.compareTo(Duration.ZERO) <= 0)
         {
@@ -716,6 +847,55 @@ zero, this service is shut down, or if {@code agent} is
                     NEGATIVE_REPEAT_DELAY));
         }
 
+        try
+        {
+            nanosDelay = delay.toNanos();
+        }
+        catch (ArithmeticException arthex)
+        {
+            throw (
+                new RejectedExecutionException(
+                    EXCESSIVE_DELAY, arthex));
+        }
+
+        validateAgent(agent);
+
+        sLogger.debug(
+            "scheduling fixed delay timer, initial delay: {}, delay: {}, agent={}, timer={}.",
+            initialDelay,
+            delay,
+            agent.name(),
+            timerName);
+
+        // Create timer task and store in timer priority queue.
+        task =
+            new EfsTimerTask(
+                timerName, datum, callback, agent, this);
+        retval =
+            mExecutor.scheduleWithFixedDelay(
+                task,
+                nanosInitDelay,
+                nanosDelay,
+                TimeUnit.NANOSECONDS);
+
+        return (retval);
+    } // end of scheduleWithFixedDelay(...)
+
+    //
+    // end of Schedule Methods.
+    //-----------------------------------------------------------
+
+    /**
+     * This method validates that given agent is registered with
+     * {@code EfsDispatcher} and underlying scheduled executor is
+     * not shut down. This method is called for effect only.
+     * @param agent check if this agent is registered.
+     * @throws RejectedExecutionException
+     * if {@code agent} is not registered or underlying scheduled
+     * executor is shut down.
+     */
+    private void validateAgent(final IEfsAgent agent)
+    {
         if (!EfsDispatcher.isRegistered(agent))
         {
             throw (
@@ -728,29 +908,7 @@ zero, this service is shut down, or if {@code agent} is
             throw (
                 new RejectedExecutionException(EXEC_SHUT_DOWN));
         }
-
-        sLogger.debug(
-            "scheduling fix delay timer, initial delay: {}, delay: {}, agent={}.",
-            initialDelay,
-            delay,
-            agent.name());
-
-        // Create timer task and store in timer priority queue.
-        task =
-            new EfsTimerTask(timerName, callback, agent, this);
-        retval =
-            mExecutor.scheduleWithFixedDelay(
-                task,
-                initialDelay.toNanos(),
-                delay.toNanos(),
-                TimeUnit.NANOSECONDS);
-
-        return (retval);
-    } // end of scheduleWithFixedDelay(...)
-
-    //
-    // end of Schedule Methods.
-    //-----------------------------------------------------------
+    } // end of validateAgent()
 
 //---------------------------------------------------------------
 // Inner classes.
@@ -760,6 +918,10 @@ zero, this service is shut down, or if {@code agent} is
      * This task is used to deliver an {@link EfsTimerEvent}
      * to the {@link IEfsAgent} which scheduled this task. This
      * task is inactive when scheduled executor is shut down.
+     * <p>
+     * Note: once a timer task begin executing, it cannot be
+     * stopped but must continue until completion.
+     * </p>
      */
     @Immutable
     private static final class EfsTimerTask
@@ -778,6 +940,11 @@ zero, this service is shut down, or if {@code agent} is
          * empty string.
          */
         @Nullable private final String mTimerName;
+
+        /**
+         * User-specified datum forwarded in timer event.
+         */
+        @Nullable private final Object mDatum;
 
         /**
          * Post timer event to this agent callback.
@@ -805,17 +972,20 @@ zero, this service is shut down, or if {@code agent} is
          * Creates a new timer task used to deliver timer events
          * to agent using specified callback.
          * @param timerName optional user-defined timer name.
+         * @param datum optional user-provided datum.
          * @param callback deliver timer event to this method.
          * @param agent deliver timer event to this agent.
          * @param executor efs scheduled service creating this
-task.
+         * task.
          */
         private EfsTimerTask(@Nullable final String timerName,
+                             @Nullable final Object datum,
                              final Consumer<EfsTimerEvent> callback,
                              final IEfsAgent agent,
                              final EfsScheduledExecutor executor)
         {
             mTimerName = timerName;
+            mDatum = datum;
             mCallback = callback;
             mAgent = agent;
             mExecutor = executor;
@@ -845,7 +1015,7 @@ task.
                 // time.
                 final EfsTimerEvent timerEvent =
                     new EfsTimerEvent(
-                        mTimerName, System.nanoTime());
+                        mTimerName, mDatum, System.nanoTime());
 
                 EfsDispatcher.dispatch(
                     mCallback, timerEvent, mAgent);

@@ -36,9 +36,9 @@ esf is built for Java 21. You can find published releases are
 available from GitHub Package Registry
 
     <dependency>
-        <groupId>org.efs</groupId>
+        <groupId>com.github.cwrapp</groupId>
         <artifactId>efs-bom</artifactId>
-        <version>0.4.0</version>
+        <version>0.5.0</version>
     </dependency>
 
 ### Release Notes

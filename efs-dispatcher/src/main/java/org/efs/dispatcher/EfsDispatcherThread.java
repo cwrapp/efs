@@ -17,6 +17,7 @@
 package org.efs.dispatcher;
 
 import com.google.common.base.Strings;
+import jakarta.annotation.Nonnull;
 import jakarta.annotation.Nullable;
 import java.time.Duration;
 import java.time.Instant;
@@ -42,7 +43,6 @@ import static org.efs.dispatcher.config.ThreadType.SPINPARK;
 import static org.efs.dispatcher.config.ThreadType.SPINYIELD;
 import org.efs.logging.AsyncLoggerFactory;
 import org.jctools.queues.atomic.AtomicReferenceArrayQueue;
-import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 
 /**
@@ -157,7 +157,8 @@ public final class EfsDispatcherThread
      * thread. This lock is used when affinity type is a
      * CPU selection strategy.
      */
-    @Nullable private static volatile AffinityLock sPreviousLock = null;
+    @Nullable
+    private static volatile AffinityLock sPreviousLock = null;
 
     /**
      * Acquire this lock prior to setting thread affinity.
@@ -333,25 +334,21 @@ public final class EfsDispatcherThread
                           name);
 
             // Get the next agent.
-            // Note: poll *never* returns null.
             agent = mPollMethod.poll();
 
-            // Was an agent returned?
-            // Again, is this thread still running?
-            // Return value may be null when shutting down this
-            // thread.
-            if (agent != null && mRunFlag)
+            // Is this thread still running?
+            // Returned agent will be null when this thread is
+            // shut down. So if run flag is true, then agent will
+            // not be null; if run flag is false, then agent
+            // will be null. In short run flag value and agent
+            // nullity is an exclusive or condition.
+            if (mRunFlag)
             {
                 processEvents(name, agent);
             }
         }
 
-        // Did this thread acquire an cpu affinity lock?
-        if (affinityLock != null)
-        {
-            // Yes, close affinity lock.
-            affinityLock.close();
-        }
+        releaseAffinity(affinityLock);
 
         sLogger.debug("{}: stopped.", name);
     } // end of run()
@@ -482,10 +479,15 @@ public final class EfsDispatcherThread
      * Returns the next available agent from the run queue,
      * blocking until the agent arrives.
      * <p>
-     * While {@link BlockingQueue#take()} may return {@code null},
-     * this method continues looping until either a
+     * While {@link BlockingQueue#take()} may return
+     * {@code null}, this method continues looping until either a
      * non-{@code null} agent is returned or this dispatcher
      * thread is no longer running.
+     * </p>
+     * <p>
+     * If an interrupt is received while polling the run queue,
+     * current thread is re-interrupted so other code may see
+     * this interrupt.
      * </p>
      * @return next available agent. Does <em>not</em> return
      * {@code null} while dispatcher thread is still running.
@@ -662,13 +664,42 @@ public final class EfsDispatcherThread
     } // end of setAffinity()
 
     /**
+     * If given affinity lock is not {@code null}, then release
+     * it now for re-use.
+     * @param affinityLock release this affinity lock.
+     */
+    @SuppressWarnings ({"java:S2696"})
+    private void releaseAffinity(@Nullable final AffinityLock affinityLock)
+    {
+        // Did this thread acquire an cpu affinity lock?
+        if (affinityLock != null)
+        {
+            // Yes, close affinity lock.
+            sAffinityAccessLock.lock();
+            try (affinityLock)
+            {
+                // If previous lock references this lock, then
+                // clear the reference.
+                if (sPreviousLock == affinityLock)
+                {
+                    sPreviousLock = null;
+                }
+            }
+            finally
+            {
+                sAffinityAccessLock.unlock();
+            }
+        }
+    } // end of releaseAffinity(AffinityLock)
+
+    /**
      * Has given agent process its event queue. Updates thread
      * and agent statistics as a side effect.
      * @param threadName agent is running on this named thread.
      * @param agent agent processing its event queue.
      */
-    private void processEvents(@NonNull final String threadName,
-                               @NonNull final EfsAgent agent)
+    private void processEvents(@Nonnull final String threadName,
+                               @Nonnull final EfsAgent agent)
     {
         final long busyStart;
         final long busyStop;
@@ -1298,11 +1329,16 @@ public final class EfsDispatcherThread
      * dispatcher thread basis.
      * <p>
      * Note: the data stored in an {@code AgentStats} instance is
-     * "live" which means that the performance data is update by
+     * "live" which means that the performance data is updated by
      * the dispatcher thread over time. It is recommended that
      * an application routinely monitor dispatcher these
      * statistics over time to detect dispatcher performance
      * degradation.
+     * </p>
+     * <p>
+     * Also note that this "live" data is approximate and is not
+     * meant to be an exactly snapshot of agent performance
+     * stats.
      * </p>
      *
      * @see DispatcherThreadStats
@@ -1344,6 +1380,11 @@ public final class EfsDispatcherThread
         private volatile int mNextIndex;
 
         /**
+         * Current sum of all {@link #mStats} values.
+         */
+        private volatile long mSum;
+
+        /**
          * Moving average of agent stats.
          */
         private volatile long mMovingAverage;
@@ -1369,6 +1410,7 @@ public final class EfsDispatcherThread
             mCount = 0;
             mStats = new long[MAX_AGENT_STATS];
             mNextIndex = 0;
+            mSum = 0L;
             mMovingAverage = 0L;
         } // end of AgentStat(String, String)
 
@@ -1384,19 +1426,20 @@ public final class EfsDispatcherThread
         public String toString()
         {
             final long[] stats = stats();
+            final int size = stats.length;
             final String retval;
 
-            if (stats.length == 0)
+            if (size == 0)
             {
                 retval = "(no agent statistics to report)";
             }
             else
             {
-                final int p50 = (int) (mCount * 0.5d);
-                final int p75 = (int) (mCount * 0.75d);
-                final int p90 = (int) (mCount * 0.9d);
-                final int p95 = (int) (mCount * 0.95d);
-                final int p99 = (int) (mCount * 0.99d);
+                final int p50 = (int) (size * 0.5d);
+                final int p75 = (int) (size * 0.75d);
+                final int p90 = (int) (size * 0.9d);
+                final int p95 = (int) (size * 0.95d);
+                final int p99 = (int) (size * 0.99d);
 
                 try (final Formatter output = new Formatter())
                 {
@@ -1406,7 +1449,7 @@ public final class EfsDispatcherThread
                                   stats[0],
                                   mUnit);
                     output.format(" max: %,d %s%n",
-                                  stats[mCount - 1],
+                                  stats[size - 1],
                                   mUnit);
                     output.format(" med: %,d %s%n",
                                   stats[p50],
@@ -1491,7 +1534,12 @@ public final class EfsDispatcherThread
         {
             final long[] retval = Arrays.copyOf(mStats, mCount);
 
-            Arrays.sort(retval);
+            // Do we need to sort this array?
+            if (mCount > 1)
+            {
+                // Yes.
+                Arrays.sort(retval);
+            }
 
             return (retval);
         } // end of stats()
@@ -1523,15 +1571,21 @@ public final class EfsDispatcherThread
             if (datum >= 0L)
             {
                 final long removedValue = mStats[mNextIndex];
-                final long ma =
-                    ((mMovingAverage * mCount) - removedValue);
 
+                // Update ring buffer.
                 mStats[mNextIndex] = datum;
 
-                mCount = (Math.min((mCount + 1), MAX_AGENT_STATS));
-                mNextIndex = ((mNextIndex + 1) & MAX_AGENT_MASK);
+                // Update datum count.
+                mCount =
+                    (Math.min((mCount + 1), MAX_AGENT_STATS));
 
-                mMovingAverage = ((ma + datum) / mCount);
+                // Update sum by subtracting removed value (0 if
+                // not previously set) and adding new datum.
+                mSum = ((mSum - removedValue) + datum);
+
+                // Advance index and recompute average.
+                mNextIndex = ((mNextIndex + 1) & MAX_AGENT_MASK);
+                mMovingAverage = (mSum / mCount);
             }
         } // end of addAgentStat(long)
 
@@ -1551,8 +1605,10 @@ public final class EfsDispatcherThread
     {
         /**
          * Returns item removed from the queue's head. Note
-         * that this method never returns a {@code null} value
-         * as long as dispatcher thread is running.
+         * that this method returns a {@code null} value when
+         * dispatcher thread is shut down. While dispatcher
+         * thread is running, will not return a {@code null}
+         * value.
          * @return queue head.
          */
         @Nullable T poll();

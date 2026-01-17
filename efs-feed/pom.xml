@@ -24,9 +24,9 @@ limitations under the License.
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId>org.efs</groupId>
+    <groupId>com.github.cwrapp</groupId>
     <artifactId>efs-parent</artifactId>
-    <version>0.4.0</version>
+    <version>0.5.0</version>
   </parent>
 
   <artifactId>efs-feed</artifactId>
@@ -37,7 +37,7 @@ limitations under the License.
   <dependencies>
 
     <dependency>
-      <groupId>org.efs</groupId>
+      <groupId>com.github.cwrapp</groupId>
       <artifactId>efs-dispatcher</artifactId>
       <version>${project.version}</version>
     </dependency>
