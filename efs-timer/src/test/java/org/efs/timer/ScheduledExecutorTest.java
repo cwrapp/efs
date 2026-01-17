@@ -78,6 +78,9 @@ public final class ScheduledExecutorTest
     private static final String TEST_AGENT_DISPATCHER =
         "exec-test-agent-dispatcher";
 
+    private static final String SPINNING_WHEEL_TIMER =
+        "exec-test-spinning-wheel-timer";
+
     /**
      * Each bucket represents this many nanoseconds-worth of
      * data.
@@ -285,6 +288,7 @@ public final class ScheduledExecutorTest
         try
         {
             executor.schedule(timerName,
+                              null,
                               agent::onTimeout,
                               agent,
                               delay);
@@ -295,6 +299,36 @@ public final class ScheduledExecutorTest
                 .hasMessage(EfsScheduledExecutor.NEGATIVE_DELAY);
         }
     } // end of singleTimerNegativeDelay()
+
+    @Test
+    public void singleTimerExcessiveDelay()
+    {
+        final EfsScheduledExecutor executor =
+            new EfsScheduledExecutor(mService);
+        final CountDownLatch signal =
+            new CountDownLatch(1);
+        final String timerName = "test-timer";
+        final TimerAgent agent =
+            new TimerAgent(nextAgentName(), signal, executor);
+        final Duration delay =
+            Duration.ofSeconds(Long.MAX_VALUE);
+
+        EfsDispatcher.register(agent, TEST_AGENT_DISPATCHER);
+
+        try
+        {
+            executor.schedule(timerName,
+                              null,
+                              agent::onTimeout,
+                              agent,
+                              delay);
+        }
+        catch (RejectedExecutionException rejex)
+        {
+            assertThat(rejex)
+                .hasMessage(EfsScheduledExecutor.EXCESSIVE_DELAY);
+        }
+    } // end of singleTimerExcessiveDelay()
 
     @Test
     public void singleTimerUnregisteredAgent()
@@ -311,6 +345,7 @@ public final class ScheduledExecutorTest
         try
         {
             executor.schedule(timerName,
+                              null,
                               agent::onTimeout,
                               agent,
                               delay);
@@ -342,6 +377,7 @@ public final class ScheduledExecutorTest
         try
         {
             executor.schedule(timerName,
+                              null,
                               agent::onTimeout,
                               agent,
                               delay);
@@ -371,6 +407,7 @@ public final class ScheduledExecutorTest
         try
         {
             executor.scheduleAtFixedRate(timerName,
+                                         null,
                                          agent::onTimeout,
                                          agent,
                                          initialDelay,
@@ -383,6 +420,39 @@ public final class ScheduledExecutorTest
                     EfsScheduledExecutor.NEGATIVE_INIT_DELAY);
         }
     } // end of fixedRateTimerNegativeInitialDelay()
+
+    @Test
+    public void fixedRateTimerExcessiveInitialDelay()
+    {
+        final EfsScheduledExecutor executor =
+            new EfsScheduledExecutor(mService);
+        final CountDownLatch signal =
+            new CountDownLatch(1);
+        final String timerName = "test-timer";
+        final TimerAgent agent =
+            new TimerAgent(nextAgentName(), signal, executor);
+        final Duration initialDelay =
+            Duration.ofSeconds(Long.MAX_VALUE);
+        final Duration period = Duration.ofSeconds(10L);
+
+        EfsDispatcher.register(agent, TEST_AGENT_DISPATCHER);
+
+        try
+        {
+            executor.scheduleAtFixedRate(timerName,
+                                         null,
+                                         agent::onTimeout,
+                                         agent,
+                                         initialDelay,
+                                         period);
+        }
+        catch (RejectedExecutionException rejex)
+        {
+            assertThat(rejex)
+                .hasMessage(
+                    EfsScheduledExecutor.EXCESSIVE_INIT_DELAY);
+        }
+    } // end of fixedRateTimerExcessiveInitialDelay()
 
     @Test
     public void fixedRateTimerZeroPeriod()
@@ -402,6 +472,7 @@ public final class ScheduledExecutorTest
         try
         {
             executor.scheduleAtFixedRate(timerName,
+                                         null,
                                          agent::onTimeout,
                                          agent,
                                          initialDelay,
@@ -414,6 +485,39 @@ public final class ScheduledExecutorTest
                     EfsScheduledExecutor.NEGATIVE_PERIOD);
         }
     } // end of fixedRateTimerZeroPeriod()
+
+    @Test
+    public void fixedRateTimerExcessivePeriod()
+    {
+        final EfsScheduledExecutor executor =
+            new EfsScheduledExecutor(mService);
+        final CountDownLatch signal =
+            new CountDownLatch(1);
+        final String timerName = "test-timer";
+        final TimerAgent agent =
+            new TimerAgent(nextAgentName(), signal, executor);
+        final Duration initialDelay = Duration.ofSeconds(5L);
+        final Duration period =
+            Duration.ofSeconds(Long.MAX_VALUE);
+
+        EfsDispatcher.register(agent, TEST_AGENT_DISPATCHER);
+
+        try
+        {
+            executor.scheduleAtFixedRate(timerName,
+                                         null,
+                                         agent::onTimeout,
+                                         agent,
+                                         initialDelay,
+                                         period);
+        }
+        catch (RejectedExecutionException rejex)
+        {
+            assertThat(rejex)
+                .hasMessage(
+                    EfsScheduledExecutor.EXCESSIVE_PERIOD);
+        }
+    } // end of fixedRateTimerExcessivePeriod()
 
     @Test
     public void fixedRateTimerUnregisteredAgent()
@@ -431,6 +535,7 @@ public final class ScheduledExecutorTest
         try
         {
             executor.scheduleAtFixedRate(timerName,
+                                         null,
                                          agent::onTimeout,
                                          agent,
                                          initialDelay,
@@ -464,6 +569,7 @@ public final class ScheduledExecutorTest
         try
         {
             executor.scheduleAtFixedRate(timerName,
+                                         null,
                                          agent::onTimeout,
                                          agent,
                                          initialDelay,
@@ -494,6 +600,7 @@ public final class ScheduledExecutorTest
         try
         {
             executor.scheduleWithFixedDelay(timerName,
+                                            null,
                                             agent::onTimeout,
                                             agent,
                                             initialDelay,
@@ -506,6 +613,39 @@ public final class ScheduledExecutorTest
                     EfsScheduledExecutor.NEGATIVE_INIT_DELAY);
         }
     } // end of fixedDelayTimerNegativeInitialDelay()
+
+    @Test
+    public void fixedDelayTimerExcessiveInitialDelay()
+    {
+        final EfsScheduledExecutor executor =
+            new EfsScheduledExecutor(mService);
+        final CountDownLatch signal =
+            new CountDownLatch(1);
+        final String timerName = "test-timer";
+        final TimerAgent agent =
+            new TimerAgent(nextAgentName(), signal, executor);
+        final Duration initialDelay =
+            Duration.ofSeconds(Long.MAX_VALUE);
+        final Duration delay = Duration.ofSeconds(10L);
+
+        EfsDispatcher.register(agent, TEST_AGENT_DISPATCHER);
+
+        try
+        {
+            executor.scheduleWithFixedDelay(timerName,
+                                            null,
+                                            agent::onTimeout,
+                                            agent,
+                                            initialDelay,
+                                            delay);
+        }
+        catch (RejectedExecutionException rejex)
+        {
+            assertThat(rejex)
+                .hasMessage(
+                    EfsScheduledExecutor.EXCESSIVE_INIT_DELAY);
+        }
+    } // end of fixedDelayTimerExcessiveInitialDelay()
 
     @Test
     public void fixedDelayTimerZeroDelay()
@@ -525,6 +665,7 @@ public final class ScheduledExecutorTest
         try
         {
             executor.scheduleWithFixedDelay(timerName,
+                                            null,
                                             agent::onTimeout,
                                             agent,
                                             initialDelay,
@@ -537,6 +678,39 @@ public final class ScheduledExecutorTest
                     EfsScheduledExecutor.NEGATIVE_REPEAT_DELAY);
         }
     } // end of fixedDelayTimerZeroDelay()
+
+    @Test
+    public void fixedDelayTimerExcessiveDelay()
+    {
+        final EfsScheduledExecutor executor =
+            new EfsScheduledExecutor(mService);
+        final CountDownLatch signal =
+            new CountDownLatch(1);
+        final String timerName = "test-timer";
+        final TimerAgent agent =
+            new TimerAgent(nextAgentName(), signal, executor);
+        final Duration initialDelay = Duration.ofSeconds(5L);
+        final Duration delay =
+            Duration.ofSeconds(Long.MAX_VALUE);
+
+        EfsDispatcher.register(agent, TEST_AGENT_DISPATCHER);
+
+        try
+        {
+            executor.scheduleWithFixedDelay(timerName,
+                                            null,
+                                            agent::onTimeout,
+                                            agent,
+                                            initialDelay,
+                                            delay);
+        }
+        catch (RejectedExecutionException rejex)
+        {
+            assertThat(rejex)
+                .hasMessage(
+                    EfsScheduledExecutor.EXCESSIVE_DELAY);
+        }
+    } // end of fixedDelayTimerExcessiveDelay()
 
     @Test
     public void fixedDelayTimerUnregisteredAgent()
@@ -554,6 +728,7 @@ public final class ScheduledExecutorTest
         try
         {
             executor.scheduleWithFixedDelay(timerName,
+                                            null,
                                             agent::onTimeout,
                                             agent,
                                             initialDelay,
@@ -587,6 +762,7 @@ public final class ScheduledExecutorTest
         try
         {
             executor.scheduleWithFixedDelay(timerName,
+                                            null,
                                             agent::onTimeout,
                                             agent,
                                             initialDelay,
@@ -620,6 +796,7 @@ public final class ScheduledExecutorTest
         {
             timerName = timerNamePrefix + index;
             executor.schedule(timerName,
+                              null,
                               agent::onTimeout,
                               agent,
                               delay);
@@ -1226,6 +1403,7 @@ public final class ScheduledExecutorTest
                 final String timerName = TIMER_NAME_PREFIX + id;
                 final ScheduledFuture<?> timer =
                     mExecutor.schedule(
+                        null,
                         timerName,
                         this::onTimeout,
                         this,
@@ -1250,6 +1428,7 @@ public final class ScheduledExecutorTest
                 final ScheduledFuture<?> timer =
                     mExecutor.scheduleAtFixedRate(
                         timerName,
+                        null,
                         this::onTimeout,
                         this,
                         initialDelay,
@@ -1275,6 +1454,7 @@ public final class ScheduledExecutorTest
                 final ScheduledFuture<?> timer =
                     mExecutor.scheduleWithFixedDelay(
                         timerName,
+                        null,
                         this::onTimeout,
                         this,
                         initialDelay,
@@ -1323,7 +1503,7 @@ public final class ScheduledExecutorTest
         private void onTimeout(final EfsTimerEvent timerEvent)
         {
             final long delay =
-                (System.nanoTime() - timerEvent.expiration());
+                (System.nanoTime() - timerEvent.dispatchTimestamp());
 
             mExpirationCounter.incrementAndGet();
             mDeltas.add(delay);

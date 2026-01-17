@@ -1,5 +1,5 @@
 //
-// Copyright 2025 Charles W. Rapp
+// Copyright 2025, 2026 Charles W. Rapp
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ package org.efs.dispatcher;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.util.concurrent.CountDownLatch;
 import java.util.function.Consumer;
 import static org.assertj.core.api.Assertions.assertThat;
 import org.efs.dispatcher.EfsDispatcher.DispatcherType;
@@ -31,6 +32,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
+ * Exercises dispatcher register, dispatch, and de-register code.
  *
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
@@ -110,12 +112,12 @@ public final class DispatcherRegisterTest
         mAgentName = AGENT_NAME + sAgentIndex++;
         mAgent = createProxyAgent(mAgentName);
         mEvent = createProxyEvent();
-
     } // end of setUp()
 
     @AfterEach
     public void tearDown()
     {
+        EfsDispatcher.deregister(mAgent);
     } // end of tearDown()
 
     //
@@ -188,6 +190,37 @@ public final class DispatcherRegisterTest
         EfsDispatcher.register(mAgent, DISPATCHER_NAME);
         EfsDispatcher.dispatch(consumer, mEvent, mAgent);
     } // end of consumerException()
+
+    @Test
+    public void registerDeregisterDispatchTest()
+    {
+        final CountDownLatch doneSignal = new CountDownLatch(1);
+        final Consumer<IEfsEvent> consumer =
+            e -> doneSignal.countDown();
+        final String message =
+            "efs agent " + mAgentName + " not registered";
+
+        EfsDispatcher.register(mAgent, DISPATCHER_NAME);
+        EfsDispatcher.dispatch(consumer, mEvent, mAgent);
+
+        try
+        {
+            doneSignal.await();
+        }
+        catch (InterruptedException interrupt)
+        {}
+
+        EfsDispatcher.deregister(mAgent);
+
+        try
+        {
+            EfsDispatcher.dispatch(consumer, mEvent, mAgent);
+        }
+        catch (IllegalStateException statex)
+        {
+            assertThat(statex).hasMessage(message);
+        }
+    } // end of registerDeregisterDispatchTest()
 
     //
     // end of JUnit Tests.

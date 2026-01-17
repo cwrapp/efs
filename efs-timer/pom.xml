@@ -24,9 +24,9 @@ limitations under the License.
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId>org.efs</groupId>
+    <groupId>com.github.cwrapp</groupId>
     <artifactId>efs-parent</artifactId>
-    <version>0.4.0</version>
+    <version>0.5.0</version>
   </parent>
 
   <artifactId>efs-timer</artifactId>
@@ -34,19 +34,20 @@ limitations under the License.
 
   <name>efs-timer</name>
   <description>
-    Contains org.efs.timer and org.efs.timer.config packages.
+    Contains com.github.cwrapp.efs.timer and
+    com.github.cwrapp.efs.timer.config packages.
   </description>
 
   <dependencies>
 
     <dependency>
-      <groupId>org.efs</groupId>
+      <groupId>com.github.cwrapp</groupId>
       <artifactId>efs-event</artifactId>
       <version>${project.version}</version>
     </dependency>
 
     <dependency>
-      <groupId>org.efs</groupId>
+      <groupId>com.github.cwrapp</groupId>
       <artifactId>efs-dispatcher</artifactId>
       <version>${project.version}</version>
     </dependency>

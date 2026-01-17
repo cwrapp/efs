@@ -1,5 +1,5 @@
 //
-// Copyright 2025 Charles W. Rapp
+// Copyright 2025, 2026 Charles W. Rapp
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ import com.typesafe.config.Config;
 import com.typesafe.config.ConfigBeanFactory;
 import com.typesafe.config.ConfigException;
 import com.typesafe.config.ConfigFactory;
+import jakarta.annotation.Nonnull;
 import jakarta.annotation.Nullable;
 import java.io.File;
 import java.time.Duration;
@@ -47,6 +48,7 @@ import org.efs.event.IEfsEvent;
 import org.efs.logging.AsyncLoggerFactory;
 import org.jctools.queues.atomic.MpmcAtomicArrayQueue;
 import org.jctools.queues.atomic.MpscAtomicArrayQueue;
+import org.jctools.util.Pow2;
 import org.slf4j.Logger;
 
 /**
@@ -57,40 +59,40 @@ import org.slf4j.Logger;
  * explanation on how dispatchers, agents, and events work
  * together to accomplish this.
  * <h2>Creating Dispatchers</h2>
- * There are four ways to create dispatchers in an application:
+ * There are three ways to create dispatchers in an application:
  * <ol>
  *   <li>
- *     creating a typesafe configuration file and have that
- *     file automatically loaded using the
- *     {@code -Dorg.efs.dispatcher.configFile=<file>} Java
- *     command line option, See
- *     {@link org.efs.dispatcher.config.EfsDispatchersConfig EfsDispatchersConfig}
- *     for an example typesafe dispatcher configurations.
- *   </li>
- *   <li>
  *     loading that typesafe configuration file manually via
- *     {@link org.efs.dispatcher.EfsDispatcher#loadDispatchersConfigFile(java.lang.String) EfsDispatcher.loadDispatchersConfigFile(String)},
+ *     {@link EfsDispatcher#loadDispatchersConfigFile(File)},
  *   </li>
  *   <li>
- *     creating an
- *     {@link org.efs.dispatcher.config.EfsDispatchersConfig EfsDispatchersConfig}
- *     and loading if manually via
- *     {@link org.efs.dispatcher.EfsDispatcher#loadDispatchers(org.efs.dispatcher.config.EfsDispatchersConfig) EfsDispatcher.loadDispatchers(EfsDispatchersConfig)}
+ *     manually creating an
+ *     {@link EfsDispatchersConfig EfsDispatchersConfig}
+ *     and loading it via
+ *     {@link EfsDispatcher#loadDispatchers(EfsDispatchersConfig)}
  *     (not recommend - next option preferred), and
  *   </li>
  *   <li>
  *     use
- *     {@link org.efs.dispatcher.EfsDispatcher.Builder EfsDispatcher.Builder}
+ *     {@link EfsDispatcher.Builder EfsDispatcher.Builder}
  *     to programmatically create dispatchers. See {@code Builder}
  *     class javadoc for detailed explanation on building a
  *     dispatcher.
  *   </li>
  * </ol>
  * <p>
- * <strong>Note:</strong> dispatchers are meant to be started
- * when the application starts and run for application's
- * duration. Therefore no way is provided to stop dispatchers
- * once started.
+ * <strong>Note:</strong> dispatchers must be created and started
+ * when the application starts and are run for application's
+ * duration. Dispatchers must be up and running prior to create
+ * any {@link IEfsAgent} instances which are dependent on
+ * specific dispatchers. If an agent is
+ * {@link EfsDispatcher#register(IEfsAgent, String) registered}
+ * to an undefined dispatcher, this results in a thrown
+ * {@code IllegalArgumentException} due to an unknown dispatcher.
+ * </p>
+ * <p>
+ * Also note that there is no way is provided to stop a
+ * dispatcher once started.
  * </p>
  *
  * @see EfsDispatcherConfig
@@ -146,12 +148,9 @@ public final class EfsDispatcher
         //
 
         /**
-         * Creates a new dispatcher type for the given run queue
-         * and handle.
+         * Creates a new dispatcher type for the given run queue.
          * @param special marks this as a special dispatcher
          * which may not be configured.
-         * @param handle dispatcher method handle. Will be
-         * {@code null} for efs dispatcher.
          */
         private DispatcherType(final boolean special)
         {
@@ -212,15 +211,6 @@ public final class EfsDispatcher
     //-----------------------------------------------------------
     // Constants.
     //
-
-    /**
-     * Use command line option {@code -D}{@value}{@code=<file>}
-     * to specify file containing a typesafe HOCON (a form of
-     * JSON) configuration for one or more
-     * {@code EfsDispatcher}s.
-     */
-    public static final String DISPATCHER_CONFIG_OPTION =
-        "org.efs.dispatcher.configFile";
 
     //
     // Default values.
@@ -433,6 +423,13 @@ public final class EfsDispatcher
      */
     public static final String NULL_EVENT = "event is null";
 
+    /**
+     * Invalid dispatcher configuration file
+     * {@code NullPointException} message is {@value}.
+     */
+    public static final String NULL_CONFIG_FILE =
+        "configFile is null";
+
     //-----------------------------------------------------------
     // Statics.
     //
@@ -456,32 +453,6 @@ public final class EfsDispatcher
      */
     private static final Logger sLogger =
         AsyncLoggerFactory.getLogger();
-
-    // Class static initialization.
-    static
-    {
-        final String configFile =
-            System.getProperty(DISPATCHER_CONFIG_OPTION);
-
-        // Was a -D option provided for dispatcher configuration
-        // file?
-        if (!Strings.isNullOrEmpty(configFile))
-        {
-            // Yes. Load the file and then define dispatchers
-            // from configuration.
-            try
-            {
-                loadDispatchersConfigFile(configFile);
-            }
-            catch (Exception jex)
-            {
-                sLogger.error(
-                    "attempt to load EfsDispatchersConfig from {} failed",
-                    configFile,
-                    jex);
-            }
-        }
-    } // end of class static initialization.
 
     //-----------------------------------------------------------
     // Locals.
@@ -565,7 +536,7 @@ public final class EfsDispatcher
 
     /**
      * Method used to post agents to run queue. Defaults to
-     * {@link #doDispatch(net.sf.efs.dispatcher.EfsClient) doDispatch(EfsAgent)}.
+     * {@link #doDispatch(EfsAgent)}.
      */
     private final Consumer<EfsAgent> mDispatcher;
 
@@ -910,13 +881,17 @@ public final class EfsDispatcher
      * or an unknown dispatcher.
      * @throws IllegalStateException
      * if {@code agent} is already registered.
+     *
+     * @see #dispatch(Runnable, IEfsAgent)
+     * @see #dispatch(Consumer, IEfsEvent, IEfsAgent)
+     * @see #deregister(IEfsAgent)
      */
     public static void register(final IEfsAgent agent,
                                 final String dispatcherName)
     {
         Objects.requireNonNull(agent, NULL_AGENT);
         validateDispatcherName(dispatcherName);
-        validateAgentRegister(agent);
+        validateAgentName(agent);
 
         doRegister(agent, sDispatchers.get(dispatcherName));
     } // end of register(IEfsAgent, String)
@@ -927,6 +902,16 @@ public final class EfsDispatcher
      * {@code callback} should reference a method in agent but
      * this is not enforced.
      * </p>
+     * <p>
+     * <strong>Note:</strong> an {@code IllegalStateException} if
+     * {@code agent} is not currently registered with a
+     * dispatcher <em>but</em> if agent is de-registered
+     * simultaneously with this call, it is possible for the
+     * event to be either posted to agent event queue or
+     * quietly dropped. This behavior is not a problem since
+     * events are not normally expected to be delivered after
+     * de-registration (but may still happen).
+     * </p>
      * @param <E> event class.
      * @param callback {@code Consumer} instance used to forward
      * {@code event} to {@code agent}.
@@ -935,22 +920,31 @@ public final class EfsDispatcher
      * @throws NullPointerException
      * if either {@code callback}, {@code event}, or
      * {@code agent} is {@code null}.
+     * @throws IllegalArgumentException
+     * if {@code agent} name is either {@code null} or an empty
+     * string.
      * @throws IllegalStateException
      * if {@code agent} is not
      * {@link #register(IEfsAgent, String) registered} or if
      * {@code agent}'s event queue is full preventing
      * {@code event} from being enqueued.
+     *
+     * @see #register(IEfsAgent, String)
+     * @see #deregister(IEfsAgent)
      */
     public static <E extends IEfsEvent> void dispatch(final Consumer<E> callback,
                                                       final E event,
                                                       final IEfsAgent agent)
     {
+        final EfsAgent efsAgent;
+
         Objects.requireNonNull(callback, NULL_CALLBACK);
         Objects.requireNonNull(event, NULL_EVENT);
         Objects.requireNonNull(agent, NULL_AGENT);
-        validateAgentDispatch(agent);
+        validateAgentName(agent);
 
-        (sAgents.get(agent.name())).dispatch(callback, event);
+        efsAgent = validateAgentDispatch(agent);
+        efsAgent.dispatch(callback, event);
     } // end of dispatch(Consumer<>, E, IEfsAgent)
 
     /**
@@ -960,6 +954,11 @@ public final class EfsDispatcher
      * @param task perform this task inline with events.
      * @param agent run {@code task} inline with this agent's
      * events.
+     * @throws NullPointerException
+     * if either {@code task} or {@code agent} is {@code null}.
+     * @throws IllegalArgumentException
+     * if {@code agent} name is either {@code null} or an empty
+     * string.
      * @throws IllegalStateException
      * if {@code agent}'s event queue is full preventing
      * {@code task} from being enqueued.
@@ -967,17 +966,30 @@ public final class EfsDispatcher
     public static void dispatch(final Runnable task,
                                 final IEfsAgent agent)
     {
+        final EfsAgent efsAgent;
+
         Objects.requireNonNull(task, NULL_TASK);
         Objects.requireNonNull(agent, NULL_AGENT);
-        validateAgentDispatch(agent);
+        validateAgentName(agent);
 
-        (sAgents.get(agent.name())).dispatch(task);
+        efsAgent = validateAgentDispatch(agent);
+        efsAgent.dispatch(task);
     } // end of dispatch(Runnable, IEfsAgent)
 
     /**
-     * De-registers agent from its dispatcher. Any pending events
-     * will not be delivered to agent.
+     * De-registers agent from its dispatcher.
+     * <p>
+     * <strong>Note:</strong> it is still possible that an event
+     * will still be delivered to agent after this call due to
+     * this de-registration and event dispatch occurring on
+     * different, concurrent threads. Therefore care must be
+     * taken to handle this possibility.
+     * </p>
      * @param agent de-register this agent from its dispatcher.
+     *
+     * @see #register(IEfsAgent, String)
+     * @see #dispatch(Runnable, IEfsAgent)
+     * @see #dispatch(Consumer, IEfsEvent, IEfsAgent)
      */
     public static void deregister(final IEfsAgent agent)
     {
@@ -1030,23 +1042,26 @@ public final class EfsDispatcher
      * will fail with an {@code IllegalArgumentException} due to
      * unknown dispatcher.
      * </p>
-     * @param name name of file containing efs dispatcher
+     * <p>
+     * See {@link EfsDispatchersConfig} for an example
+     * dispatchers configuration file in {@code typesafe} HOCON
+     * format.
+     * </p>
+     * @param configFile file containing efs dispatcher
      * definitions.
+     * @throws NullPointerException
+     * if {@code configFile} is {@code null}.
      * @throws IllegalArgumentException
      * if:
      * <ul>
      *   <li>
-     *     {@code fileName} is either {@code null} or an empty
-     *     string,
+     *     {@code configFile} is a non-existent file,
      *   </li>
      *   <li>
-     *     {@code fileName} is a non-existent file,
+     *     {@code configFile} is not a regular file,
      *   </li>
      *   <li>
-     *     {@code fileName} is not a regular file,
-     *   </li>
-     *   <li>
-     *     {@code fileName} cannot be reads.
+     *     {@code configFile} cannot be read.
      *   </li>
      * </ul>
      * @throws ConfigException
@@ -1054,39 +1069,36 @@ public final class EfsDispatcher
      * configuration.
      * @throws ThreadStartException
      * if an efs dispatcher thread fails to start.
+     *
+     * @see EfsDispatchersConfig
      */
-    public static void loadDispatchersConfigFile(final String name)
+    public static void loadDispatchersConfigFile(final File configFile)
     {
-        final File configFile;
+        Objects.requireNonNull(configFile, NULL_CONFIG_FILE);
+
+        final String fileName = configFile.getAbsolutePath();
         final Config configSource;
         final EfsDispatchersConfig dispatchersConfig;
-
-        if (Strings.isNullOrEmpty(name))
-        {
-            throw (new IllegalArgumentException(INVALID_NAME));
-        }
-
-        configFile = new File(name);
 
         if (!configFile.exists())
         {
             throw (
                 new IllegalArgumentException(
-                    "\"" + name + "\" does not exist"));
+                    "\"" + fileName + "\" does not exist"));
         }
 
         if (!configFile.isFile())
         {
             throw (
                 new IllegalArgumentException(
-                    "\"" + name + "\" not regular file"));
+                    "\"" + fileName + "\" not regular file"));
         }
 
         if (!configFile.canRead())
         {
             throw (
                 new IllegalArgumentException(
-                    "\"" + name + "\" unreadable"));
+                    "\"" + fileName + "\" unreadable"));
         }
 
         configSource = ConfigFactory.parseFile(configFile);
@@ -1173,6 +1185,9 @@ public final class EfsDispatcher
     /**
      * Performs the actual work to start up an efs dispatcher by
      * creating underlying dispatcher threads and starting them.
+     * If any of the underlying dispatcher threads fails to start
+     * cleanly, then all other threads are stopped prior to
+     * throwing {@link ThreadStartException}.
      * @throws ThreadStartException
      * if an efs dispatcher thread fails to start.
      */
@@ -1216,13 +1231,17 @@ public final class EfsDispatcher
             // Stop all running threads before leaving.
             for (index = 0; index < startCount; ++index)
             {
-                mThreads[index].shutdown();
+                if (mThreads[index] != null)
+                {
+                    mThreads[index].shutdown();
+                }
             }
 
             mState = DispatcherState.START_FAILED;
 
             throw (
                 new ThreadStartException(
+                    mDispatcherName,
                     threadName,
                     "dispatcher thread start failed",
                     tex));
@@ -1237,7 +1256,7 @@ public final class EfsDispatcher
      * if {@code agent.name()} returns a {@code null} or empty
      * string.
      */
-    private static void validateAgentRegister(final IEfsAgent agent)
+    private static void validateAgentName(final IEfsAgent agent)
     {
         if (Strings.isNullOrEmpty(agent.name()))
         {
@@ -1245,24 +1264,27 @@ public final class EfsDispatcher
                 new IllegalArgumentException(
                     MISSING_AGENT_NAME));
         }
-
-        // Check for duplicate agents with the same name is
-        // performed in doRegister.
-    } // end of validateAgentRegister(IEfsAgent)
+    } // end of validateAgentName(IEfsAgent)
 
     /**
      * Validates that {@code agent} is registered with its
      * dispatcher. This method is called for effect only.
      * @param agent validate agent's registration.
+     * @return {@code EfsAgent} encapsulating {@code agent}. This
+     * value will <em>not</em> be {@code null} since if
+     * {@code agent} is not registered, an
+     * {@code IllegalStateException} is thrown.
      * @throws IllegalStateException
      * if {@code agent} is not registered with a dispatcher.
      */
-    private static void validateAgentDispatch(final IEfsAgent agent)
+    @Nonnull
+    private static EfsAgent validateAgentDispatch(final IEfsAgent agent)
     {
         final String agentName = agent.name();
+        final EfsAgent retval = sAgents.get(agentName);
 
         // Is this a registered efs agent?
-        if (!sAgents.containsKey(agentName))
+        if (retval == null)
         {
             // Nope. Can't dispatch events to un-registered
             // agents.
@@ -1272,6 +1294,8 @@ public final class EfsDispatcher
                     agentName +
                     " not registered"));
         }
+
+        return (retval);
     } // end of validateAgentDispatch(IEfsAgent)
 
     /**
@@ -1689,11 +1713,11 @@ import org.efs.dispatcher.config.ThreadType;
                              .maxEvents(8)
                              .build();</code></pre>
      * <p>
-     * <strong>Note:</strong> {@link #build()} does <em>not</em>
-     * return an {@code EfsDispatcher} instance. User accesses
-     * this instance using the configured dispatcher name.
-     * This violates Builder pattern but is done to limit
-     * access to dispatcher instances.
+     * When an efs (non-special) dispatcher is built, prior to
+     * returning all dispatcher thread(s) are started. If any one
+     * of these threads fails to start cleanly, then all other
+     * threads are stopped prior to throwing
+     * {@link ThreadStartException}.
      * </p>
      */
     public static final class Builder
@@ -1907,7 +1931,8 @@ import org.efs.dispatcher.config.ThreadType;
          * @return {@code this Builder} instance.
          * @throws IllegalArgumentException
          * if {@code capacity} is &lt;
-         * {@link #MIN_EVENT_QUEUE_SIZE}.
+         * {@link #MIN_EVENT_QUEUE_SIZE} or next highest 2 power
+         * exceeds 2^31.
          */
         public Builder eventQueueCapacity(final int capacity)
         {
@@ -1919,7 +1944,7 @@ import org.efs.dispatcher.config.ThreadType;
             }
 
             mEventQueueCapacity =
-                EfsAgent.roundToPowerOfTwo(capacity);
+                Pow2.roundToPowerOfTwo(capacity);
 
             return (this);
         } // end of eventQueueCapacity(int)
@@ -1934,7 +1959,8 @@ import org.efs.dispatcher.config.ThreadType;
          * @param capacity run queue maximum capacity.
          * @return {@code this} dispatcher builder.
          * @throws IllegalArgumentException
-         * if {@code capacity} is &le; zero.
+         * if {@code capacity} is &le; zero or next highest 2
+         * power exceeds 2^31.
          */
         public Builder runQueueCapacity(final int capacity)
         {
@@ -1946,7 +1972,7 @@ import org.efs.dispatcher.config.ThreadType;
             }
 
             mRunQueueCapacity =
-                EfsAgent.roundToPowerOfTwo(capacity);
+                Pow2.roundToPowerOfTwo(capacity);
 
             return (this);
         } // end of runQueueCapacity(int)
@@ -2045,6 +2071,11 @@ import org.efs.dispatcher.config.ThreadType;
          * this builder's settings. Has side effect of storing
          * returned dispatcher in dispatcher map and starting
          * this dispatcher running prior to return.
+         * <p>
+         * If any one of the dispatcher threads fails to
+         * successfully start, all other threads are stopped
+         * prior to throwing {@link ThreadStartException}.
+         * </p>
          * @return new dispatcher created from this builder's
          * settings.
          * @throws ValidationException
@@ -2277,6 +2308,13 @@ import org.efs.dispatcher.config.ThreadType;
         // Object Method Overrides.
         //
 
+        /**
+         * Returns dispatcher stats snapshot as text. Please note
+         * this method is computational and memory expensive. Be
+         * careful that this method is called at a time when
+         * this cost is affordable.
+         * @return dispatcher status snapshot as text.
+         */
         @Override
         public String toString()
         {
@@ -2384,6 +2422,11 @@ import org.efs.dispatcher.config.ThreadType;
          * this method is called since it is not time and space
          * optimized.
          * </p>
+         * <p>
+         * Be aware that this method merges all agent run-time
+         * stats requiring array proportional to total data.
+         * Take this into account when calling this method.
+         * </p>
          * @return aggregated agent ready time statistics.
          *
          * @see #agentRunTimeStats()
@@ -2406,6 +2449,11 @@ import org.efs.dispatcher.config.ThreadType;
          * this method is called since it is not time and space
          * optimized.
          * </p>
+         * <p>
+         * Be aware that this method merges all agent run-time
+         * stats requiring array proportional to total data.
+         * Take this into account when calling this method.
+         * </p>
          * @return aggregated agent run time statistics.
          *
          * @see #agentReadyTimeStats()
@@ -2427,6 +2475,11 @@ import org.efs.dispatcher.config.ThreadType;
          * method repeatedly. Care must be taken how frequently
          * this method is called since it is not time and space
          * optimized.
+         * </p>
+         * <p>
+         * Be aware that this method merges all agent run-time
+         * stats requiring array proportional to total data.
+         * Take this into account when calling this method.
          * </p>
          * @return aggregated agent run time statistics.
          *

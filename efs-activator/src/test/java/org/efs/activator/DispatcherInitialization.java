@@ -16,6 +16,7 @@
 
 package org.efs.activator;
 
+import java.io.File;
 import org.efs.dispatcher.EfsDispatcher;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
@@ -65,10 +66,11 @@ public final class DispatcherInitialization
     {
         if (!sIsStarted)
         {
+            final File configFile =
+                new File(DISPATCHER_FILE_NAME);
             sIsStarted = true;
 
-            EfsDispatcher.loadDispatchersConfigFile(
-                DISPATCHER_FILE_NAME);
+            EfsDispatcher.loadDispatchersConfigFile(configFile);
 
         }
     } // end of beforeAll(ExtensionContext)

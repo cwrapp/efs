@@ -432,9 +432,8 @@ public final class DispatcherPerformanceTest
         sLogger.info(mAgent.generateResults());
         sLogger.info("ProducerAgent results:");
         sLogger.info(mProducer.generateResults());
-
-        System.out.format(
-            "%s performance stats:%n%s%n",
+        sLogger.info(
+            "{} performance stats:\n{}\n",
             dispatcherName,
             EfsDispatcher.performanceStats(dispatcherName));
     } // end of runTest(EfsDispatcher, int, long, TimeUnit)

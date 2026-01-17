@@ -22,9 +22,9 @@ limitations under the License.
 
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>org.efs</groupId>
+  <groupId>com.github.cwrapp</groupId>
   <artifactId>efs-parent</artifactId>
-  <version>0.4.0</version>
+  <version>0.5.0</version>
 
   <packaging>pom</packaging>
 

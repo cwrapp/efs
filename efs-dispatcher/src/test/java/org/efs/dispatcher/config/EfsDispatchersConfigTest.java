@@ -18,6 +18,7 @@ package org.efs.dispatcher.config;
 
 import com.google.common.collect.ImmutableList;
 import com.typesafe.config.ConfigException;
+import java.io.File;
 import java.time.Duration;
 import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -74,45 +75,30 @@ public final class EfsDispatchersConfigTest
     //
 
     @Test
-    public void nullNameDispatchersFile()
+    public void nullDispatchersFile()
     {
-        final String fileName = null;
+        final File file = null;
 
         try
         {
-            EfsDispatcher.loadDispatchersConfigFile(fileName);
+            EfsDispatcher.loadDispatchersConfigFile(file);
         }
-        catch (IllegalArgumentException argex)
+        catch (NullPointerException nullex)
         {
-            assertThat(argex)
-                .hasMessage(EfsDispatcher.INVALID_NAME);
+            assertThat(nullex)
+                .hasMessage(EfsDispatcher.NULL_CONFIG_FILE);
         }
-    } // end of nullNameDispatchersFile()
-
-    @Test
-    public void emptyNameDispatchersFile()
-    {
-        final String fileName = "";
-
-        try
-        {
-            EfsDispatcher.loadDispatchersConfigFile(fileName);
-        }
-        catch (IllegalArgumentException argex)
-        {
-            assertThat(argex)
-                .hasMessage(EfsDispatcher.INVALID_NAME);
-        }
-    } // end of emptyNameDispatchersFile()
+    } // end of nullDispatchersFile()
 
     @Test
     public void noDispatchersFile()
     {
         final String fileName = NO_DISPATCHERS_FILE_NAME;
+        final File file = new File(fileName);
 
         try
         {
-            EfsDispatcher.loadDispatchersConfigFile(fileName);
+            EfsDispatcher.loadDispatchersConfigFile(file);
         }
         catch (IllegalArgumentException argex)
         {
@@ -126,10 +112,11 @@ public final class EfsDispatchersConfigTest
     public void irregularDispatchersFile()
     {
         final String fileName = IRREGULAR_DISPATCHERS_FILE_NAME;
+        final File file = new File(fileName);
 
         try
         {
-            EfsDispatcher.loadDispatchersConfigFile(fileName);
+            EfsDispatcher.loadDispatchersConfigFile(file);
         }
         catch (IllegalArgumentException argex)
         {
@@ -143,10 +130,11 @@ public final class EfsDispatchersConfigTest
     public void unreadableDispatchersFile()
     {
         final String fileName = UNREADABLE_DISPATCHERS_FILE_NAME;
+        final File file = new File(fileName);
 
         try
         {
-            EfsDispatcher.loadDispatchersConfigFile(fileName);
+            EfsDispatcher.loadDispatchersConfigFile(file);
         }
         catch (IllegalArgumentException argex)
         {
@@ -160,10 +148,11 @@ public final class EfsDispatchersConfigTest
     public void duplicateDispatchersFile()
     {
         final String fileName = DUPLICATE_DISPATCHERS_FILE_NAME;
+        final File file = new File(fileName);
 
         try
         {
-            EfsDispatcher.loadDispatchersConfigFile(fileName);
+            EfsDispatcher.loadDispatchersConfigFile(file);
         }
         catch (Exception jex)
         {
@@ -176,8 +165,9 @@ public final class EfsDispatchersConfigTest
     public void dispatchersFileSuccessfulLoad()
     {
         final String fileName = ALL_DISPATCHERS_FILE_NAME;
+        final File file = new File(fileName);
 
-        EfsDispatcher.loadDispatchersConfigFile(fileName);
+        EfsDispatcher.loadDispatchersConfigFile(file);
 
         assertThat(EfsDispatcher.dispatcherNames())
             .containsAll(sAllDispatchers);

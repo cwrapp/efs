@@ -107,11 +107,9 @@ public class EfsAgentTest
         {
             builder.agent(eobj);
         }
-        catch (Exception jex)
+        catch (NullPointerException nullex)
         {
-            assertThat(jex)
-                .isInstanceOf(NullPointerException.class);
-            assertThat(jex).hasMessage("target is null");
+            assertThat(nullex).hasMessage("target is null");
         }
     } // end of builderNullTarget()
 
@@ -125,11 +123,9 @@ public class EfsAgentTest
         {
             builder.dispatcher(dispatcher);
         }
-        catch (Exception jex)
+        catch (NullPointerException nullex)
         {
-            assertThat(jex)
-                .isInstanceOf(NullPointerException.class);
-            assertThat(jex).hasMessage("dispatcher is null");
+            assertThat(nullex).hasMessage("dispatcher is null");
         }
     } // end of builderNullDispatcher()
 
@@ -143,11 +139,9 @@ public class EfsAgentTest
         {
             builder.maxEvents(maxEvents);
         }
-        catch (Exception jex)
+        catch (IllegalArgumentException argex)
         {
-            assertThat(jex)
-                .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex).hasMessage("maxEvents <= zero");
+            assertThat(argex).hasMessage("maxEvents <= zero");
         }
     } // end of builderZeroMaxEvents()
 
@@ -161,13 +155,31 @@ public class EfsAgentTest
         {
             builder.eventQueueCapacity(capacity);
         }
-        catch (Exception jex)
+        catch (IllegalArgumentException argex)
         {
-            assertThat(jex)
-                .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex).hasMessage("capacity <= zero");
+            assertThat(argex).hasMessage("capacity <= zero");
         }
     } // end of builderZeroCapacity()
+
+    @Test
+    public void builderExceedsMaxCapacity()
+    {
+        final int capacity = (Integer.MAX_VALUE - 100);
+        final String text =
+            String.format(
+                "There is no larger power of 2 int for value:%d since it exceeds 2^31.",
+                capacity);
+        final EfsAgent.Builder builder = EfsAgent.builder();
+
+        try
+        {
+            builder.eventQueueCapacity(capacity);
+        }
+        catch (IllegalArgumentException argex)
+        {
+            assertThat(argex).hasMessage(text);
+        }
+    } // end of builderExceedsMaxCapacity()
 
     @Test
     public void builderInvalidSettings()
@@ -178,11 +190,9 @@ public class EfsAgentTest
         {
             builder.build();
         }
-        catch (Exception jex)
+        catch (ValidationException vex)
         {
-            assertThat(jex)
-                .isInstanceOf(ValidationException.class);
-            assertThat(jex)
+            assertThat(vex)
                 .hasMessageContainingAll(
                     "agent: not set",
                     "maxEvents: not set",

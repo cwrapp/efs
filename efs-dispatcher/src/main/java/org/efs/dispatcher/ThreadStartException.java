@@ -1,5 +1,5 @@
 //
-// Copyright 2025 Charles W. Rapp
+// Copyright 2025, 2026 Charles W. Rapp
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,8 +22,9 @@ import javax.annotation.concurrent.Immutable;
 /**
  * Exception thrown when a
  * {@link EfsDispatcherThread dispatcher thread} fails to
- * start. Contains failed thread's name and the exception
- * thrown by {@code Thread.start()} causing this exception.
+ * start. Contains failed dispatcher and thread names and
+ * exception thrown by {@code Thread.start()} causing this
+ * exception.
  *
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
@@ -50,6 +51,11 @@ public class ThreadStartException
     //
 
     /**
+     * Thread belows to this dispatcher.
+     */
+    private final String mDispatcherName;
+
+    /**
      * Name of thread which failed to start.
      */
     private final String mThreadName;
@@ -65,30 +71,37 @@ public class ThreadStartException
     /**
      * Creates new {@code ThreadStartException} instance without
      * detail message.
+     * @param dispatcherName failed dispatcher's name.
      * @param threadName failed thread's name.
      */
-    public ThreadStartException(final String threadName)
+    public ThreadStartException(final String dispatcherName,
+                                final String threadName)
     {
+        mDispatcherName = dispatcherName;
         mThreadName = threadName;
-    } // end of ThreadStartException(String)
+    } // end of ThreadStartException(String, String)
 
     /**
      * Creates new {@code ThreadStartException} instance with a
      * detail message.
+     * @param dispatcherName failed dispatcher's name.
      * @param threadName failed thread's name.
      * @param msg detail message.
      */
-    public ThreadStartException(final String threadName,
+    public ThreadStartException(final String dispatcherName,
+                                final String threadName,
                                 final String msg)
     {
         super(msg);
 
+        mDispatcherName = dispatcherName;
         mThreadName = threadName;
     } // end of ThreadStartException(String)
 
     /**
      * Create new {@code ThreadStartException} instance with
      * detail message and cause.
+     * @param dispatcherName failed dispatcher's name.
      * @param threadName failed thread's name.
      * @param msg detail message.
      * @param cause this exception's underlying cause (which is
@@ -97,12 +110,14 @@ public class ThreadStartException
      * value is permitted, and indicates that the cause is
      * nonexistent or unknown.
      */
-    public ThreadStartException(final String threadName,
+    public ThreadStartException(final String dispatcherName,
+                                final String threadName,
                                 final String msg,
                                 @Nullable final Throwable cause)
     {
         super(msg, cause);
 
+        mDispatcherName = dispatcherName;
         mThreadName = threadName;
     } // end of ThreadStartException(String, Throwable)
 
@@ -113,6 +128,15 @@ public class ThreadStartException
     //-----------------------------------------------------------
     // Get Methods.
     //
+
+    /**
+     * Returns failed dispatcher's name.
+     * @return dispatcher name.
+     */
+    public String dispatcherName()
+    {
+        return (mDispatcherName);
+    } // end of dispatcherName()
 
     /**
      * Returns failed thread's name.

@@ -248,9 +248,6 @@ public final class ConcurrentActivationTest
             catch (InterruptedException |
                    ExecutionException jex)
             {
-                // DEBUG
-                (jex.getCause()).printStackTrace(System.err);
-
                 fail(
                     "Concurrent task failed with exception " +
                     jex.getCause());

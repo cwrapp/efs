@@ -1,5 +1,5 @@
 //
-// Copyright 2025 Charles W. Rapp
+// Copyright 2025, 2026 Charles W. Rapp
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,11 +24,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Consumer;
+import javax.annotation.concurrent.Immutable;
 import net.sf.eBus.util.ValidationException;
 import net.sf.eBus.util.Validator;
 import org.efs.event.IEfsEvent;
 import org.jctools.queues.atomic.MpmcAtomicArrayQueue;
 import org.jctools.queues.atomic.MpscAtomicArrayQueue;
+import org.jctools.util.Pow2;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -130,10 +132,6 @@ import org.slf4j.LoggerFactory;
      * {@link RunState#RUNNING}, then this agent will be in
      * the dispatch table. When the encapsulated application
      * instance is finalized, this queue is cleared.
-     * <p>
-     * Set to {@code null} when another thread (like JavaFX GUI
-     * thread) is used to dispatch events.
-     * </p>
      */
     private final Queue<Runnable> mEvents;
 
@@ -363,6 +361,10 @@ import org.slf4j.LoggerFactory;
     /**
      * Returns an efs agent information instance based on this
      * agent's settings.
+     * <p>
+     * <strong>Note:</strong> the returned stats are
+     * <em>approximate</em> and should be used as such.
+     * </p>
      * @return efs agent information instance.
      */
     public AgentStats generateRunStats()
@@ -562,7 +564,9 @@ Ponger
     /**
      * Process either all enqueued events or until either
      * agent is no longer registered or {@link #mMaxEvents} limit
-     * is reached. Returns number of processed events.
+     * is reached. Returns number of processed events. If agent
+     * de-registers while leaving enqueued events, event queue
+     * is cleared prior to returning.
      * @return processed event count.
      */
     /* package */ int processEvents()
@@ -585,7 +589,7 @@ Ponger
                eventsRemaining > 0 &&
                (task = mEvents.poll()) != null)
         {
-            // Yes, there is a event to delivery.
+            // Yes, there is an event to deliver.
             // So, deliver it from all evil.
             // forwardEvent catches any agent-thrown exceptions,
             // so a try-catch block is not needed here.
@@ -605,6 +609,13 @@ Ponger
         runState(RunState.IDLE);
         mOnRunQueue.set(false);
 
+        // Is this agent now de-registered?
+        if (!mIsRegistered)
+        {
+            // Yes. Remove any events posted to its event queue.
+            mEvents.clear();
+        }
+
         postToRunQueue();
 
         return (retval);
@@ -618,37 +629,6 @@ Ponger
     {
         return (new Builder());
     } // end of builder()
-
-    /**
-     * Returns next greater power of 2 value if given capacity is
-     * not a power of 2. If this value exceeds
-     * {@link Integer#MAX_VALUE}, then returns argument.
-     * @param capacity find next greater power of 2 from this
-     * value.
-     * @return power of 2 value &ge; {@code capacity}.
-     */
-    /* package */ static int roundToPowerOfTwo(final int capacity)
-    {
-        final int retval;
-
-        // If this integer has only one bit set, then
-        // capacity is, by definition, a power of two.
-        if (Integer.bitCount(capacity) == 1)
-        {
-            retval = capacity;
-        }
-        // More than one bit is set.
-        else
-        {
-            final int highest =
-                Integer.highestOneBit(capacity);
-            final int next = highest << 1;
-
-            retval = (next > 0 ? next : capacity);
-        }
-
-        return (retval);
-    } // end of roundToPowerOfTwo(int)
 
     /**
      * Posts this agent to dispatcher run queue if:
@@ -699,14 +679,15 @@ Ponger
                 sLogger.warn(
                     "{}: failed to post this agent to {} dispatcher due to run queue overflow.",
                     mAgent.name(),
-                    mDispatcher.name());
+                    mDispatcher.name(),
+                    jex);
             }
         }
-        // Else if this agent is either stopped or currently on
-        // the run queue or running, so nothing has changed.
-        // If this agent is currently running, then when
-        // the event completes, the agent will be posted
-        // back to the run queue.
+        // Else if this agent is either de-registered or
+        // currently on the run queue or running, so nothing has
+        // changed. If this agent is currently running, then when
+        // the event completes, the agent will be posted back to
+        // the run queue.
     } // end of postToRunQueue()
 
     /**
@@ -760,7 +741,12 @@ Ponger
      *   </li>
      * </ul>
      * <p>
-     * Note: all times are in nanoseconds.
+     * (Note: all times are in nanoseconds.)
+     * </p>
+     * <p>
+     * <strong>Note:</strong> instances contain
+     * <em>approximate</em> stats which should be use
+     * accordingly.
      * </p>
      *
      * @see #generateRunStats()
@@ -1055,12 +1041,12 @@ Ponger
         /**
          * Sets agent event queue capacity. If capacity is not a
          * power of 2, then increases capacity to next highest
-         * power of 2 - if it is not &gt;
-         * {@link Integer#MAX_VALUE}.
+         * power of 2.
          * @param capacity event queue capacity.
          * @return {@code this Builder} instance.
          * @throws IllegalArgumentException
-         * if {@code capacity} &le; zero.
+         * if {@code capacity} &le; zero or next highest power
+         * of 2 exceeds2^31.
          */
         public Builder eventQueueCapacity(final int capacity)
         {
@@ -1071,7 +1057,8 @@ Ponger
                         "capacity <= zero"));
             }
 
-            mEventQueueCapacity = roundToPowerOfTwo(capacity);
+            mEventQueueCapacity =
+                Pow2.roundToPowerOfTwo(capacity);
 
             return (this);
         } // end of eventQueueCapacity(int)
@@ -1120,6 +1107,7 @@ Ponger
      *
      * @param <E> event class.
      */
+    @Immutable
     private static final class EventTask<E extends IEfsEvent>
         implements Runnable
     {
@@ -1157,6 +1145,10 @@ Ponger
         /**
          * Creates an event delivery task for given event and
          * lambda expression.
+         * <p>
+         * <strong>Note:</strong> caller has validated argument
+         * correctness.
+         * </p>
          * @param agentName deliver event to this named agent.
          * @param event deliver this event.
          * @param callback consumer lambda expression used to

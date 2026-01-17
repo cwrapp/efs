@@ -364,19 +364,6 @@ public final class SampleEvent
     //
 
         //-------------------------------------------------------
-        // Constructors.
-        //
-
-        private Builder()
-        {
-            // TODO
-        } // end of Builder()
-
-        //
-        // end of Constructors.
-        //-------------------------------------------------------
-
-        //-------------------------------------------------------
         // IEfsEventBuilder Interface Implementation.
         //
 
