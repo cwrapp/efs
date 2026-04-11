@@ -62,6 +62,7 @@ public final class EfsDispatcherTest
 
     private static IEfsAgent sEfsAgent;
     private static IEfsAgent sEfsAgentEmptyName;
+    private static IEfsAgent sEfsAgentBlankName;
     private static IEfsAgent sEfsAgentNotRegistered;
     private static int sDispatcherIndex = 0;
 
@@ -81,6 +82,9 @@ public final class EfsDispatcherTest
 
         sEfsAgentEmptyName = mock(IEfsAgent.class);
         when(sEfsAgentEmptyName.name()).thenReturn("");
+
+        sEfsAgentBlankName = mock(IEfsAgent.class);
+        when(sEfsAgentEmptyName.name()).thenReturn("   ");
 
         sEfsAgentNotRegistered = mock(IEfsAgent.class);
         when(sEfsAgentNotRegistered.name())
@@ -134,6 +138,24 @@ public final class EfsDispatcherTest
                 .hasMessage(EfsDispatcher.INVALID_NAME);
         }
     } // end of builderEmptyDispatcherName()
+
+    @Test
+    public void builderBlankDispatcherName()
+    {
+        final String dispatcherName = "   ";
+
+        try
+        {
+            EfsDispatcher.builder(dispatcherName);
+        }
+        catch (Exception jex)
+        {
+            assertThat(jex)
+                .isInstanceOf(IllegalArgumentException.class);
+            assertThat(jex)
+                .hasMessage(EfsDispatcher.INVALID_NAME);
+        }
+    } // end of builderBlankDispatcherName()
 
     @Test
     public void builderZeroThreadCount()
@@ -413,23 +435,32 @@ public final class EfsDispatcherTest
             EfsDispatcher.builder(dispatcherName);
         final List<EfsAgent.AgentStats> runStats =
             EfsAgent.runTimeStats();
+        final EfsDispatcher dispatcher =
+            (EfsDispatcher)
+                builder.numThreads(numThreads)
+                       .threadType(threadType)
+                       .priority(priority)
+                       .spinLimit(spinLimit)
+                       .parkTime(parkTime)
+                       .dispatcherType(dispatcherType)
+                       .eventQueueCapacity(eventQueueCapacity)
+                       .runQueueCapacity(runQueueCapacity)
+                       .maxEvents(maxEvents)
+                       .threadAffinity(affinityConfig)
+                       .build();
 
-        builder.numThreads(numThreads)
-               .threadType(threadType)
-               .priority(priority)
-               .spinLimit(spinLimit)
-               .parkTime(parkTime)
-               .dispatcherType(dispatcherType)
-               .eventQueueCapacity(eventQueueCapacity)
-               .runQueueCapacity(runQueueCapacity)
-               .maxEvents(maxEvents)
-               .threadAffinity(affinityConfig)
-               .build();
+        assertThat(dispatcher.dispatcherState())
+            .isEqualTo(EfsDispatcher.DispatcherState.STARTED);
+        assertThat(dispatcher.threadType())
+            .isEqualTo(threadType);
+        assertThat(dispatcher.priority()).isEqualTo(priority);
+        assertThat(dispatcher.toString())
+            .startsWith("[" + dispatcherName);
 
         assertThat(EfsDispatcher.isDispatcher(dispatcherName))
             .isTrue();
         assertThat(EfsDispatcher.getDispatcher(dispatcherName))
-            .isNotNull();
+            .isSameAs(dispatcher);
 
         assertThat(runStats).isNotNull();
         assertThat(runStats).isNotEmpty();
@@ -438,6 +469,17 @@ public final class EfsDispatcherTest
         {
             EfsDispatcher.register(
                 sEfsAgentEmptyName, dispatcherName);
+        }
+        catch (IllegalArgumentException argex)
+        {
+            assertThat(argex)
+                .hasMessage(EfsDispatcher.MISSING_AGENT_NAME);
+        }
+
+        try
+        {
+            EfsDispatcher.register(
+                sEfsAgentBlankName, dispatcherName);
         }
         catch (IllegalArgumentException argex)
         {
@@ -538,11 +580,6 @@ public final class EfsDispatcherTest
 
         EfsDispatcher.dispatch(
             () -> System.out.println("Do it!"), sEfsAgent);
-
-        EfsDispatcher.deregister(null);
-
-        assertThat(EfsDispatcher.isRegistered(sEfsAgent))
-            .isTrue();
 
         EfsDispatcher.deregister(sEfsAgent);
 

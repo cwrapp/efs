@@ -18,6 +18,7 @@ package org.efs.dispatcher.config;
 
 import com.google.common.collect.ImmutableList;
 import com.typesafe.config.ConfigException;
+import jakarta.annotation.Nonnull;
 import java.util.HashSet;
 import java.util.List;
 
@@ -71,6 +72,32 @@ public final class EfsDispatchersConfig
 //
 
     //-----------------------------------------------------------
+    // Constants.
+    //
+
+    //
+    // Typesafe Property keys.
+    //
+
+    /**
+     * Key {@value} contains
+     * {@link EfsDispatcherConfig dispatchers} list.
+     */
+    public static final String DISPATCHERS_KEY = "dispatchers";
+
+    //
+    // Exception messages.
+    //
+
+    /**
+     * If {@link #setDispatchers(List)} is passed a {@code null}
+     * list, then throw {@code NullPointerException} has message
+     * {@value}.
+     */
+    public static final String NULL_DISPATCHERS =
+        "dispatchers is null";
+
+    //-----------------------------------------------------------
     // Locals.
     //
 
@@ -92,33 +119,12 @@ public final class EfsDispatchersConfig
      */
     @SuppressWarnings ({"java:S1186"})
     public EfsDispatchersConfig()
-    {}
+    {
+        mDispatchers = ImmutableList.of();
+    } // end of EfsDispatchersConfig()
 
     //
     // end of Constructors.
-    //-----------------------------------------------------------
-
-    //-----------------------------------------------------------
-    // Object Method Overrides.
-    //
-
-    @Override
-    public String toString()
-    {
-        final StringBuilder output = new StringBuilder();
-
-        output.append("[dispatchers={");
-
-        for (EfsDispatcherConfig c : mDispatchers)
-        {
-            output.append('\n').append(c);
-        }
-
-        return (output.append('}').toString());
-    } // end of toString()
-
-    //
-    // end of Object Method Overrides.
     //-----------------------------------------------------------
 
     //-----------------------------------------------------------
@@ -129,7 +135,7 @@ public final class EfsDispatchersConfig
      * Returns immutable {@code EfsDispatcherConfig} list.
      * @return dispatchers list.
      */
-    public List<EfsDispatcherConfig> getDispatchers()
+    @Nonnull public List<EfsDispatcherConfig> getDispatchers()
     {
         return (mDispatchers);
     } // end of getDispatchers()
@@ -146,11 +152,18 @@ public final class EfsDispatchersConfig
      * Sets efs dispatchers list.
      * @param dispatchers efs dispatchers.
      * @throws ConfigException
-     * if {@code dispatchers} contains duplicate dispatcher
-     * names.
+     * if {@code dispatchers} is {@code null} or contains
+     * duplicate dispatcher names.
      */
     public void setDispatchers(final List<EfsDispatcherConfig> dispatchers)
     {
+        if (dispatchers == null)
+        {
+            throw (
+                new ConfigException.BadValue(
+                    DISPATCHERS_KEY, NULL_DISPATCHERS));
+        }
+
         final HashSet<String> names = new HashSet<>();
         String dispatcherName;
 
@@ -167,7 +180,7 @@ public final class EfsDispatchersConfig
                 // Yes. Can't have that.
                 throw (
                     new ConfigException.BadValue(
-                        "executors",
+                        DISPATCHERS_KEY,
                         "duplicate dispatcher named \"" +
                         dispatcherName +
                         "\""));

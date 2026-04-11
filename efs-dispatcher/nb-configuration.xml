@@ -17,8 +17,10 @@ Without this configuration present, some functionality in the IDE may be limited
         <netbeans.compile.on.save>all</netbeans.compile.on.save>
     </properties>
     <spellchecker-wordlist xmlns="http://www.netbeans.org/ns/spellchecker-wordlist/1">
+        <word>Akka</word>
         <word>algos</word>
         <word>async</word>
+        <word>Backpressure</word>
         <word>Disruptor's</word>
         <word>efs</word>
         <word>Enqueue</word>
@@ -28,7 +30,11 @@ Without this configuration present, some functionality in the IDE may be limited
         <word>heterogenous</word>
         <word>homogenous</word>
         <word>javadoc</word>
+        <word>lifecycle</word>
+        <word>natively</word>
         <word>programmatically</word>
+        <word>remoting</word>
         <word>typesafe</word>
+        <word>untyped</word>
     </spellchecker-wordlist>
 </project-shared-configuration>

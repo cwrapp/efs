@@ -276,6 +276,7 @@ public class EfsAgentTest
         assertThat(agentInfo.getMaximumRunTime()).isZero();
         assertThat(agentInfo.getTotalRunTime()).isZero();
         assertThat(agentInfo.getRunCount()).isZero();
+        assertThat(agentInfo.getMissedDispatchCount()).isZero();
         assertThat(agentInfo.getDispatcherName())
             .isEqualTo(DISPATCHER_NAME);
         assertThat(agentInfo.getMaxEvents())

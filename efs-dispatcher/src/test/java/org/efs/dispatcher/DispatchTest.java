@@ -36,7 +36,7 @@ import org.junit.jupiter.api.Test;
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
 
-public class DispatchTest
+public final class DispatchTest
 {
 //---------------------------------------------------------------
 // Member data.
@@ -128,8 +128,6 @@ public class DispatchTest
     {
         EfsDispatcher.deregister(mAgent);
         EfsDispatcher.deregister(mProducer);
-
-        EfsDispatcher.stopDispatchers();
     } // end of tearDown()
 
     //

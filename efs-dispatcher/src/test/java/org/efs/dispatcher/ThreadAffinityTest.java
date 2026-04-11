@@ -27,6 +27,7 @@ import org.efs.dispatcher.config.ThreadAffinityConfig;
 import org.efs.dispatcher.config.ThreadAffinityConfig.AffinityType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -99,6 +100,65 @@ public class ThreadAffinityTest
     //-----------------------------------------------------------
     // JUnit Tests.
     //
+
+    @Test
+    public void aquireLockNullConfig()
+    {
+        final ThreadAffinityConfig config = null;
+
+        try
+        {
+            ThreadAffinity.acquireLock(config);
+        }
+        catch (NullPointerException nullex)
+        {
+            assertThat(nullex)
+                .hasMessage(ThreadAffinity.NULL_CONFIG);
+        }
+    } // end of aquireLockNullConfig()
+
+    @Test
+    public void acquireLockNullLock()
+    {
+        final AffinityLock affinityLock = null;
+        final ThreadAffinityConfig config =
+            createAnyCoreAffinity();
+
+        try
+        {
+            ThreadAffinity.acquireLock(affinityLock, config);
+        }
+        catch (NullPointerException nullex)
+        {
+            assertThat(nullex)
+                .hasMessage(ThreadAffinity.NULL_LOCK);
+        }
+    } // end of acquireLockNullLock()
+
+    @Disabled
+    @Test
+    public void acquireLockNullConfig2()
+    {
+        final ThreadAffinityConfig config = null;
+
+        try
+        {
+            final AffinityLock affinityLock =
+                ThreadAffinity.acquireLock(
+                    createAnyCoreAffinity());
+
+            ThreadAffinity.acquireLock(affinityLock, config);
+        }
+        catch (IllegalArgumentException argex)
+        {
+            // Ignore.
+        }
+        catch (NullPointerException nullex)
+        {
+            assertThat(nullex)
+                .hasMessage(ThreadAffinity.NULL_CONFIG);
+        }
+    } // end of acquireLockNullConfig2()
 
     @Test
     public void aquireLockAnyCore()

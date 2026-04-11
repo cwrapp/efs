@@ -17,6 +17,7 @@ package org.efs.activator;
 
 import com.google.common.collect.ImmutableList;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import net.sf.eBus.util.MultiKey2;
 import net.sf.eBus.util.ValidationException;
@@ -156,6 +157,28 @@ public class WorkflowBuildTest
             assertThat(argex).hasMessage("time <= zero");
         }
     } // end of buildStepZeroTransitionTime()
+
+    @Test
+    public void buildStepTransitionTimeTooBig()
+    {
+        final Duration oneSecond = Duration.ofSeconds(1L);
+        final Duration time =
+            WorkflowStep.MAX_ALLOWED_TRANSITION_TIME.plus(
+                oneSecond);
+        final WorkflowStep.Builder builder =
+            WorkflowStep.builder();
+
+        try
+        {
+            builder.allowedTransitionTime(time);
+        }
+        catch (IllegalArgumentException argex)
+        {
+            assertThat(argex)
+                .hasMessage(
+                    "time > MAX_ALLOWED_TRANSITION_TIME");
+        }
+    } // end of buildStepTransitionTimeTooBig()
 
     @Test
     public void buildStepInvalidSettings()
@@ -386,8 +409,9 @@ public class WorkflowBuildTest
         }
         catch (IllegalArgumentException argex)
         {
-            assertThat(argex).hasMessage(
-                "name is either null or an empty string");
+            assertThat(argex)
+                .hasMessage(
+                    Workflow.INVALID_WORKFLOW_NAME);
         }
     } // end of buildWorkflowNullName()
 
@@ -403,10 +427,29 @@ public class WorkflowBuildTest
         }
         catch (IllegalArgumentException argex)
         {
-            assertThat(argex).hasMessage(
-                "name is either null or an empty string");
+            assertThat(argex)
+                .hasMessage(
+                    Workflow.INVALID_WORKFLOW_NAME);
         }
     } // end of buildWorkflowEmptyName()
+
+    @Test
+    public void buildWorkflowBlankName()
+    {
+        final String name = "   ";
+        final Workflow.Builder builder = Workflow.builder();
+
+        try
+        {
+            builder.name(name);
+        }
+        catch (IllegalArgumentException argex)
+        {
+            assertThat(argex)
+                .hasMessage(
+                    Workflow.INVALID_WORKFLOW_NAME);
+        }
+    } // end of buildWorkflowBlankName()
 
     @Test
     public void buildWorkflowNullStages()
@@ -507,8 +550,9 @@ public class WorkflowBuildTest
         }
         catch (IllegalArgumentException argex)
         {
-            assertThat(argex).hasMessage(
-                "workflows is either null or an empty list");
+            assertThat(argex)
+                .hasMessage(
+                    "workflows is either null or an empty list");
         }
     } // end of buildActivatorNullWorkflows()
 
@@ -525,10 +569,32 @@ public class WorkflowBuildTest
         }
         catch (IllegalArgumentException argex)
         {
-            assertThat(argex).hasMessage(
-                "workflows is either null or an empty list");
+            assertThat(argex)
+                .hasMessage(
+                    "workflows is either null or an empty list");
         }
     } // end of buildActivatorEmptyWorkflows()
+
+    @Test
+    public void buildActivatorNullWorkflow()
+    {
+        final List<Workflow> workflows = new ArrayList<>();
+        final EfsActivator.Builder builder =
+            EfsActivator.builder();
+
+        workflows.add(null);
+
+        try
+        {
+            builder.workflows(workflows);
+        }
+        catch (IllegalArgumentException argex)
+        {
+            assertThat(argex)
+                .hasMessage(
+                    "workflows contains null workflow");
+        }
+    } // end of buildActivatorNullWorkflow()
 
     @Test
     public void buildActivatorDuplicateWorkflowNames()
@@ -539,8 +605,9 @@ public class WorkflowBuildTest
         }
         catch (IllegalArgumentException argex)
         {
-            assertThat(argex).hasMessage(
-                "workflows contains duplicate workflow test-workflow");
+            assertThat(argex)
+                .hasMessage(
+                    "workflows contains duplicate workflow test-workflow");
         }
     } // end of buildActivatorDuplicateWorkflowNames()
 

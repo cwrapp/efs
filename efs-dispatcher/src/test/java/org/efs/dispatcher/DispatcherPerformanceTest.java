@@ -69,8 +69,8 @@ public final class DispatcherPerformanceTest
 
     private static final String AGENT_NAME = "PerformanceAgent";
 
-    private static final int MAX_EVENTS = 1_000_000;
-    private static final long TEST_DELAY = 100L;
+    private static final int MAX_EVENTS = 10_000_000;
+    private static final long TEST_DELAY = 10L;
     private static final TimeUnit TEST_TIME_UNIT =
         TimeUnit.MICROSECONDS;
 
@@ -79,18 +79,8 @@ public final class DispatcherPerformanceTest
     //
 
     private static final Logger sLogger =
-        AsyncLoggerFactory.getLogger();
-
-    //-----------------------------------------------------------
-    // Locals.
-    //
-
-    private PerformanceAgent mAgent;
-
-    // Multi-agent, multi-dispatcher test.
-    private int mAgentCount;
-    private ProducerAgent mProducer;
-    private PerformanceAgent[] mAgents;
+        AsyncLoggerFactory.getLogger(
+            DispatcherPerformanceTest.class);
 
 //---------------------------------------------------------------
 // Member methods.
@@ -98,7 +88,7 @@ public final class DispatcherPerformanceTest
 
     /**
      * Main method needed to run performance test.
-     * @param args
+     * @param args empty arguments list.
      */
     public static void main(final String[] args)
     {}
@@ -226,8 +216,12 @@ public final class DispatcherPerformanceTest
         final int numEvents = 5_000_000;
         final CountDownLatch doneSignal =
             new CountDownLatch(numEvents);
-        final int eventCount;
         final int maxEvents = MAX_EVENT_QUEUE_SIZE;
+        final int agentCount = 60;
+        final int eventCount = (numEvents / agentCount);
+        final ProducerAgent producer;
+        final PerformanceAgent[] agents =
+            new PerformanceAgent[agentCount];
         EfsDispatcher.Builder builder;
         int i;
         String agentName;
@@ -278,26 +272,22 @@ public final class DispatcherPerformanceTest
                .maxEvents(maxEvents)
                .build();
 
-        mAgentCount = 60;
-        mAgents = new PerformanceAgent[mAgentCount];
-        eventCount = (numEvents / mAgentCount);
-
         // Create multiple performance agents.
-        for (i = 0; i < mAgentCount; ++i)
+        for (i = 0; i < agentCount; ++i)
         {
             agentName = AGENT_NAME + "-" + i;
-            mAgents[i] = new PerformanceAgent(agentName,
-                                              eventCount,
-                                              doneSignal);
+            agents[i] = new PerformanceAgent(agentName,
+                                             eventCount,
+                                             doneSignal);
         }
 
-        mProducer = new ProducerAgent(eventCount,
-                                      TEST_DELAY,
-                                      TEST_TIME_UNIT,
-                                      mAgents,
-                                      true,
-                                      1,
-                                      5);
+        producer = new ProducerAgent(eventCount,
+                                     TEST_DELAY,
+                                     TEST_TIME_UNIT,
+                                     agents,
+                                     true,
+                                     1,
+                                     5);
 
         // Assign the first 20 to multi-spinning dispatcher,
         // the next 30 to multip-spin+park dispatcher, and the
@@ -313,29 +303,29 @@ public final class DispatcherPerformanceTest
              ++i)
         {
             EfsDispatcher.register(
-                mAgents[i], MULTI_SPINNING_DISPATCHER);
+                agents[i], MULTI_SPINNING_DISPATCHER);
         }
 
         for (numAgents = (i + fastAgents1); i < numAgents; ++i)
         {
             EfsDispatcher.register(
-                mAgents[i], MULTI_SPIN_PARK_DISPATCHER);
+                agents[i], MULTI_SPIN_PARK_DISPATCHER);
         }
 
         for (numAgents = (i + slowAgents); i < numAgents; ++i)
         {
             EfsDispatcher.register(
-                mAgents[i], BLOCKING_DISPATCHER);
+                agents[i], BLOCKING_DISPATCHER);
         }
 
         // Now start the agents.
-        for (i = 0; i < mAgentCount; ++i)
+        for (i = 0; i < agentCount; ++i)
         {
-            mAgents[i].start();
+            agents[i].start();
         }
 
-        EfsDispatcher.register(mProducer, BLOCKING_DISPATCHER);
-        mProducer.start();
+        EfsDispatcher.register(producer, BLOCKING_DISPATCHER);
+        producer.start();
 
         try
         {
@@ -345,30 +335,30 @@ public final class DispatcherPerformanceTest
         {}
 
         // Stop agents.
-        for (i = 0; i < mAgentCount; ++i)
+        for (i = 0; i < agentCount; ++i)
         {
-            mAgents[i].stop();
+            agents[i].stop();
         }
 
-        mProducer.stop();
+        producer.stop();
 
         sLogger.info("... test completed.");
 
         // De-register agents.
-        for (i = 0; i < mAgentCount; ++i)
+        for (i = 0; i < agentCount; ++i)
         {
-            EfsDispatcher.deregister(mAgents[i]);
+            EfsDispatcher.deregister(agents[i]);
         }
 
         // Dump results.
         sLogger.info("PerformanceAgent results:");
-        for (i = 0; i < mAgentCount; ++i)
+        for (i = 0; i < agentCount; ++i)
         {
-            sLogger.info(mAgents[i].generateResults());
+            sLogger.info(agents[i].generateResults());
         }
 
         sLogger.info("ProducerAgent results:");
-        sLogger.info(mProducer.generateResults());
+        sLogger.info(producer.generateResults());
 
         System.out.format(
             "%s performance stats:%n%s%n",
@@ -398,22 +388,23 @@ public final class DispatcherPerformanceTest
     {
         final CountDownLatch doneSignal =
             new CountDownLatch(eventCount);
+        final PerformanceAgent agent =
+            new PerformanceAgent(AGENT_NAME,
+                                 eventCount,
+                                 doneSignal);
+        final ProducerAgent producer =
+            new ProducerAgent(eventCount,
+                              delay,
+                              timeUnit,
+                              agent);
 
         sLogger.info("\n\nTesting {}.", dispatcherName);
 
-        mAgent = new PerformanceAgent(AGENT_NAME,
-                                      eventCount,
-                                      doneSignal);
-        mProducer = new ProducerAgent(eventCount,
-                                      delay,
-                                      timeUnit,
-                                      mAgent);
+        EfsDispatcher.register(agent, dispatcherName);
+        EfsDispatcher.register(producer, dispatcherName);
 
-        EfsDispatcher.register(mAgent, dispatcherName);
-        EfsDispatcher.register(mProducer, dispatcherName);
-
-        mAgent.start();
-        mProducer.start();
+        agent.start();
+        producer.start();
 
         try
         {
@@ -422,19 +413,19 @@ public final class DispatcherPerformanceTest
         catch (InterruptedException interrupt)
         {}
 
-        mAgent.stop();
-        mProducer.stop();
+        agent.stop();
+        producer.stop();
 
-        EfsDispatcher.deregister(mAgent);
-        EfsDispatcher.deregister(mProducer);
+        EfsDispatcher.deregister(agent);
+        EfsDispatcher.deregister(producer);
 
         sLogger.info("PerformanceAgent results:");
-        sLogger.info(mAgent.generateResults());
+        sLogger.info(agent.generateResults());
         sLogger.info("ProducerAgent results:");
-        sLogger.info(mProducer.generateResults());
+        sLogger.info(producer.generateResults());
         sLogger.info(
             "{} performance stats:\n{}\n",
             dispatcherName,
             EfsDispatcher.performanceStats(dispatcherName));
-    } // end of runTest(EfsDispatcher, int, long, TimeUnit)
+    } // end of runTest(String, int, long, TimeUnit)
 } // end of class DispatcherPerformanceTest

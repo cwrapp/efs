@@ -42,7 +42,7 @@ public final class PerformanceAgent
      * Logging subsystem interface.
      */
     private static final Logger sLogger =
-        AsyncLoggerFactory.getLogger();
+        AsyncLoggerFactory.getLogger(PerformanceAgent.class);
 
     //-----------------------------------------------------------
     // Locals.

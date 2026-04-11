@@ -120,6 +120,12 @@ public final class ApplicationMonitor implements IEfsAgent {
  * See {@link org.efs.dispatcher package info} for an overall
  * example of how to use dispatcher in an application.
  * </p>
+ * <p>
+ * Note: while this interface has a single method it is
+ * <em>not</em> a {@link FunctionalInterface}. Agent classes
+ * are expected to implement this interface and not use it as
+ * a lambda method.
+ * </p>
  *
  * @see org.efs.dispatcher
  * @see org.efs.dispatcher.IEfsDispatcher

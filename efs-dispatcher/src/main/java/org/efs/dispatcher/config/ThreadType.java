@@ -16,31 +16,32 @@
 
 package org.efs.dispatcher.config;
 
+import com.google.common.base.Strings;
+import jakarta.annotation.Nonnull;
 import jakarta.annotation.Nullable;
 
 /**
  * Lists thread types available to efs users when configuring
- * efs dispatchers. A dispatcher thread is either:
+ * efs dispatchers. A dispatcher thread either:
  * <ul>
  *   <li>
- *     blocks while waiting for the desire event to occur,
+ *     blocks while waiting for an event to arrive,
  *   </li>
  *   <li>
- *     spins, repeatedly check for the event to occur, or
+ *     spins, repeatedly check for the event to arrive, or
  *   </li>
  *   <li>
  *     spins a specified number of times on the event check and,
- *     if the event does not occur when the spin limit is
+ *     if the event does not arrive when the spin limit is
  *     reached, then
  *     {@link java.util.concurrent.locks.LockSupport#parkNanos(long) parks}
- *     for the nanosecond time.
+ *     for a nanosecond time limit.
  *   </li>
  *   <li>
  *     spins a specified number of times on the event check and,
- *     if the event does not occur when the spin limit is
+ *     if the event does not arrive ¯when the spin limit is
  *     reached, then
- *     {@link java.util.concurrent.locks.LockSupport#park() parks}
- *     for an indefinite time.
+ *     {@link Thread#yield() yields} for an indefinite time.
  *   </li>
  * </ul>
  *
@@ -73,8 +74,8 @@ public enum ThreadType
      * thread
      * {@link java.util.concurrent.locks.LockSupport#parkNanos(long) parks}
      * for a specified nanosecond time limit. Upon waking up,
-     * the threads resets the spin count and starts the repeated,
-     * non-blocking checks again. This continues until an event
+     * spin count is reset and non-blocking event arrival
+     * checking is re-started. This continues until an event
      * is detected.
      * <p>
      * This type is a compromise between blocking and spinning
@@ -93,9 +94,9 @@ public enum ThreadType
      * thread
      * {@link java.util.concurrent.locks.LockSupport#park() yields}
      * the core to another thread. When the thread re-gains the
-     * core, the the spin count is reset and the repeated,
-     * non-blocking checks start again. This continues until an
-     * event is detected.
+     * core, spin count is reset and non-blocking event arrival
+     * checking is re-started. This continues until an event is
+     * detected.
      * <p>
      * This type is a compromise between blocking and spinning
      * by aggressively spinning until an event occurs but not
@@ -109,6 +110,17 @@ public enum ThreadType
 //---------------------------------------------------------------
 // Member data.
 //
+
+    //-----------------------------------------------------------
+    // Constants.
+    //
+
+    /**
+     * {@link #find(String)} invalid argument results in an
+     * {@code IllegalArgumentException} with message {@value}.
+     */
+    public static final String INVALID_NAME =
+        "name is either null, an empty string, or blank";
 
     //-----------------------------------------------------------
     // Locals.
@@ -172,12 +184,21 @@ public enum ThreadType
      * Returns the thread type with a text name equaling
      * {@code s}, ignoring case. Will return {@code null} if
      * {@code s} does not match any thread type text name.
-     * @param s compare the thread type text name to this given
+     * @param name compare the thread type text name to this given
      * value.
      * @return thread type for the given text name.
+     * @throws IllegalArgumentException
+     * if {@code s} is either {@code null} or an empty string.
      */
-    @Nullable public static ThreadType find(final String s)
+    @Nullable public static ThreadType find(@Nonnull final String name)
     {
+        if (Strings.isNullOrEmpty(name) || name.isBlank())
+        {
+            throw (
+                new IllegalArgumentException(
+                    INVALID_NAME));
+        }
+
         final ThreadType[] values = ThreadType.values();
         final int size = values.length;
         int i;
@@ -185,7 +206,7 @@ public enum ThreadType
 
         for (i = 0; i < size && retval == null; ++i)
         {
-            if ((values[i].mTextName).equalsIgnoreCase(s))
+            if ((values[i].mTextName).equalsIgnoreCase(name))
             {
                 retval = values[i];
             }
