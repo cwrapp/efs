@@ -206,7 +206,7 @@ public final class AlgoApplication {
  *     solution to this mapping is not provided here.
  *   </li>
  * </ul>
- * <h2>Comparison with Existing Concurrency Frameworks</h2>
+ * <h2><a id="FrameworkCompare">Comparison with Existing Concurrency Frameworks</a></h2>
  * <h3>LMAX Disruptor</h3>
  * <a href="https://lmax-exchange.github.io/disruptor/user-guide/index.html" target="_blank">LMAX Disruptor</a>
  * has excellent thread and memory discipline. The following
@@ -284,6 +284,402 @@ public final class AlgoApplication {
  * so that flow event flow meets design limits. Dispatcher
  * provides no control mechanisms. That is left to the user if
  * they have the need.
+ * </p>
+ * <h3>Actor Model</h3>
+ * <p>
+ * {@code EfsDispatcher} is closest to the Actor model in
+ * computational theory and
+ * <a href="https://akka.io" target="_blank">Akka framework</a>.
+ * Both frameworks share the same fundamental goal:
+ * <strong>
+ * enabling concurrent, multi-threaded applications while
+ * providing effective semantics
+ * </strong> to the developer &mdash; eliminating the need for
+ * locks/synchronization and risk of deadlocks and race
+ * conditions.
+ * </p>
+ * <h4>Similarities</h4>
+ * <table class="role-table">
+ *   <caption>EfsDispatcher/Actor Similarities</caption>
+ *   <tr>
+ *     <th><strong>Concept</strong></th>
+ *     <th><strong>Actor Model</strong></th>
+ *     <th><strong>efs dispatcher</strong></th>
+ *   </tr>
+ *   <tr>
+ *     <td>Processing Entity</td>
+ *     <td>Actor</td>
+ *     <td>{@link org.efs.dispatcher.IEfsAgent}</td>
+ *   </tr>
+ *   <tr>
+ *     <td>Communication Unit</td>
+ *     <td>Message</td>
+ *     <td>{@link org.efs.event.IEfsEvent}</td>
+ *   </tr>
+ *   <tr>
+ *     <td>Per-Entity Inbox</td>
+ *     <td>Actor mailbox</td>
+ *     <td>Agent event queue</td>
+ *   </tr>
+ *   <tr>
+ *     <td>Guarantee</td>
+ *     <td>One message at a time per actor.</td>
+ *     <td>One event at a time per agent.</td>
+ *   </tr>
+ *   <tr>
+ *     <td>Identity</td>
+ *     <td>Actor address/ActorRef</td>
+ *     <td>
+ *       Agent name (
+ *       {@link org.efs.dispatcher.IEfsAgent#name} must be
+ *       unique within JVM).
+ *     </td>
+ *   </tr>
+ * </table>
+ * <h4>Key Differences</h4>
+ * <ol>
+ *   <li>
+ *     <strong>Threading Model</strong>
+ *     <ul>
+ *       <li>
+ *         <strong>Actor Model:</strong> Actors are scheduled
+ *         onto a shared thread pool (typically a fork-join
+ *         pool). The is largely opaque to the developer.
+ *       </li>
+ *       <li>
+ *         <strong>EfsDispatcher:</strong> Agents are explicitly
+ *         assigned to named <strong>dispatchers</strong>, each
+ *         with a configurable number of dispatcher threads. The
+ *         developer controls the thread count, thread type
+ *         (blocking, spinning, spin+park, and spin+yield),
+ *         thread priority, CPU affinity, and spin limits. This
+ *         gives
+ *         <strong>fine-grained, latency-oriented control</strong>
+ *         over threading which the classic Actor model does not
+ *         expose.
+ *       </li>
+ *     </ul>
+ *   </li>
+ *   <li>
+ *     <strong>Event/Message Routing</strong>
+ *     <ul>
+ *       <li>
+ *         <strong>Actor Model:</strong> Actors send messages to
+ *         other actors using an <strong>actor reference</strong>
+ *         (ActorRef). The sender does not need to know the
+ *         recipient's internals &mdash; only its address. This
+ *         supports <strong>location transparency</strong>
+ *         (recipient may be either local or remote).
+ *       </li>
+ *       <li>
+ *         <strong>EfsDispatcher:</strong> Event dispatch is done
+ *         using a <strong>static method call</strong> with an
+ *         explicit {@code Consumer} lambda and target agent:
+ *         <br>
+ *         <pre><code>EfsDispatcher.dispatch(targetAgent::onEvent, event, targetAgent)</code></pre>
+ *         <p>
+ *         This is
+ *         <strong>direct, tightly-coupled dispatch</strong>
+ *         &mdash; the caller must hold a reference to the target
+ *         agent and know (and have access to) the callback
+ *         method. There is no built-in location transparency or
+ *         actor-reference abstraction. The
+ *         {link org.efs.dispatcher.ReplyTo class provides a
+ *         reply-address pattern but must be manually set.
+ *         </p>
+ *         <p>
+ *         Indirect, loosely-coupled dispatch is provded in
+ *         {@code org.efs.gus} package.
+ *         </p>
+ *       </li>
+ *     </ul>
+ *   </li>
+ *   <li>
+ *     <strong>Actor Lifecycle &amp; Supervision</strong>
+ *     <ul>
+ *       <li>
+ *         <strong>Actor Model:</strong> Rich lifecycle
+ *         management &mdash; actors can create child actors,
+ *         supervise them, and apply fault-tolerance strategies
+ *         (restart, stop, escalate). Hierarchical supervision
+ *         trees are the cornerstone of the Akka framework.
+ *       </li>
+ *       <li>
+ *         <strong>EfsDispatcher:</strong> Agents are
+ *         <strong>registered</strong> and
+ *         <strong>de-registered</strong> with dispatchers. Child
+ *         agents are not formally supported but developers can
+ *         implement such a relationship. Lifecycle supervision
+ *         is supported in the {@code org.efs.activator} package.
+ *       </li>
+ *     </ul>
+ *   </li>
+ *   <li>
+ *     <strong>State Management:</strong>
+ *     <ul>
+ *       <li>
+ *         <strong>Actor Model:</strong> Actors dynamically
+ *         change their message-handling behavior (e.g. Akka's
+ *         {@code become/unbecome}. This allows state
+ *         machine-like transitions within an actor.
+ *       </li>
+ *       <li>
+ *         <strong>EfsDispatcher:</strong> No built-in
+ *         behavior-switching mechanism. The {@code Consumer}
+ *         lambda is bound at dispatch time by the caller, not
+ *         by the recipient agent itself. State machines would be
+ *         implemented manually by the agent (e.g. using
+ *         <a href="https://sourceforge.net/projects/smc" target="_blank">SMC</a>
+ *         state machine compiler).
+ *       </li>
+ *     </ul>
+ *   </li>
+ *   <li>
+ *     <strong>Backpressure &amp; Queue Management</strong>
+ *     <ul>
+ *       <li>
+ *         <strong>Actor model:</strong> Mailboxes are typically
+ *         unbounded by default (Akka), though bounded mailboxes
+ *         exist. Backpressure is handled externally (e.g. Akka
+ *         streams).
+ *       </li>
+ *       <li>
+ *         <strong>EfsDispatcher:</strong> Agent event queues are
+ *         <strong>bounded</strong> (using
+ *         <a href="https://github.com/JCTools/JCTools" target="_blank">JCTools</a>
+ *         lock-free queues). An attempt to offer an event to a
+ *         full event queue results in a thrown
+ *         {@code IllegalStateException}. This provides
+ *         <strong>explicit backpressure at the agent level.</strong>
+ *         Additionally agents have a configurable
+ *         {@code maxEvents} per dispatch cycle &mdash; when an
+ *         agent hits this limit, it is re-enqueued to the run
+ *         queue. This prevents starving out other agents on the
+ *         run queue.
+ *       </li>
+ *     </ul>
+ *   </li>
+ *   <li>
+ *     <strong>Low Latency Focus</strong>
+ *     <ul>
+ *       <li>
+ *         <strong>Actor Model:</strong> General-purpose
+ *         concurrency. Performance tuning is available but not
+ *         the primary design focus.
+ *       </li>
+ *       <li>
+ *         <strong>EfsDispatcher:</strong> Explicitly designed
+ *         for <strong>low-latency, high-performance</strong> use
+ *         cases (financial/trading systems). Evidence includes
+ *         <ul>
+ *           <li>
+ *             Lock-free JCTools queue for both event and run
+ *             queues.
+ *           </li>
+ *           <li>
+ *             Configurable spin/park/yield strategies on
+ *             dispatcher threads.
+ *           </li>
+ *           <li>
+ *             CPU affinity support via OpenHFT.
+ *           </li>
+ *           <li>
+ *             Nanosecond-level run-time statistics tracking per
+ *             agent.
+ *           </li>
+ *           <li>
+ *             Discouragement of thread creation beyond
+ *             dispatchers.
+ *           </li>
+ *         </ul>
+ *       </li>
+ *     </ul>
+ *   </li>
+ *   <li>
+ *     <strong>Event Typing</strong>
+ *     <ul>
+ *       <li>
+ *         <strong>Actor Model:</strong> Messages are typically
+ *         untyped (Classic Akka) or use typed protocols (Akka
+ *         Typed). Actors receive {@code Any/Object} and
+ *         pattern-match.
+ *       </li>
+ *       <li>
+ *         <strong>EfsDispatcher:</strong> Events implement
+ *         {@code IEfsEvent} marker interface, and dispatch is
+ *         <strong>type-safe</strong> via {@code Consumer<E>}
+ *         lambdas &mdash; the callback signature determines
+ *         event type at compile time.
+ *       </li>
+ *     </ul>
+ *   </li>
+ *   <li>
+ *     <strong>Remote / Distributed Support</strong>
+ *     <ul>
+ *       <li>
+ *         <strong>Actor Model:</strong> Frameworks like Akka
+ *         natively support remoting and clustering. Actors can
+ *         be addressed across network boundaries.
+ *       </li>
+ *       <li>
+ *         <strong>EfsDispatcher:</strong> Strictly
+ *         <strong>in-process, single JVM</strong>. Agent name
+ *         uniqueness is scoped to the JVM; there is no network
+ *         layer.
+ *       </li>
+ *     </ul>
+ *   </li>
+ *   <li>
+ *     <strong>Scheduling &amp; Timers:</strong>
+ *     <ul>
+ *       <li>
+ *         <strong>Actor Model:</strong> Akka has built-in
+ *         scheduler (context.system.scheduler). Actor receives
+ *         timer messages.
+ *       </li>
+ *       <li>
+ *         <strong>EfsDispatcher:</strong> Separate
+ *         {@code EfsScheduledExecutor} class which dispatches
+ *         {@code EfsTimerEvent} to agents via dispatcher.
+ *         This efs scheduler provided in artifact
+ *         {@code efs-timer}.
+ *       </li>
+ *     </ul>
+ *   </li>
+ * </ol>
+ * <h4>Code Example Comparison</h4>
+ * <strong>Actor Model (Akka)</strong>
+ * <pre><code>class OrderActor extends AbstractActor {
+    &commat;Override
+    public Receive createReceive() {
+        return receiveBuilder().match(NewOrder.class, this::onNewOrder)
+                               .match(CancelOrder.class, this::onCancelOrder)
+                               .build();
+    }
+
+    private void onNewOrder(NewOrder) {
+        ...
+    }
+
+    private void onCancelOrder(CancelOrder) {
+        ...
+    }
+}
+
+// Usage:
+ActorRef orderActor = system.actorOf(Props.create(OrderActor.class));
+orderActor.tell(new NewOrder(...), ActorRef.noSender());</code></pre>
+ * <p>
+ * <strong>EfsDispatcher</strong>
+ * </p>
+ * <pre><code>class OrderAgent implements IEfsAgent {
+    &commat;Override public String name() { return "OrderAgent"; }
+
+    private void onNewOrder(NewOrder) {
+        ...
+    }
+
+    private void onCancelOrder(CancelOrder) {
+        ...
+    }
+}
+
+// Usage:
+OrderAgent agent = new OrderAgent();
+EfsDispatcher.register(agent, "OrderDispatcher");
+EfsDispatcher.dispatch(agent::onNewOrder, new NewOrderEvent(...), agent);</code></pre>
+ * <h4>Summary</h4>
+ * <table class="protocol">
+ *   <caption>efs dispatcher, Actor Model comparison summary</caption>
+ *   <tr>
+ *     <th>Aspect</th>
+ *     <th>Actor Model</th>
+ *     <th>EfsDispatcher</th>
+ *   </tr>
+ *   <tr>
+ *     <td style="font-weight:bold;">Abstract Level</td>
+ *     <td>
+ *       High (location-transparent, hierarchical)
+ *     </td>
+ *     <td>
+ *       Lower (explicit dispatchers, direct dispatch)
+ *     </td>
+ *   </tr>
+ *   <tr>
+ *     <td style="font-weight:bold;">Threading Control</td>
+ *     <td>
+ *       Opaque pool
+ *     </td>
+ *     <td>
+ *      Fine-grained (thread-type, affinity, priority)
+ *     </td>
+ *   </tr>
+ *   <tr>
+ *     <td style="font-weight:bold;">Supervision</td>
+ *     <td>
+ *       Built-in supervision trees
+ *     </td>
+ *     <td>
+ *      None
+ *     </td>
+ *   </tr>
+ *   <tr>
+ *     <td style="font-weight:bold;">Backpressure</td>
+ *     <td>
+ *       External (streams) or unbounded.
+ *     </td>
+ *     <td>
+ *       Built-in bounded queues + max-events-per-run.
+ *     </td>
+ *   </tr>
+ *   <tr>
+ *     <td style="font-weight:bold;">Latency Tuning</td>
+ *     <td>
+ *       Limited
+ *     </td>
+ *     <td>
+ *       Extensive (spin strategies, JCTools, CPU affinity)
+ *     </td>
+ *   </tr>
+ *   <tr>
+ *     <td style="font-weight:bold;">Distribution</td>
+ *     <td>
+ *       Native remoting/clustering
+ *     </td>
+ *     <td>
+ *       Single-JVM only
+ *     </td>
+ *   </tr>
+ *   <tr>
+ *     <td style="font-weight:bold;">Type Safety</td>
+ *     <td>
+ *       Weak (Classic Akka), Strong (Typed Akka)
+ *     </td>
+ *     <td>
+ *       Strong via {@code Consumer<E>} generics.
+ *     </td>
+ *   </tr>
+ *   <tr>
+ *     <td style="font-weight:bold;">Behavior Switching</td>
+ *     <td>
+ *       Akka {@code becomes/unbecomes}
+ *     </td>
+ *     <td>
+ *       Manual
+ *     </td>
+ *   </tr>
+ * </table>
+ * <p>
+ * <strong>In essence</strong>, {@code EfsDispatcher} is a
+ * <strong>lightweight, latency-optimized, single JVM implementation</strong>
+ * of the core Actor idea &mdash; message-driven,
+ * single-threaded-per-entity concurrency &mdash; but trades the
+ * Actor models high-level abstraction (supervision, location
+ * transparency, behavior switching) for
+ * <strong>
+ *   explicit control over threading, queue management, and
+ *   low-latency scheduling.
+ * </strong>
  * </p>
  */
 

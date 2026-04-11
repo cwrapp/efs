@@ -17,18 +17,23 @@ package org.efs.activator;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import org.efs.activator.event.ActivatorEvent;
 import org.efs.activator.event.ActivatorEvent.StepState;
 import org.efs.dispatcher.EfsDispatcher;
+import org.efs.dispatcher.IEfsAgent;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -139,6 +144,30 @@ public final class WorkflowFailureTest
     //
 
     @Test
+    public void noWorkFlow()
+    {
+        assertThat(sActivator.workflow())
+            .isEqualTo(EfsActivator.NO_WORKFLOW_IN_PROGRESS);
+        assertThat(sActivator.isInProgress()).isFalse();
+    } // end of noWorkFlow()
+
+    @Test
+    public void agentStateNullDirection()
+    {
+        final EfsAgentState state = EfsAgentState.STAND_BY;
+        final WorkflowDirection direction = null;
+
+        try
+        {
+            state.getAdjacent(direction);
+        }
+        catch (NullPointerException nullex)
+        {
+            assertThat(nullex).hasMessage("direction is null");
+        }
+    } // end of agentStateNullDirection()
+
+    @Test
     public void agentStateAdjacentAscend()
     {
         final EfsAgentState state = EfsAgentState.STAND_BY;
@@ -163,6 +192,22 @@ public final class WorkflowFailureTest
 
         assertThat(actual).isEqualTo(expected);
     } // end of agentStateAdjacentDescend()
+
+    @Test
+    public void agentStateIsAdjacentNullState()
+    {
+        final EfsAgentState state = EfsAgentState.STAND_BY;
+        final EfsAgentState nextState = null;
+
+        try
+        {
+            state.isAdjacent(nextState);
+        }
+        catch (Exception nullex)
+        {
+            assertThat(nullex).hasMessage("state is null");
+        }
+    } // end of agentStateIsAdjacentNullState()
 
     @Test
     public void initializeNullWorkflowName()
@@ -596,6 +641,10 @@ public final class WorkflowFailureTest
         try
         {
             sActivator.initializeWorkflow(wfName);
+
+            assertThat(sActivator.workflow()).isEqualTo(wfName);
+            assertThat(sActivator.isInProgress()).isTrue();
+
             sActivator.setWorkflowStage(2, 0);
             sActivator.agentState(agentName,
                                   EfsAgentState.ACTIVE);
@@ -635,9 +684,189 @@ public final class WorkflowFailureTest
             .containsExactlyElementsOf(expectedEvents);
     } // end of executeStepInterrupt()
 
+    @Test
+    public void registerNullCallback()
+    {
+        final Consumer<ActivatorEvent> callback = null;
+        final IEfsAgent agent =
+            new ActivatorListener("test-agent-2002");
+
+        try
+        {
+            sActivator.registerListener(callback, agent);
+        }
+        catch (NullPointerException nullex)
+        {
+            assertThat(nullex)
+                .hasMessage(EfsActivator.NULL_CALLBACK);
+        }
+    } // end of registerNullCallback()
+
+    @Test
+    public void registerNullAgent()
+    {
+        final Consumer<ActivatorEvent> callback =
+            this::onActivatorEvent;
+        final IEfsAgent agent = null;
+
+        try
+        {
+            sActivator.registerListener(callback, agent);
+        }
+        catch (NullPointerException nullex)
+        {
+            assertThat(nullex)
+                .hasMessage(EfsActivator.NULL_AGENT);
+        }
+    } // end of registerNullAgent()
+
+    @Test
+    public void registerUnregisteredAgent()
+    {
+        final Consumer<ActivatorEvent> callback =
+            this::onActivatorEvent;
+        final IEfsAgent agent =
+            new ActivatorListener("test-agent-2003");
+
+        try
+        {
+            sActivator.registerListener(callback, agent);
+        }
+        catch (IllegalStateException statex)
+        {
+            assertThat(statex)
+                .hasMessage(EfsActivator.UNREGISTERED_AGENT);
+        }
+    } // end of registerUnregisteredAgent()
+
+    @Test
+    public void loadActivatorNonexistantFile()
+    {
+        final String fileName =
+            "./src/test/resources/no-file.conf";
+        final String message =
+            String.format("\"%s\" does not exist", fileName);
+
+        try
+        {
+            EfsActivator.loadActivator(fileName);
+        }
+        catch (IllegalArgumentException argex)
+        {
+            assertThat(argex).hasMessage(message);
+        }
+    } // end of loadActivatorNonexistantFile()
+
+    @Test
+    public void loadActivatorNoRegularFile()
+    {
+        final String fileName = "./src/test/resources";
+        final String message =
+            String.format("\"%s\" not regular file", fileName);
+
+        try
+        {
+            EfsActivator.loadActivator(fileName);
+        }
+        catch (IllegalArgumentException argex)
+        {
+            assertThat(argex).hasMessage(message);
+        }
+    } // end of loadActivatorNoRegularFile()
+
+    @Disabled
+    @Test
+    public void loadActivatoraUnreadable()
+    {
+        final String fileName =
+            "/tmp/efs-unit-test/no-read.conf";
+        final String message =
+            String.format("\"%s\" unreadable", fileName);
+
+        try
+        {
+            EfsActivator.loadActivator(fileName);
+        }
+        catch (IllegalArgumentException argex)
+        {
+            assertThat(argex).hasMessage(message);
+        }
+    } // end of loadActivatoraUnreadable()
+
+    @Test
+    public void getAdjacentMappingsTest()
+    {
+        final Map<String, EfsAgentState> expected = new HashMap<>();
+        String key;
+        EfsAgentState exp;
+        EfsAgentState actual;
+
+        // Persistent states
+        expected.put("STOPPED#ASCEND", EfsAgentState.STAND_BY);
+        expected.put("STOPPED#DESCEND", null);
+
+        expected.put("STAND_BY#ASCEND", EfsAgentState.ACTIVE);
+        expected.put("STAND_BY#DESCEND", EfsAgentState.STOPPED);
+
+        expected.put("ACTIVE#ASCEND", null);
+        expected.put("ACTIVE#DESCEND", EfsAgentState.STAND_BY);
+
+        // Transition states
+        expected.put("STARTING#ASCEND", EfsAgentState.STAND_BY);
+        expected.put("STARTING#DESCEND", null);
+
+        expected.put("ACTIVATING#ASCEND", EfsAgentState.ACTIVE);
+        expected.put("ACTIVATING#DESCEND", null);
+
+        expected.put("DEACTIVATING#ASCEND", null);
+        expected.put("DEACTIVATING#DESCEND", EfsAgentState.STAND_BY);
+
+        expected.put("STOPPING#ASCEND", null);
+        expected.put("STOPPING#DESCEND", EfsAgentState.STOPPED);
+
+        for (EfsAgentState state : EfsAgentState.values())
+        {
+            for (WorkflowDirection dir :
+                    WorkflowDirection.values())
+            {
+                key = state.name() + "#" + dir.name();
+                exp = expected.get(key);
+                actual = state.getAdjacent(dir);
+
+                assertThat(actual).isEqualTo(exp);
+            }
+        }
+    } // end of getAdjacentMappingsTest()
+
+    @Test
+    public void isAdjacentEveryPairTest()
+    {
+        final EfsAgentState[] states = EfsAgentState.values();
+        EfsAgentState up;
+        EfsAgentState down;
+        boolean expected;
+        boolean actual;
+
+        for (EfsAgentState a : states)
+        {
+            up = a.getAdjacent(WorkflowDirection.ASCEND);
+            down = a.getAdjacent(WorkflowDirection.DESCEND);
+
+            for (EfsAgentState b : states)
+            {
+                expected = (b == up) || (b == down);
+
+                assertThat(a.isAdjacent(b)).isEqualTo(expected);
+            }
+        }
+    } // end of isAdjacentEveryPairTest()
+
     //
     // end of JUnit Tests.
     //-----------------------------------------------------------
+
+    private void onActivatorEvent(final ActivatorEvent event)
+    {}
 
     private static ActivatorEvent createEvent(final String agentName,
                                               final String wfName,

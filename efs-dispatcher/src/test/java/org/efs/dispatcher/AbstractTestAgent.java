@@ -49,7 +49,7 @@ public abstract class AbstractTestAgent
     /**
      * Latencies &ge; to this value are stored in one bucket.
      */
-    private static final long MAX_BUCKET = 50_000L; // nanos
+    private static final long MAX_BUCKET = 10_000L; // nanos
 
     /**
      * The number of buckets is the maximum bucket time limit
@@ -57,10 +57,6 @@ public abstract class AbstractTestAgent
      */
     private static final int BUCKET_COUNT =
         ((int) (MAX_BUCKET / BUCKET_SIZE) + 1);
-
-    //-----------------------------------------------------------
-    // Statics.
-    //
 
     //-----------------------------------------------------------
     // Locals.
@@ -370,6 +366,10 @@ public abstract class AbstractTestAgent
 // Inner classes.
 //
 
+    /**
+     * Contains nanosecond timestamp, bucket nanosecond duration,
+     * and number of latencies in this bucket.
+     */
     public static final class Bucket
     {
 

@@ -88,14 +88,68 @@ public class AsyncLoggerTest
     //
 
     @Test
-    public void factoryGetLoggerNoArg()
+    public void factoryGetLoggerNullClass()
     {
-        mLogger = AsyncLoggerFactory.getLogger();
+        final Class<?> clazz = null;
 
-        assertThat(mLogger).isNotNull();
-        assertThat(mLogger.getName())
-            .isEqualTo((AsyncLoggerTest.class).getName());
-    } // end of factoryGetLoggerNoArg()
+        try
+        {
+            AsyncLoggerFactory.getLogger(clazz);
+        }
+        catch (NullPointerException nullex)
+        {
+            assertThat(nullex)
+                .hasMessage(AsyncLoggerFactory.NULL_CLASS);
+        }
+    } // end of factoryGetLoggerNullClass()
+
+    @Test
+    public void factoryGetLoggerNullName()
+    {
+        final String name = null;
+
+        try
+        {
+            AsyncLoggerFactory.getLogger(name);
+        }
+        catch (IllegalArgumentException argex)
+        {
+            assertThat(argex)
+                .hasMessage(AsyncLoggerFactory.INVALID_NAME);
+        }
+    } // end of factoryGetLoggerNullName()
+
+    @Test
+    public void factoryGetLoggerEmptyName()
+    {
+        final String name = "";
+
+        try
+        {
+            AsyncLoggerFactory.getLogger(name);
+        }
+        catch (IllegalArgumentException argex)
+        {
+            assertThat(argex)
+                .hasMessage(AsyncLoggerFactory.INVALID_NAME);
+        }
+    } // end of factoryGetLoggerEmptyName()
+
+    @Test
+    public void factoryGetLoggerBlankName()
+    {
+        final String name = "   ";
+
+        try
+        {
+            AsyncLoggerFactory.getLogger(name);
+        }
+        catch (IllegalArgumentException argex)
+        {
+            assertThat(argex)
+                .hasMessage(AsyncLoggerFactory.INVALID_NAME);
+        }
+    } // end of factoryGetLoggerBlankName()
 
     @Test
     public void factoryGetLoggerClass()
@@ -105,9 +159,24 @@ public class AsyncLoggerTest
         mLogger = AsyncLoggerFactory.getLogger(clazz);
 
         assertThat(mLogger).isNotNull();
-        assertThat(mLogger.getName())
-            .isEqualTo((AsyncLoggerTest.class).getName());
+        assertThat(mLogger.getName()).isEqualTo(clazz.getName());
     } // end of factoryGetLoggerClass()
+
+    @Test
+    public void factoryGetLoggerClassTwice()
+    {
+        final Class<?> clazz = Boolean.class;
+        final org.slf4j.Logger logger2;
+
+        mLogger = AsyncLoggerFactory.getLogger(clazz);
+
+        assertThat(mLogger).isNotNull();
+        assertThat(mLogger.getName()).isEqualTo(clazz.getName());
+
+        logger2 = AsyncLoggerFactory.getLogger(clazz);
+
+        assertThat(logger2).isSameAs(mLogger);
+    } // end of factoryGetLoggerClassTwice()
 
     @Test
     public void factoryGetLoggerName()
@@ -121,12 +190,29 @@ public class AsyncLoggerTest
     } // end of factoryGetLoggerName()
 
     @Test
+    public void factoryGetLoggerNameTwice()
+    {
+        final String name = "snafu";
+        final org.slf4j.Logger logger2;
+
+        mLogger = AsyncLoggerFactory.getLogger(name);
+
+        assertThat(mLogger).isNotNull();
+        assertThat(mLogger.getName()).isEqualTo(name);
+
+        logger2 = AsyncLoggerFactory.getLogger(name);
+
+        assertThat(logger2).isSameAs(mLogger);
+    } // end of factoryGetLoggerNameTwice()
+
+    @Test
     public void loggingTest()
     {
         final Logger nestedLogger;
         final Marker marker = new TestMarker();
 
-        mLogger = AsyncLoggerFactory.getLogger();
+        mLogger =
+            AsyncLoggerFactory.getLogger(AsyncLoggerTest.class);
 
         nestedLogger =
             (Logger) ((AsyncLogger) mLogger).nestedLogger();

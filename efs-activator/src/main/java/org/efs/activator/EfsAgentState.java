@@ -19,6 +19,7 @@ package org.efs.activator;
 import com.google.common.collect.ImmutableMap;
 import jakarta.annotation.Nullable;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import net.sf.eBus.util.MultiKey2;
 
@@ -278,14 +279,20 @@ public enum EfsAgentState
      * @param direction find next agent state in this direction
      * from {@code this} agent state.
      * @return next agent state for given direction.
+     * @throws NullPointerException
+     * if {@code direction} is {@code null}.
      */
     @Nullable
     public EfsAgentState getAdjacent(final WorkflowDirection direction)
     {
+        Objects.requireNonNull(direction, "direction is null");
+
         final MultiKey2<EfsAgentState, WorkflowDirection> key =
             new MultiKey2<>(this, direction);
+        final Optional<EfsAgentState> retval =
+            sTransitionMap.get(key);
 
-        return ((sTransitionMap.get(key)).get());
+        return (retval.isEmpty() ? null : retval.get());
     } // end of getAdjacent(WorkflowDirection)
 
     /**
@@ -295,9 +302,13 @@ public enum EfsAgentState
      * @param state check adjacency with this state.
      * @return {@code true} if {@code state} is adjacent to
      * {@code this EfsAgentState}.
+     * @throws NullPointerException
+     * if {@code state} is {@code null}.
      */
     public boolean isAdjacent(final EfsAgentState state)
     {
+        Objects.requireNonNull(state, "state is null");
+
         final MultiKey2<EfsAgentState, WorkflowDirection> upKey =
             new MultiKey2<>(this, WorkflowDirection.ASCEND);
         final MultiKey2<EfsAgentState, WorkflowDirection> downKey =

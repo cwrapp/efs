@@ -156,7 +156,6 @@ public final class ActivatorListener
 
     public void deregister(final EfsActivator activator)
     {
-        activator.deregisterListener(
-            this::onActivatorChange, this);
+        activator.deregisterListener(this);
     } // end of deregister(EfsActivator)
 } // end of class ActivatorListener

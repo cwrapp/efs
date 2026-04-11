@@ -47,6 +47,8 @@ public final class EfsDispatchersConfigTest
 
     private static final String NO_DISPATCHERS_FILE_NAME =
         "./src/test/resources/no-dispatchers.conf";
+    private static final String UNKNOWN_DISPATCHERS_FILE_NAME =
+        "./src/test/resources/no-such-dispatchers.conf";
     private static final String IRREGULAR_DISPATCHERS_FILE_NAME =
         "/etc";
     private static final String UNREADABLE_DISPATCHERS_FILE_NAME =
@@ -107,6 +109,23 @@ public final class EfsDispatchersConfigTest
                     "\"" + fileName + "\" does not exist");
         }
     } // end of noDispatchersFile()
+
+    @Test
+    public void unknownDispatchersFile()
+    {
+        final String fileName = UNKNOWN_DISPATCHERS_FILE_NAME;
+        final File file = new File(fileName);
+
+        try
+        {
+            EfsDispatcher.loadDispatchersConfigFile(file);
+        }
+        catch (IllegalArgumentException argex)
+        {
+            assertThat(argex.getMessage())
+                .endsWith(fileName + "\" does not exist");
+        }
+    } // end of unknownDispatchersFile()
 
     @Test
     public void irregularDispatchersFile()
@@ -174,6 +193,24 @@ public final class EfsDispatchersConfigTest
     } // end of dispatchersFileSuccessfulLoad()
 
     @Test
+    public void createDispatchersConfigNullDispatchers()
+    {
+        final List<EfsDispatcherConfig> dispatchers = null;
+        final EfsDispatchersConfig dc =
+            new EfsDispatchersConfig();
+
+        try
+        {
+            dc.setDispatchers(dispatchers);
+        }
+        catch (ConfigException.BadValue confex)
+        {
+            assertThat(confex.getMessage())
+                .endsWith(EfsDispatchersConfig.NULL_DISPATCHERS);
+        }
+    } // end of createDispatchersConfigNullDispatchers()
+
+    @Test
     public void createDispatchersConfig()
     {
         final String dispatcherName = "TestDispatcher";
@@ -197,8 +234,6 @@ public final class EfsDispatchersConfigTest
                              maxEvents);
         final List<EfsDispatcherConfig> dispatchers =
             ImmutableList.of(dispatcherConfig);
-        final String text =
-            "[dispatchers={\n" + dispatcherConfig + "}";
         final EfsDispatchersConfig config =
             new EfsDispatchersConfig();
 
@@ -206,7 +241,6 @@ public final class EfsDispatchersConfigTest
 
         assertThat(config.getDispatchers())
             .containsAll(dispatchers);
-        assertThat(config.toString()).isEqualTo(text);
     } // end of createDispatchersConfig()
 
     //

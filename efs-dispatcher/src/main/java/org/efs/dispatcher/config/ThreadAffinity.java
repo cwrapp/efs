@@ -63,6 +63,21 @@ public final class ThreadAffinity
 //
 
     //-----------------------------------------------------------
+    // Constants.
+    //
+
+    /**
+     * A {@code null ThreadAffinityConfig} is reported as
+     * {@value}.
+     */
+    public static final String NULL_CONFIG = "config is null";
+
+    /**
+     * A {@code null AffinityLock} is reported as {@value}.
+     */
+    public static final String NULL_LOCK = "lock is null";
+
+    //-----------------------------------------------------------
     // Statics.
     //
 
@@ -109,6 +124,8 @@ public final class ThreadAffinity
      */
     public static AffinityLock acquireLock(final ThreadAffinityConfig config)
     {
+        Objects.requireNonNull(config, NULL_CONFIG);
+
         validate(config);
 
         final AffinityType type = config.getAffinityType();
@@ -177,12 +194,14 @@ public final class ThreadAffinity
     public static AffinityLock acquireLock(final AffinityLock lock,
                                            final ThreadAffinityConfig config)
     {
+        Objects.requireNonNull(lock, NULL_LOCK);
+        Objects.requireNonNull(config, NULL_CONFIG);
+
         validate(config);
 
         final AffinityType type = config.getAffinityType();
         final AffinityLock retval;
 
-        Objects.requireNonNull(lock, "lock is null");
         if (type != AffinityType.CPU_STRATEGIES)
         {
             throw (

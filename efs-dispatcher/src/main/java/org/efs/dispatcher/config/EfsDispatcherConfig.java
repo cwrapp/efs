@@ -24,6 +24,7 @@ import java.time.Duration;
 import org.efs.dispatcher.EfsDispatcher;
 import org.efs.dispatcher.EfsDispatcher.DispatcherType;
 import org.efs.dispatcher.IEfsAgent;
+import org.jctools.util.Pow2;
 
 /**
  * {@link org.efs.dispatcher.EfsDispatcher EfsDispatcher}
@@ -131,6 +132,24 @@ public final class EfsDispatcherConfig
      */
     public static final String CLASSES_KEY = "classes";
 
+    //
+    // Exception messages.
+    //
+
+    /**
+     * Exception message for a queue capacity less than allowed
+     * size is {@value}.
+     */
+    public static final String CAPACITY_TOO_SMALL =
+       "capacity < " + EfsDispatcher.MIN_QUEUE_SIZE;
+
+    /**
+     * Exception message for a queue capacity exceeds allowed
+     * size is {@value}.
+     */
+    public static final String CAPACITY_TOO_BIG =
+        "capacity next power of 2 exceeds 2^31";
+
     //-----------------------------------------------------------
     // Locals.
     //
@@ -159,27 +178,24 @@ public final class EfsDispatcherConfig
      * Defines spin limit used by spin+park and spin+yield
      * thread type.
      */
-    @Nullable
     @Optional
     private long mSpinLimit;
 
     /**
      * Defines park time used by spin+park thread type.
      */
-    @Nullable
     @Optional
     private Duration mParkTime;
 
     /**
      * Define optional dispatcher thread affinity.
      */
-    @Nullable
     @Optional
     private ThreadAffinityConfig mAffinity;
 
     /**
      * Agent event queue capacity. Must be &ge;
-     * {@link EfsDispatcher#MIN_EVENT_QUEUE_SIZE}
+     * {@link EfsDispatcher#MIN_QUEUE_SIZE}
      */
     private int mEventQueueCapacity;
 
@@ -211,50 +227,6 @@ public final class EfsDispatcherConfig
 
     //
     // end of Constructors.
-    //-----------------------------------------------------------
-
-    //-----------------------------------------------------------
-    // Object Method Overrides.
-    //
-
-    @Override
-    public String toString()
-    {
-        final StringBuilder output = new StringBuilder();
-
-        output.append("[name=").append(mDispatcherName)
-              .append(", thread type=").append(mThreadType)
-              .append(", # threads=").append(mNumThreads)
-              .append(", priority=").append(mPriority);
-
-        if (mThreadType == ThreadType.SPINPARK ||
-            mThreadType == ThreadType.SPINYIELD)
-        {
-            output.append(", spin limit=").append(mSpinLimit);
-        }
-
-        if (mThreadType == ThreadType.SPINPARK)
-        {
-            output.append(", park time=").append(mParkTime);
-        }
-
-        if (mAffinity != null)
-        {
-            output.append(", affinity=").append(mAffinity);
-        }
-
-        return (output.append(", event queue capacity=")
-                      .append(mEventQueueCapacity)
-                      .append(", run queue capacity=")
-                      .append(mRunQueueCapacity)
-                      .append(", max events=")
-                      .append(mMaxEvents)
-                      .append(']')
-                      .toString());
-    } // end of toString()
-
-    //
-    // end of Object Method Overrides.
     //-----------------------------------------------------------
 
     //-----------------------------------------------------------
@@ -302,7 +274,6 @@ public final class EfsDispatcherConfig
      * spin+park and spin+yield thread type.
      * @return underlying thread priority.
      */
-    @Nullable
     @Optional
     public long getSpinLimit()
     {
@@ -310,10 +281,9 @@ public final class EfsDispatcherConfig
     } // end of getSpinLimit()
 
     /**
-     * Returns part time used by spin+park underlying thread(s).
+     * Returns park time used by spin+park underlying thread(s).
      * @return underlying thread park time.
      */
-    @Nullable
     @Optional
     public Duration getParkTime()
     {
@@ -325,7 +295,6 @@ public final class EfsDispatcherConfig
      * optional property and may return {@code null}.
      * @return underlying thread core affinity.
      */
-    @Nullable
     @Optional
     public ThreadAffinityConfig getAffinity()
     {
@@ -334,7 +303,7 @@ public final class EfsDispatcherConfig
 
     /**
      * Returns agent event queue capacity. Will be &ge;
-     * {@link EfsDispatcher#MIN_EVENT_QUEUE_SIZE}.
+     * {@link EfsDispatcher#MIN_QUEUE_SIZE}.
      * @return agent event queue capacity.
      */
     public int getEventQueueCapacity()
@@ -520,20 +489,32 @@ public final class EfsDispatcherConfig
      * @param capacity agent event queue capacity.
      * @throws ConfigException
      * if {@code capacity} &lt;
-     * {@link EfsDispatcher#MIN_EVENT_QUEUE_SIZE}.
+     * {@link EfsDispatcher#MIN_QUEUE_SIZE} or next highest
+     * 2 power exceeds 2^31.
      */
     public void setEventQueueCapacity(final int capacity)
     {
-        if (capacity < EfsDispatcher.MIN_EVENT_QUEUE_SIZE)
+        if (capacity < EfsDispatcher.MIN_QUEUE_SIZE)
         {
             throw (
                 new ConfigException.BadValue(
                     EVENT_QUEUE_CAPACITY_KEY,
-                    "capacity < " +
-                    EfsDispatcher.MIN_EVENT_QUEUE_SIZE));
+                    CAPACITY_TOO_SMALL));
         }
 
-        mEventQueueCapacity = capacity;
+        try
+        {
+            mEventQueueCapacity =
+                Pow2.roundToPowerOfTwo(capacity);
+        }
+        catch (IllegalArgumentException argex)
+        {
+            throw (
+                new ConfigException.BadValue(
+                    EVENT_QUEUE_CAPACITY_KEY,
+                    CAPACITY_TOO_BIG,
+                    argex));
+        }
     } // end of setEventQueueCapacity(int)
 
     /**
@@ -545,7 +526,8 @@ public final class EfsDispatcherConfig
      * </p>
      * @param capacity agent queue capacity.
      * @throws ConfigException
-     * if {@code capacity} &le; zero.
+     * if {@code capacity} &le; zero or next highest
+     * 2 power exceeds 2^31.
      */
     public void setRunQueueCapacity(int capacity)
     {
@@ -554,10 +536,22 @@ public final class EfsDispatcherConfig
             throw (
                 new ConfigException.BadValue(
                     RUN_QUEUE_CAPACITY_KEY,
-                    "capacity <= zero"));
+                    CAPACITY_TOO_SMALL));
         }
 
-        mRunQueueCapacity = capacity;
+        try
+        {
+            mRunQueueCapacity =
+                Pow2.roundToPowerOfTwo(capacity);
+        }
+        catch (IllegalArgumentException argex)
+        {
+            throw (
+                new ConfigException.BadValue(
+                    RUN_QUEUE_CAPACITY_KEY,
+                    CAPACITY_TOO_BIG,
+                    argex));
+        }
     } // end of setRunQueueCapacity(int)
 
     /**

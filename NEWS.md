@@ -1,3 +1,18 @@
+# 0.6.0: April 11, 2026
+
+  - Added org.efs.bus module which supports routing events
+    between agents. Agents posting events to the bus must first
+    advertise their ability to do so. Agents wanting to receive
+    published events are required to subscribe first.
+    Subscriptions come in the form of: concrete, inbox (only
+    latest event is delivered), and routed (event is dynamically
+    routed to a selected agent). Both advertise and subscribe
+    support regular expression matching to topics.
+    Note: bus uses type+topic allowing the same topic to be used
+    with multiple events.
+  - Continue to improve code performance, code correctness, and
+    javadoc documentation.
+
 # 0.5.0: January 17, 2026
 
   - Dropped -Dorg.efs.dispatcher.configFile support which

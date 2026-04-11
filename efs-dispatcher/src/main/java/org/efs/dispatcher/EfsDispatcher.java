@@ -45,11 +45,11 @@ import org.efs.dispatcher.config.EfsDispatchersConfig;
 import org.efs.dispatcher.config.ThreadAffinityConfig;
 import org.efs.dispatcher.config.ThreadType;
 import org.efs.event.IEfsEvent;
-import org.efs.logging.AsyncLoggerFactory;
 import org.jctools.queues.atomic.MpmcAtomicArrayQueue;
 import org.jctools.queues.atomic.MpscAtomicArrayQueue;
 import org.jctools.util.Pow2;
 import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * This class forwards {@link IEfsEvent events} to
@@ -238,7 +238,7 @@ public final class EfsDispatcher
     /**
      * Event queue minimum allowed size is {@value}.
      */
-    public static final int MIN_EVENT_QUEUE_SIZE = 2;
+    public static final int MIN_QUEUE_SIZE = 2;
 
     /**
      * Default dispatcher run queue capacity is {@value}.
@@ -384,13 +384,13 @@ public final class EfsDispatcher
      * {@value}.
      */
     public static final String INVALID_NAME =
-        "name is either null or an empty string";
+        "name is either null, empty, or blank string";
 
     /**
      * Missing agent name message is {@value}.
      */
     public static final String MISSING_AGENT_NAME =
-        "agent name is either null or an empty string";
+        "agent name is either null, empty, or blank string";
 
     /**
      * Invalid dispatcher type {@code NullPointerException}
@@ -430,6 +430,13 @@ public final class EfsDispatcher
     public static final String NULL_CONFIG_FILE =
         "configFile is null";
 
+    /**
+     * Invalid dispatch target {@code NullPointerException} is
+     * {@value}.
+     */
+    public static final String NULL_DISPATCH_TARGET =
+        "target is null";
+
     //-----------------------------------------------------------
     // Statics.
     //
@@ -449,10 +456,12 @@ public final class EfsDispatcher
         new ConcurrentHashMap<>();
 
     /**
-     * Logging subsystem interface.
+     * Logging subsystem interface. Must use slf4j Logger and
+     * not {@code AsyncLogger] due to {@code AsyncLogger} being
+     * dependent on {@code EfsDispatcher}.
      */
     private static final Logger sLogger =
-        AsyncLoggerFactory.getLogger();
+        LoggerFactory.getLogger(EfsDispatcher.class);
 
     //-----------------------------------------------------------
     // Locals.
@@ -876,9 +885,9 @@ public final class EfsDispatcher
      * @throws NullPointerException
      * if {@code agent} is {@code null}.
      * @throws IllegalArgumentException
-     * if {@code agent.name()} returns a {@code null} or empty
-     * string or dispatcher name is {@code null} or empty string]
-     * or an unknown dispatcher.
+     * if {@code agent.name()} returns a {@code null}, empty, or
+     * blank string or dispatcher name is {@code null}, empty, or
+     * blank string. or an unknown dispatcher.
      * @throws IllegalStateException
      * if {@code agent} is already registered.
      *
@@ -921,8 +930,8 @@ public final class EfsDispatcher
      * if either {@code callback}, {@code event}, or
      * {@code agent} is {@code null}.
      * @throws IllegalArgumentException
-     * if {@code agent} name is either {@code null} or an empty
-     * string.
+     * if {@code agent} name is either {@code null}, empty, or
+     * blank string.
      * @throws IllegalStateException
      * if {@code agent} is not
      * {@link #register(IEfsAgent, String) registered} or if
@@ -930,6 +939,7 @@ public final class EfsDispatcher
      * {@code event} from being enqueued.
      *
      * @see #register(IEfsAgent, String)
+     * @see #dispatch(Runnable, IEfsAgent)
      * @see #deregister(IEfsAgent)
      */
     public static <E extends IEfsEvent> void dispatch(final Consumer<E> callback,
@@ -948,6 +958,43 @@ public final class EfsDispatcher
     } // end of dispatch(Consumer<>, E, IEfsAgent)
 
     /**
+     * Forwards event to agent and callback contained in dispatch
+     * target.
+     * <p>
+     * <strong>Note:</strong> an {@code IllegalStateException} if
+     * {@code agent} is not currently registered with a
+     * dispatcher <em>but</em> if agent is de-registered
+     * simultaneously with this call, it is possible for the
+     * event to be either posted to agent event queue or
+     * quietly dropped. This behavior is not a problem since
+     * events are not normally expected to be delivered after
+     * de-registration (but may still happen).
+     * </p>
+     * @param <E> event class.
+     * @param target contains non-{@code null} callback and agent
+     * to which {@code event} is dispatched.
+     * @param event send this event to targeted agent.
+     * @throws NullPointerException
+     * if either {@code target} or {@code event} is {@code null}.
+     * @throws IllegalStateException
+     * if {@code agent} is not
+     * {@link #register(IEfsAgent, String) registered} or if
+     * {@code agent}'s event queue is full preventing
+     * {@code event} from being enqueued.
+     */
+    public static <E extends IEfsEvent> void dispatch(final EfsDispatchTarget<E> target,
+                                                      final E event)
+    {
+        final EfsAgent efsAgent;
+
+        Objects.requireNonNull(target, NULL_DISPATCH_TARGET);
+        Objects.requireNonNull(event, NULL_EVENT);
+        efsAgent = validateAgentDispatch(target.agent());
+
+        efsAgent.dispatch(target.callback(), event);
+    } // end of dispatch(EfsDispatchTarget)
+
+    /**
      * Executes given task in agent dispatcher inline with
      * dispatched tasks. This means task is performed in agent's
      * virtually single threaded manner.
@@ -957,11 +1004,15 @@ public final class EfsDispatcher
      * @throws NullPointerException
      * if either {@code task} or {@code agent} is {@code null}.
      * @throws IllegalArgumentException
-     * if {@code agent} name is either {@code null} or an empty
-     * string.
+     * if {@code agent} name is either {@code null}, empty, or
+     * blank string.
      * @throws IllegalStateException
      * if {@code agent}'s event queue is full preventing
      * {@code task} from being enqueued.
+     *
+     * @see #register(IEfsAgent, String)
+     * @see #dispatch(Consumer, IEfsEvent, IEfsAgent)
+     * @see #deregister(IEfsAgent)
      */
     public static void dispatch(final Runnable task,
                                 final IEfsAgent agent)
@@ -986,6 +1037,11 @@ public final class EfsDispatcher
      * taken to handle this possibility.
      * </p>
      * @param agent de-register this agent from its dispatcher.
+     * @throws NullPointerException
+     * if {@code agent} is {@code null}.
+     * @throws IllegalArgumentException
+     * if {@code agent} name is either {@code null}, empty, or
+     * blank string.
      *
      * @see #register(IEfsAgent, String)
      * @see #dispatch(Runnable, IEfsAgent)
@@ -995,9 +1051,13 @@ public final class EfsDispatcher
     {
         final EfsAgent efsAgent;
 
-        // Ignore null or un-registered efs agent.
-        if (agent != null &&
-            (efsAgent = sAgents.remove(agent.name())) != null)
+        Objects.requireNonNull(agent, NULL_AGENT);
+        validateAgentName(agent);
+
+        efsAgent = sAgents.remove(agent.name());
+
+        // Ignore un-registered efs agent.
+        if (efsAgent != null)
         {
             // Remove from agents map.
             efsAgent.deregister();
@@ -1011,15 +1071,15 @@ public final class EfsDispatcher
      * @param name unique dispatcher name.
      * @return a new dispatcher configuration builder.
      * @throws IllegalArgumentException
-     * if {@code dispatcherName} is either {@code null} or an
-     * empty string.
+     * if {@code dispatcherName} is either {@code null}, empty,
+     * or a blank string.
      * @throws IllegalStateException
      * if there already is a dispatcher named
      * {@code dispatcherName}.
      */
     public static Builder builder(final String name)
     {
-        if (Strings.isNullOrEmpty(name))
+        if (Strings.isNullOrEmpty(name) || name.isBlank())
         {
             throw (new IllegalArgumentException(INVALID_NAME));
         }
@@ -1189,7 +1249,9 @@ public final class EfsDispatcher
      * cleanly, then all other threads are stopped prior to
      * throwing {@link ThreadStartException}.
      * @throws ThreadStartException
-     * if an efs dispatcher thread fails to start.
+     * if an efs dispatcher thread fails to start. All previously
+     * started dispatcher threads are stopped prior to this
+     * exception being thrown.
      */
     private void startup()
     {
@@ -1250,15 +1312,20 @@ public final class EfsDispatcher
 
     /**
      * Validates that {@code agent} has a non-{@code null},
-     * non-empty, name. This method is called for effect only.
+     * non-empty, non-blank name. This method is called for
+     * effect only.
      * @param agent validate agent's name.
      * @throws IllegalArgumentException
-     * if {@code agent.name()} returns a {@code null} or empty
-     * string.
+     * if {@code agent.name()} returns a {@code null}, empty, or
+     * blank string.
      */
     private static void validateAgentName(final IEfsAgent agent)
     {
-        if (Strings.isNullOrEmpty(agent.name()))
+        final String agentName = agent.name();
+
+        //
+        if (Strings.isNullOrEmpty(agentName) ||
+            agentName.isBlank())
         {
             throw (
                 new IllegalArgumentException(
@@ -1304,12 +1371,13 @@ public final class EfsDispatcher
      * a known dispatcher.
      * @param name validate this dispatcher name.
      * @throws IllegalArgumentException
-     * if {@code dispatcherName} is either {@code null}, an
-     * empty string, or does not reference a known dispatcher.
+     * if {@code dispatcherName} is either {@code null},
+     * empty, or blank string, or does not reference a known
+     * dispatcher.
      */
     private static void validateDispatcherName(final String name)
     {
-        if (Strings.isNullOrEmpty(name))
+        if (Strings.isNullOrEmpty(name) || name.isBlank())
         {
             throw (new IllegalArgumentException(INVALID_NAME));
         }
@@ -1931,16 +1999,16 @@ import org.efs.dispatcher.config.ThreadType;
          * @return {@code this Builder} instance.
          * @throws IllegalArgumentException
          * if {@code capacity} is &lt;
-         * {@link #MIN_EVENT_QUEUE_SIZE} or next highest 2 power
+         * {@link #MIN_QUEUE_SIZE} or next highest 2 power
          * exceeds 2^31.
          */
         public Builder eventQueueCapacity(final int capacity)
         {
-            if (capacity < MIN_EVENT_QUEUE_SIZE)
+            if (capacity < MIN_QUEUE_SIZE)
             {
                 throw (
                     new IllegalArgumentException(
-                        "capacity < " + MIN_EVENT_QUEUE_SIZE));
+                        "capacity < " + MIN_QUEUE_SIZE));
             }
 
             mEventQueueCapacity =
@@ -1950,7 +2018,15 @@ import org.efs.dispatcher.config.ThreadType;
         } // end of eventQueueCapacity(int)
 
         /**
-         * Sets efs dispatcher agent queue capacity.
+         * Sets efs dispatcher agent queue capacity. This value
+         * should be &ge; number of agents assigned to this
+         * dispatcher. If &lt; assigned agent count, then there
+         * is a possibility that a runnable agent (one with
+         * events to process) will fail to be dispatched due to
+         * run queue overflow. But this may be an acceptable risk
+         * if agents are seldom runnable and run queue capacity
+         * is configured for "busy second" performance and a
+         * low "grade of service" (1% failure).
          * <p>
          * The capacity should be a 2 power value. If not, agent
          * queue capacity is set to the next 2 power value &gt;
@@ -2085,6 +2161,8 @@ import org.efs.dispatcher.config.ThreadType;
          * if a dispatcher with configured name already exists.
          * @throws ThreadStartException
          * if an underlying dispatcher thread fails to start.
+         * All previously started dispatcher threads are stopped
+         * prior to this exception being thrown.
          */
         public IEfsDispatcher build()
         {
@@ -2163,7 +2241,7 @@ import org.efs.dispatcher.config.ThreadType;
                     .requireTrue((mDispatcherType ==
                                       DispatcherType.SPECIAL ||
                                   mEventQueueCapacity >=
-                                      MIN_EVENT_QUEUE_SIZE),
+                                      MIN_QUEUE_SIZE),
                                  EVENT_QUEUE_CAPACITY_KEY,
                                  Validator.NOT_SET)
                     .requireTrue((mDispatcherType ==
@@ -2514,17 +2592,37 @@ import org.efs.dispatcher.config.ThreadType;
 
             if (!stats.isEmpty())
             {
+                final int numStats = statsCount(stats);
+                int index = 0;
+                long[] agentStats;
                 final EfsDispatcherThread.AgentStats firstStats =
                     stats.getFirst();
 
+                // Take the statistics name and unit from the
+                // first item.
                 statsName = firstStats.statsName();
                 unit = firstStats.unit();
 
+                // Create a new array big enough to contain all
+                // agent stats.
+                data = new long[numStats];
+
+                // Copy each agent stats to array.
                 for (EfsDispatcherThread.AgentStats as : stats)
                 {
-                    data = mergeSortedArrays(data, as.stats());
+                    agentStats = as.stats();
+
+                    System.arraycopy(agentStats, 0,
+                                     data, index,
+                                     agentStats.length);
+                    index += agentStats.length;
+
                     agentRunCount += as.agentRunCount();
                 }
+
+                // Finish up by sorting all agent stats in one
+                // go.
+                Arrays.sort(data);
             }
 
             return (new EfsDispatcher.AgentStats(statsName,
@@ -2556,67 +2654,18 @@ import org.efs.dispatcher.config.ThreadType;
         } // end of collectAgentStats(Supplier<>)
 
         /**
-         * Returns a sorted array containing elements merged from
-         * two sorted arrays.
-         * @param a0 first sorted array.
-         * @param a1 second sorted array.
-         * @return merged sorted array containing elements from
-         * arrays {@code a0} and {@code a1}.
+         * Returns sum of all listed agent stats lengths.
+         * @param stats sum up each agent stats length.
+         * @return total number of agent stats.
          */
-        private long[] mergeSortedArrays(final long[] a0,
-                                         final long[] a1)
+        private int statsCount(final List<EfsDispatcherThread.AgentStats> stats)
         {
-            final int size0 = a0.length;
-            final int size1 = a1.length;
-            final int totalSize = (size0 + size1);
-            int i0;
-            int i1;
-            int i2;
-            final long[] retval = new long[totalSize];
+            int sum = 0;
 
-            for (i0 = 0, i1 = 0, i2 = 0;
-                 i0 < size0 && i1 < size1;
-                  ++i2)
-            {
-                // If the first array element is <= second array
-                // element, then put that element into the next
-                // merged array spot and advance to the next
-                // first array element.
-                if (a0[i0] <= a1[i1])
-                {
-                    retval[i2] = a0[i0];
-                    ++i0;
-                }
-                // Otherwise the second array element is < first
-                // array element. Insert second array element
-                // into merged array.
-                else
-                {
-                    retval[i2] = a1[i1];
-                    ++i1;
-                }
-            }
-
-            // Copy any remaining first and second array elements
-            // to the merged array.
-            // Note: the above for loop terminates when either
-            // arrays a0 or a1 are fully consumed. That means
-            // only one of the two next for loops will actually
-            // do anything. There is no need for an if statement
-            // checking for array consumption - the for loop
-            // condition does that.
-            for (; i0 < size0; ++i0, ++i2)
-            {
-                retval[i2] = a0[i0];
-            }
-
-            for (; i1 < size1; ++i1, ++i2)
-            {
-                retval[i2] = a1[i1];
-            }
-
-            return (retval);
-        } // end of mergeSortedArrays(long[], long[])
+            return (stats.stream()
+                         .map(as -> (as.stats()).length)
+                         .reduce(sum, Integer::sum));
+        } // end of statsCount(List<>)
     } // end of class DispatcherStats
 
     /**
@@ -2711,34 +2760,34 @@ import org.efs.dispatcher.config.ThreadType;
                 else
                 {
                     final int p50 = calculateIndex(0.5d);
-                    final int p75 = calculateIndex(0.75d);
-                    final int p90 = calculateIndex(0.9d);
                     final int p95 = calculateIndex(0.95d);
                     final int p99 = calculateIndex(0.99d);
+                    final int p999 = calculateIndex(0.999d);
+                    final int p9999 = calculateIndex(0.9999d);
 
-                    output.format(" min: %,d %s%n",
+                    output.format("    min: %,d %s%n",
                                   mStats[0],
-                                  mUnit);
-                    output.format(" max: %,d %s%n",
-                                  mStats[mCount - 1],
-                                  mUnit);
-                    output.format(" med: %,d %s%n",
+                                  mUnit)
+                         .format("    med: %,d %s%n",
                                   mStats[p50],
-                                  mUnit);
-                    output.format(" 75%%: %,d %s%n",
-                                  mStats[p75],
-                                  mUnit);
-                    output.format(" 90%%: %,d %s%n",
-                                  mStats[p90],
-                                  mUnit);
-                    output.format(" 95%%: %,d %s%n",
-                                  mStats[p95],
-                                  mUnit);
-                    output.format(" 99%%: %,d %s%n",
-                                  mStats[p99],
-                                  mUnit);
-                    output.format(" avg: %,d %s",
+                                  mUnit)
+                         .format("    avg: %,d %s%n",
                                   mAverage,
+                                  mUnit)
+                         .format("    95%%: %,d %s%n",
+                                  mStats[p95],
+                                  mUnit)
+                         .format("    99%%: %,d %s%n",
+                                  mStats[p99],
+                                  mUnit)
+                         .format("  99.9%%: %,d %s%n",
+                                  mStats[p999],
+                                  mUnit)
+                         .format(" 99.99%%: %,d %s%n",
+                                  mStats[p9999],
+                                  mUnit)
+                         .format("    max: %,d %s%n",
+                                  mStats[mCount - 1],
                                   mUnit);
                 }
 

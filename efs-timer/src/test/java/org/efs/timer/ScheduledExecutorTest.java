@@ -106,7 +106,8 @@ public final class ScheduledExecutorTest
     private static int sAgentIndex = 0;
 
     private static final Logger sLogger =
-        AsyncLoggerFactory.getLogger();
+        AsyncLoggerFactory.getLogger(
+            ScheduledExecutorTest.class);
 
     //-----------------------------------------------------------
     // Locals.

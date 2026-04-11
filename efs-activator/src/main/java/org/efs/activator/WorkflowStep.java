@@ -66,6 +66,19 @@ public final class WorkflowStep
 //
 
     //-----------------------------------------------------------
+    // Constants.
+    //
+
+    /**
+     * Maximum allowed agent transition time is one hour.
+     */
+    public static final Duration MAX_ALLOWED_TRANSITION_TIME =
+        Duration.ofHours(1L);
+
+    private static final String BEGIN_STATE = "beginState";
+    private static final String END_STATE = "endState";
+
+    //-----------------------------------------------------------
     // Statics.
     //
 
@@ -82,7 +95,7 @@ public final class WorkflowStep
      * Logging subsystem interface.
      */
     private static final Logger sLogger =
-        AsyncLoggerFactory.getLogger();
+        AsyncLoggerFactory.getLogger(WorkflowStep.class);
 
     // Class static initialization.
     static
@@ -144,6 +157,9 @@ public final class WorkflowStep
                 "Method lookup for IEfsActivateAgent.{} failed.",
                 methodName,
                 jex);
+
+            // Let this exception flow down the callstack.
+            throw (new ExceptionInInitializerError(jex));
         }
 
         sTransitions = builder.build();
@@ -226,7 +242,7 @@ public final class WorkflowStep
      * Returns text containing agent name, transition begin and
      * end states, and allowed transition time. Example output
      * is:
-     * <pre><code>[agent=market-data-agent, transition=STAND_BY -> STOPPED, allowed time=PT0.5S</code></pre>
+     * <pre><code>[agent=market-data-agent, transition=STAND_BY -> STOPPED, allowed time=PT0.5S]</code></pre>
      * @return textual representation of this workflow step.
      */
     @Override
@@ -388,15 +404,16 @@ public final class WorkflowStep
         // Wait only so long for the task to complete.
         try
         {
-            final boolean timeoutFlag =
-                doneSignal.await(mAllowedTransitionTime.toNanos(),
-                                 TimeUnit.NANOSECONDS);
+            final boolean completedFlag =
+                doneSignal.await(
+                    mAllowedTransitionTime.toNanos(),
+                    TimeUnit.NANOSECONDS);
 
             executionTime =
                 Duration.between(startTime, Instant.now());
 
             // Did we timeout waiting for the task to complete?
-            if (!timeoutFlag)
+            if (!completedFlag)
             {
                 final IllegalStateException statex =
                     new IllegalStateException(
@@ -463,6 +480,7 @@ public final class WorkflowStep
                             executionTime,
                             statex);
 
+            (Thread.currentThread()).interrupt();
             throw (statex);
         }
     } // end of execute(EfsActivator)
@@ -639,6 +657,13 @@ public final class WorkflowStep
                         "time <= zero"));
             }
 
+            if (time.compareTo(MAX_ALLOWED_TRANSITION_TIME) > 0)
+            {
+                throw (
+                    new IllegalArgumentException(
+                        "time > MAX_ALLOWED_TRANSITION_TIME"));
+            }
+
             mAllowedTransitionTime = time;
 
             return (this);
@@ -676,20 +701,31 @@ public final class WorkflowStep
          * if {@code this Builder} has an incomplete or invalid
          * setting.
          */
+        @SuppressWarnings ({"java:S1067"})
         public WorkflowStep build()
         {
+            final MultiKey2<EfsAgentState, EfsAgentState> key =
+                new MultiKey2<>(mBeginState, mEndState);
             final Validator problems = new Validator();
 
             problems.requireNotNull(mAgentName, "agentName")
-                    .requireNotNull(mBeginState, "beginState")
-                    .requireNotNull(mEndState, "endState")
+                    .requireNotNull(mBeginState, BEGIN_STATE)
+                    .requireNotNull(mEndState, END_STATE)
                     .requireNotNull(mAllowedTransitionTime,
                                     "allowedTransitionTime")
                     .requireTrue((mBeginState != null &&
                                   mEndState != null &&
                                   mBeginState.isAdjacent(mEndState)),
-                                 "beginState",
+                                 BEGIN_STATE,
                                  "not adjacent to " + mEndState)
+                    .requireTrue((mBeginState != null &&
+                                 mEndState != null &&
+                                 sTransitions.containsKey(key)),
+                                 BEGIN_STATE,
+                                 String.format(
+                                     "unsupported transition %s -> %s",
+                                     mBeginState,
+                                     mEndState))
                     .throwException(WorkflowStep.class);
 
             return (new WorkflowStep(this));
@@ -786,7 +822,7 @@ public final class WorkflowStep
             {
                 mException = tex;
 
-                sLogger.trace(
+                sLogger.warn(
                     "{}: {} transition from {} to {} failed.",
                     mStepName,
                     mAgent.name(),
