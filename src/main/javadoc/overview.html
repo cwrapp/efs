@@ -25,282 +25,450 @@
     <meta name="description" content="efs - event file system" />
     <meta name="author" content="Charles W. Rapp" />
     <meta name="keywords" content="asynchronous reactive event processing" />
-    <link rel="stylesheet" type="text/css" href="overview.css" />
+    <link rel="stylesheet" type="text/css" href="efs.css" />
   </head>
 
   <body>
-    <div></div>
-    <div class="titlebar">
-      <div class="titlename">efs</div>
-      <div class="titledescription">
-        Event File System
-      </div>
-      <div class="titlerelease">
-        <!-- UPDATE FOR RELEASE -->
-        Updated: January 17, 2026<br/>Version: 0.5.0
-      </div>
-    </div>
-    <div class="content-container"> <!-- --> </div>
-    <ul class="navbar">
-      <li class="dropdown-menu">
-        <a href="#Introduction">Introduction</a>
-        <div class="dropdown-content">
-          <a href="#LearnEfs">Learning efs</a>
-        </div>
-        <div class="dropdown-content">
-          <a href="#BackgroundEfs">efs Background</a>
-        </div>
-      </li>
-      <li class="dropdown-menu">
-        {@link org.efs.dispatcher Dispatcher}
-        <div class="dropdown-content">
-          {@link org.efs.dispatcher.IEfsAgent Agents}
-        </div>
-        <div class="dropdown-content">
-          {@link org.efs.event Events}
-        </div>
-        <div class="dropdown-content">
-          {@link org.efs.dispatcher.EfsDispatcher EfsDispatcher}
-        </div>
-        <div class="dropdown-content">
-          {@link org.efs.dispatcher.EfsDispatcherThread Dispatcher Thread}
-        </div>
-        <div class="dropdown-content">
-          {@link org.efs.dispatcher.config Dispatcher Configuration}
-        </div>
-      </li>
-      <li class="dropdown-menu">
-        {@link org.efs.activator Activator}
-        <div class="dropdown-content">
-          {@link org.efs.activator.IEfsActivateAgent Activate Agent}
-        </div>
-        <div class="dropdown-content">
-          {@link org.efs.activator.event Activator Event}
-        </div>
-        <div class="dropdown-content">
-          {@link org.efs.activator.EfsActivator EfsActivator}
-        </div>
-        <div class="dropdown-content">
-          {@link org.efs.activator.Workflow Workflow}
-        </div>
-        <div class="dropdown-content">
-          {@link org.efs.activator.config Activator Configuration}
-        </div>
-      </li>
-      <li class="dropdown-menu">
-        <a href="#">Utilites</a>
-        <div class="dropdown-content">
-          {@link org.efs.timer EfsScheduledExecutor}
-        </div>
-        <div class="dropdown-content">
-          {@link org.efs.logging AsyncLogger}
-        </div>
-      </li>
-      <li class="dropdown-menu" style="float:right; background-color:#f7ff1c;">
-        <a href="#" style="color:#000;">efs</a>
-        <div class="dropdown-content" style="float:right; background-color:#f7ff1c;">
-          <a id="aboutBtn" href="#aboutModal" style="color:#000;">About</a>
-          <a href="https://github.com" target="_blank" style="color:#000;">GitHub Project</a>
-        </div>
-      </li>
-    </ul>
 
-    <!-- The About Modal -->
-    <div id="aboutModal" class="modal">
-
-      <!-- About Modal content -->
-      <div class="modal-content">
-        <div class="model-header">
-          <span class="close">&times;</span>
-          <div class="modal-header-name">
-            efs
-          </div>
-          <div class="modal-header-copyright">
-            Copyright &copy; 2025, Charles W. Rapp. All Rights Reserved.
-          </div>
-        </div>
-        <div class="modal-body">
-          <p>
-            efs
-            <a href="https://github.com/" target="_blank">GitHub</a>
-            project was created on October, 2025 and has been
-            actively improved and extended since then. efs' goal
-            is to bring the power of distributed, reactive events
-            in a simple API, so simple that you don't notice efs
-            when you transmit events within your JVM or around
-            the world.
-          </p>
-          <p>
-            <!-- UPDATE FOR RELEASE -->
-            Updated: January 17, 2026<br>Version. 0.5.0
-          </p>
-        </div>
-      </div>
-    </div>
-
-    <h1><a id="Introduction">Introduction</a></h1>
-    <p>
-      efs - Event File System is <em>envisioned</em> as a
-      reliable, robust, and low-latency event persistence and
-      delivery API from publishing agent to subscribing
-      agent.
-    </p>
-    <p>
-      "Envision" means that efs is not yet implemented to this
-      point - but enough is implemented to warrant an initial
-      release. The first is the dispatcher framework used to
-      deliver events to agents in a virtual single-threaded
-      manner. Virtual single-threading means that while an
-      agent may run on different threads over its lifespan it
-      is guaranteed to be accessed by only one thread at any
-      given moment. This means there is no need for
-      synchronization/locks which can lead to a thread losing
-      core while waiting to acquire a lock.
-    </p>
-    <p>
-      The second component is the activator which uses dispatcher
-      to start and activate
-      {@link org.efs.activator.IEfsActivateAgent activate agents}
-      (an interface extension to
-      {@link org.efs.dispatcher.IEfsAgent IEfsAgent})
-      Activator solves the problem where an agent is activated
-      on one thread where it connects into a reactive framework
-      but receives events on dispatcher threads
-      <em>while still activating on the original thread.</em>
-      The virtual single-threading guarantee provided by
-      dispatcher is lost in this scenario. Activator has agent
-      activation performed by the agent's dispatcher. Any events
-      posted to the agent while activating are delivered
-      <em>after</em> activation is completed.
-    </p>
-    <h2><a id="LearnEfs">Learning efs</a></h2>
-    <p>
-      efs package javadocs explain how to use the package
-      together with example code. You are encourged to explore
-      the javadoc packages in the following order:
-    </p>
-    <ol>
-      <li>
-        {@link org.efs.dispatcher dispatcher}: explains
-        dispatcher architecture and how to use. Compares efs
-        dispatcher with LMAX Disruptor and SEDA (staged event
-        driven architecture).
+  <!-- ========== Start of Table of Contents ==========
+       After building javadocs, go to index.html and move this
+       <nav> block between <div class="main-grid"> and
+       <main role="main"> tags.
+   -->
+  <nav role="navigation" class="toc" aria-label="Table of contents">
+    <div class="toc-header">Contents</div>
+    <button class="hide-sidebar"><span>Hide sidebar&nbsp;</span>&#10094;</button><button class="show-sidebar">&#10095;<span>&nbsp;Show sidebar</span></button>
+    <ol class="toc-list">
+      <li><a href="#Introduction" tabindex="0">Introduction</a>
+        <ol class="toc-list">
+          <li><a href="#Components" tabindex="0">Events, Agents, and Dispatchers</a>
+            <ol>
+              <li><a href="#Events">Events</a></li>
+              <li><a href="#Agents">Agents</a></li>
+              <li><a href="#Dispatchers">Dispatchers</a></li>
+            </ol>
+          </li>
+          <li><a href="EventForwarding" tabindex="0">Getting Events to Agents</a>
+            <ol>
+              <li><a href="#DirectForwarding">Direct Forwarding</a></li>
+              <li><a href='#EventBusForwarding'>Event Bus Forwarding</a></li>
+              <li><a href="#EventFileSystem">Event File System</a></li>
+            </ol>
+          </li>
+          <li><a href="#AgentActivation">Agent Activation</a></li>
+          <li><a href="#BackgroundEfs" tabindex="0">efs Background</a></li>
+          <li><a href="#FrameworkCompare">Framework Comparison</a></li>
+        </ol>
       </li>
-      <li>
-        {@link org.efs.dispatcher.config dispatcher configuration}:
-        explains how to configure dispatchers using
-        <a href="https://github.com/lightbend/config" target="_blank">typesafe</a>
-        configuration bean classes stored in a JSON file format.
-        <p>
-          Please note that efs uses typesafe for all its
-          configuration.
-        </p>
-      </li>
-      <li>
-        {@link org.efs.timer timer}: contains the
-        {link org.efs.timer.EfsScheduledExecutor} which
-        <em>somewhat</em> follows the
-        {@link java.util.concurrent.ScheduledExecutorService ScheduledExecutorService}
-        interface but does not implement that interface because
-        it does not deliver expired timers using a
-        {@code ScheduledFuture} but instead uses
-        {@code EfsDispatcher} for delivery.
-        <p>
-          An efs scheduled executor may be created either
-          programmatically or by typesafe configuration file.
-        </p>
-      </li>
-      <li>
-        {@link org.efs.activator activator}: this service steps
-        efs agents through stopped, stand by, active states in
-        a thread-safe manner using efs dispatcher's virtual
-        single-thread environment. User defined
-        {@link org.efs.activator.Workflow workflows} provide the
-        order in which efs agents are stepped through their
-        states.
-      </li>
-      <li>
-        {@link org.efs.activator.config activator configuration}:
-        explains how to define one or more activation workflows
-        using a typesafe configuration file.
-      </li>
-      <li>
-        {@link org.efs.logging logging}: implements
-        <a href="https://slf4j.org" target="_blank">slf4j</a>
-        {@code Logger} and {@code LoggerFactory} with
-        {@link org.efs.logging.AsyncLogger AsyncLogger} and
-        {@link org.efs.logging.AsyncLoggerFactory AsyncLoggerFactory}.
-        This logging uses efs dispatcher to perform the actual
-        logging on a dispatcher thread rather than inline with
-        application code.
+      <li><a href="#" style="color:#000;" tabindex="0">efs</a>
+        <ol class="toc-list">
+          <li><a href="#aboutEfs" style="color:#000;">About</a></li>
+          <li><a href="#all-packages-table">Related Packages</a></li>
+          <li><a href="https://github.com/cwrapp/efs" target="_blank" style="color:#000;">GitHub Project</a></li>
+        </ol>
       </li>
     </ol>
-    <h2><a id="BackgroundEfs">efs Background</a></h2>
-    <p>
-      efs is a direct descendent of the 25 year old
-      <a href="https://sourceforge.net/projects/ebus/">eBus</a>
-      project. The goal here is to tease out the best of that
-      work, forming a better API using Java 21 features. This
-      work is <em>not</em> a re-implementation of eBus but a step
-      beyond. efs is based on the oberservation that applications
-      require:
-    </p>
-    <ul>
-      <li>
-        historic events,
-      </li>
-      <li>
-        live events, and
-      </li>
-      <li>
-        combination of historic and live events.
-      </li>
-    </ul>
-    <p>
-      eBus started with live event distribution only. A later
-      attempt to add historic events to eBus designed to fit into
-      the eBus framework was less than satisfactory. Hence,
-      a need for a new framework supporting both historic and
-      live event distribution from the start.
-    </p>
-    <p>
-      Designing a new efs event persistence and distribution
-      API is on-going. This initial release 0.1.0 provides the
-      event delivery and processing API known as Dispatcher. It
-      is similar to Disruptor and SEDA (staged event-driven
-      architecture) but simpler. Dispatcher is designed to be a
-      stand-alone API and useful in its own right.
-    </p>
+  </nav>
+  <!-- ========== End of Table of Contents ========== -->
+
+  <div class="titlebar">
+    <div style="color: #ffff00; font-size: 100px; font-weight: bold; text-align: left;">efs</div>
+    <div style="color: #ffff00; font-size: 50px; text-align: center;">Event File System</div>
+    <div style="color: #f2f2f2; font-size: 10px; text-align: right;">
+      <!-- UPDATE FOR RELEASE -->
+      Updated: April 11, 2026<br/>Version: 0.6.0
+    </div>
+  </div>
+
+  <h1><a id="Introduction">Introduction</a></h1>
+  <p>
+    efs - Event File System is <em>envisioned</em> as a
+    reliable, robust, and low-latency event persistence and
+    delivery API from publishing agent to subscribing
+    agent.
+  </p>
+  <p>
+    "Envision" means that efs is not yet implemented to
+    this point - but enough is implemented to warrant an
+    initial release. efs has three levels:
+  </p>
+  <ol>
+    <li>
+      Events, Agents, and Dispatchers.
+    </li>
+    <li>
+      Simple event bus based on type+topic event routing.
+    </li>
+    <li>
+      Persistant event store and forward.
+    </li>
+  </ol>
+  <h2><a id="Components">Events, Agents, and Dispatchers</a></h2>
+  <p>
+    These three types underly all of efs. Events are posted
+    to an agent's event queue and the agent is posted to
+    a dispatcher run queue. A dispatcher thread takes the
+    agent off the run queue and has that agent process its
+    event queue. An agent is acquired by only one thread at
+    a time making all agent event queue processing
+    effectively single-threaded. This makes using efs
+    very simple because there is no multi-threaded
+    programming concerns to deal with.
+  </p>
+  <h3><a id="Events">Events</a></h3>
+  <p>
+    An efs event is a POJO implementing the
+    {@link org.efs.event.IEfsEvent} marker interface. There
+    are no further restrictions place on how you define an
+    event class. It is strongly recommended that an event
+    class be immutable. It is also recommended that the
+    Builder pattern be used to create correctly configured
+    event instances.
+  </p>
+  <p>
+    Events should also be passive objects - meaning an
+    event class do not initiate actions but is only acted
+    upon. An example of a passive object is a
+    {@code java.util.ArrayList} instance. Once
+    instantiated, a list will do nothing until an external
+    object adds, removes, or retrieves items. Events should
+    behave in the same way. Again, an event does not have
+    to be passive and there might be interesting use of
+    active events.
+  </p>
+  <h3><a id="Agents">Agents</a></h3>
+  <p>
+    An efs agent is a POJO implementing the
+    {@link org.efs.dispatcher.IEfsAgent} interface. This
+    interface has a single method: {@code String name()}.
+    The {@code name()} implementation is expected to return
+    a unique agent name within the JVM's scope. If this
+    name is used by more than one agent, this results in
+    only the first agent successfully registering with a
+    dispatcher (see next section).
+  </p>
+  <p>
+    Agents are active objects which means they initiate
+    actions. These actions generally include posting events
+    to other agents or calling passive object methods.
+    An agent must be
+    {@link org.efs.dispatcher.EfsDispatcher#register(org.efs.dispatcher.IEfsAgent, java.lang.String) registered}
+    with a <a href="#Dispatcher">Dispatcher</a> after
+    instantiation and before it may send or receive events.
+  </p>
+  <p>
+    There are no further limitations placed on agent
+    implementation. It is <em>strongly</em> recommended
+    that agents communicate with each other via events. If
+    an agent directly calls another agent's method, then
+    this means the called agent is being accessed from
+    multiple threads, losing the benefit of single-threaded
+    access, and bringing thread control issues back into
+    play. So if agents are allowed to call each other's
+    methods directly, then care must be taken to do this
+    correctly.
+  </p>
+  <h3><a id="Dispatchers">Dispatchers</a></h3>
+  <p>
+    efs dispatchers consists of an agent run queue and a
+    fixed size thread pool. An agent with one or more
+    events on its event queue is placed on to its
+    dispatcher's run queue. A dispatcher thread takes this
+    agent from the run queue and has the agent process its
+    event queue.
+  </p>
+  <p>
+    An agent is registered with a single dispatcher and
+    processes its events on that dispatcher's threads only.
+    This is why agents must have unique names within a JVM.
+    If not, then the first agent to successfully register
+    with a dispatcher will prevent the second agent with
+    the same name from successfully registering with any
+    dispatcher.
+  </p>
+  <p>
+    Dispatchers have a number of configurable properties:
+    thread type, thread pool size, and thread priority.
+    {@link org.efs.dispatcher.config.ThreadType Thread type}
+    is either blocking, spinning, sping+park, or
+    spin+yield. If a spinning (busy spin) thread type is
+    used, then thread affinity should also be configured
+    so spinning dispatcher threads can be associated with
+    CPU cores isolated from the operating system.
+  </p>
+  <h2><a id="EventForwarding">Getting Events to Agents</a></h2>
+  <p>
+    There are three ways to get an event from the agent
+    producing the event to the consuming agent:
+  </p>
+  <ol>
+    <li>
+      producing agent directly dispatching event to
+      consuming agent,
+    </li>
+    <li>
+      producing agent publishes event to
+      {@link org.efs.bus.EfsEventBus} on a specific topic.
+      Event bus forwards event to all consuming agents
+      subscribed to that topic.
+    </li>
+    <li>
+      producing agent publishes event to an event file and
+      event file forwards event to consuming agents reading
+      it.
+    </li>
+  </ol>
+  <h3><a id="DirectForwarding"></a>Direct Event Forwarding</h3>
+  <p>
+    The simplest and fastest was to foward an event between
+    agents is the producing agent to directly dispatch the
+    event to the consuming agent. This requires the
+    producing agent to know the consuming agent's unique
+    name so it can dispatch the event to the consuming
+    agent. The following code snippet demonstrates how to
+    do this:
+  </p>
+  <pre><code>// Consumer is an application class implementing IEfsAgent.
+// Note: returned agent may be null. Example assumes not.
+final Consumer consumer = (Consumer) EfsDispatcher.agent("consumer-agent");
+final AppEvent event = new AppEvent();
+
+EfsDispatcher.dispatch(consumer::onAppEvent, event, consumer);</code></pre>
+  <p>
+    It is obvious there is a short-coming with direct
+    forwarding: producing agent needs to know to which
+    consuming agent method to forward this event and have
+    access to that method. That said, it is no different
+    than one object calling another object's method except
+    there is a thread hand-off between producing agent and
+    consuming agent.
+  </p>
+  <p>
+    As an aside, if producing agent expects a reply event
+    from consuming agent, efs provides
+    {@link org.efs.dispatcher.ReplyTo} class. The producing
+    agent creates a {@code ReplyTo} instance containing the
+    producing agent's method lambda and {@code this}
+    reference and placing that reply-to instance into the
+    event. Extending the above example to demonstrate how
+    consuming agent replies to an event:
+  </p>
+  <pre><code>// Note: method onReply does <em>not</em> need to be public.
+final ReplyTo&lt;ReplyEvent&gt; replyTo = new ReplyTo&lt;&gt;(this::onReply, this);
+final AppEvent event = new AppEvent(replyTo);
+
+EfsDispatcher.dispatch(consumer::onAppEvent, event, consumer);
+
+// Consumer agent posts a reply as follows:
+public void onAppEvent(final AppEvent event) {
+final ReplyEvent reply = new ReplyEvent("done");
+
+// In this example, AppEvent returns ReplyTo instance in method getReplyTo.
+(event.getReplyTo()).dispatch(ReplyEvent);
+}</code></pre>
+  <p>
+    Unlike the initial dispatch, the consuming agent does
+    not need to have access to the producing agent's target
+    method since the method lambda is set by the producing
+    agent.
+  </p>
+  <h3><a id="EventBusForwarding">Event Bus Forwarding</a></h3>
+  <p>
+    An {@link org.efs.bus.EfsEventBus event bus} loosens up the
+    producer, consumer coupling by acting as a go-between agents.
+    A producing agent first advertises the topics on which it
+    publishes events. A consuming agent subscribes to the topics
+    on which it wishes to receive events.
+  </p>
+  <p style="background-color:#ffcccc;padding:5px;border: 2px solid darkred;">
+    <strong>Note:</strong> all agents <em>must</em> be registered
+    with a dispatcher prior to interacting with an event bus.
+    Failure to do so results in the interaction throwing an
+    {@code IllegalStateException}.
+  </p>
+  <p>
+    Each efs event bus is initialized with a name unique within
+    the JVM. This allows the event space to be partioned within a
+    JVM where each event bus handles a given set of topic keys.
+    The benefit of such partioning is to separate high importance
+    events from low importance events. That said, the same
+    {@link org.efs.event.EfsTopicKey topic key} may be assigned to
+    more than one event bus and publishing and subscribing agents
+    may work with more than one event bus.
+  </p>
+  <p>
+    See {@link org.efs.bus Event bus package info} for a detailed
+    explanation on using {@code EfsEventBus}.
+  </p>
+  <h3><a id="EventFileSystem">Event File System</a></h3>
+  <p>
+    This is a work-in-progress and explanation will be provided
+    later.
+  </p>
+  <h2><a id="AgentActivation">Agent Activation</a></h2>
+  <p>
+    An agent is more than a Java object. An agent is active, it
+    is registered with an efs dispatcher, advertise or subscribe
+    with an event bus, initiating asynchronous communication with
+    other agents. Java object initiation is done within the class
+    constructor. The constructor is meant for object data member
+    initialization but not for connect an agent with an event
+    bus. {@link org.efs.activator} solves that problem.
+  </p>
+  <p>
+    When an efs implements
+    {@link org.efs.activator.IEfsActivateAgent activate agents}
+    (an extension to
+    {@link org.efs.dispatcher.IEfsAgent IEfsAgent}), that agent
+    can be referened in an
+    {@link org.efs.activator.EfsActivator activator}
+    {@link org.efs.activator.Workflow workflow}. A workflow takes
+    one or more agents from a stopped state to stand-by, then to
+    active and backwards to stopped again. As an agent
+    transitions between states, the agent can connect itself up
+    to other agents, either directly and indirectly using an
+    event bus.
+  </p>
+  <p>
+    The idea here is that in the stopped state, an agent is
+    disconnected from other agents and is doing nothing. In the
+    stand-by state, the agent is monitoring its environment but
+    not actively participating in application work. In the active
+    state, the agent is fully participating.
+  </p>
+  <p>
+    See {@link org.efs.activator} for a detailed example on how
+    workflows transitions activate agents between states.
+  </p>
+  <p>
+    efs package javadocs explain how to use the package
+    together with example code. You are encourged to explore
+    the javadoc packages in the following order:
+  </p>
+  <ol>
+    <li>
+      {@link org.efs.dispatcher dispatcher}: explains
+      dispatcher architecture and how to use. Compares efs
+      dispatcher with LMAX Disruptor and SEDA (staged event
+      driven architecture).
+    </li>
+    <li>
+      {@link org.efs.dispatcher.config dispatcher configuration}:
+      explains how to configure dispatchers using
+      <a href="https://github.com/lightbend/config" target="_blank">typesafe</a>
+      configuration bean classes stored in a JSON file format.
+      <p>
+        Please note that efs uses typesafe for all its
+        configuration.
+      </p>
+    </li>
+    <li>
+      {@link org.efs.timer timer}: contains the
+      {link org.efs.timer.EfsScheduledExecutor} which
+      <em>somewhat</em> follows the
+      {@link java.util.concurrent.ScheduledExecutorService ScheduledExecutorService}
+      interface but does not implement that interface because
+      it does not deliver expired timers using a
+      {@code ScheduledFuture} but instead uses
+      {@code EfsDispatcher} for delivery.
+      <p>
+        An efs scheduled executor may be created either
+        programmatically or by typesafe configuration file.
+      </p>
+    </li>
+    <li>
+      {@link org.efs.activator activator}: this service steps
+      efs agents through stopped, stand by, active states in
+      a thread-safe manner using efs dispatcher's virtual
+      single-thread environment. User defined
+      {@link org.efs.activator.Workflow workflows} provide the
+      order in which efs agents are stepped through their
+      states.
+    </li>
+    <li>
+      {@link org.efs.activator.config activator configuration}:
+      explains how to define one or more activation workflows
+      using a typesafe configuration file.
+    </li>
+    <li>
+      {@link org.efs.logging logging}: implements
+      <a href="https://slf4j.org" target="_blank">slf4j</a>
+      {@code Logger} and {@code LoggerFactory} with
+      {@link org.efs.logging.AsyncLogger AsyncLogger} and
+      {@link org.efs.logging.AsyncLoggerFactory AsyncLoggerFactory}.
+      This logging uses efs dispatcher to perform the actual
+      logging on a dispatcher thread rather than inline with
+      application code.
+    </li>
+  </ol>
+  <h2><a id="BackgroundEfs">efs Background</a></h2>
+  <p>
+    efs is a direct descendent of the 25 year old
+    <a href="https://sourceforge.net/projects/ebus/" target="_blank">eBus</a>
+    project. The goal here is to tease out the best of that
+    work, forming a better API using Java 21 features. This
+    work is <em>not</em> a re-implementation of eBus but a step
+    beyond. efs is based on the oberservation that applications
+    require:
+  </p>
+  <ul>
+    <li>
+      historic events,
+    </li>
+    <li>
+      live events, and
+    </li>
+    <li>
+      combination of historic and live events.
+    </li>
+  </ul>
+  <p>
+    eBus started with live event distribution only. A later
+    attempt to add historic events to eBus designed to fit into
+    the eBus framework was less than satisfactory. Hence,
+    a need for a new framework supporting both historic and
+    live event distribution from the start.
+  </p>
+  <p>
+    Designing a new efs event persistence and distribution
+    API is on-going. This initial release 0.1.0 provides the
+    event delivery and processing API known as Dispatcher. It
+    is similar to Disruptor and SEDA (staged event-driven
+    architecture) but simpler. Dispatcher is designed to be a
+    stand-alone API and useful in its own right.
+  </p>
+  <h2><a id="FrameworkCompare"></a>Comparing efs with Existing Concurrency Frameworks</h2>
+  <p>
+    <a href="org/efs/dispatcher/package-summary.html#FrameworkCompare">
+      {@code org.efs.dispatcher} package information
+    </a>
+    provides a detailed comparison between efs and:
+  </p>
+  <ul>
+    <li>LMAX Disruptor</li>
+    <li>Staged Event-Driven Architecture</li>
+    <li>Actor Model/Akka</li>
+  </ul>
+  <h1><a id="aboutEfs">About efs</a></h1>
+  <p>
+    Copyright &copy; 2026, Charles W. Rapp. All Rights Reserved.
+  </p>
+  <p>
+    efs
+    <a href="https://github.com/cwrapp/efs" target="_blank">GitHub</a>
+    project was created on October, 2025 and is being
+    actively improved and extended since then. efs' goal
+    is to bring the power of distributed, reactive events
+    in a simple API, so simple that you don't notice efs
+    when you transmit events within your JVM or around
+    the world.
+  </p>
+  <p>
+    <!-- UPDATE FOR RELEASE -->
+    Updated: April 11, 2026<br>Version. 0.6.0
+  </p>
 
     @author <a href="mailto:rapp@acm.org">Charles Rapp</a>
-
-    <script>
-      // Get the modal
-      var modal = document.getElementById('aboutModal');
-
-      // Get the button that opens the modal
-      var btn = document.getElementById("aboutBtn");
-
-      // Get the span element that closes the modal
-      var span = document.getElementsByClassName("close")[0];
-
-      // When the user clicks the button, open the modal
-      btn.onclick = function() {
-        modal.style.display = "block";
-      }
-
-      // When the user clicks on (x), close the modal
-      span.onclick = function() {
-        modal.style.display = "none";
-      }
-
-      // When the user clicks anywhere outside of the modal, close it
-      window.onclick = function(event) {
-        if (event.target == modal) {
-          modal.style.display = "none";
-        }
-      }
-    </script>
 
   </body>
 </html>

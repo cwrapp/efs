@@ -24,7 +24,7 @@ limitations under the License.
 
   <groupId>com.github.cwrapp</groupId>
   <artifactId>efs-parent</artifactId>
-  <version>0.5.0</version>
+  <version>0.6.0</version>
 
   <packaging>pom</packaging>
 
@@ -64,12 +64,14 @@ limitations under the License.
   </developers>
 
   <modules>
-    <module>efs-bom</module>
-    <module>efs-event</module>
-    <module>efs-dispatcher</module>
-    <module>efs-feed</module>
     <module>efs-activator</module>
+    <module>efs-bom</module>
+    <module>efs-bus</module>
+    <module>efs-dispatcher</module>
+    <module>efs-event</module>
+    <module>efs-feed</module>
     <module>efs-timer</module>
+    <module>efs-util</module>
   </modules>
 
   <distributionManagement>
@@ -96,20 +98,20 @@ limitations under the License.
     <ebus.version>7.6.2</ebus.version>
     <guava.version>33.5.0-jre</guava.version>
     <decimal4j.version>1.0.3</decimal4j.version>
-    <openhft.version>3.27ea1</openhft.version>
-    <typesafe.version>1.4.5</typesafe.version>
-    <jctools.version>4.0.5</jctools.version>
+    <openhft.version>2026.2</openhft.version>
+    <typesafe.version>1.4.6</typesafe.version>
+    <jctools.version>4.0.6</jctools.version>
     <javassist.version>3.30.2-GA</javassist.version>
     <reflections.version>0.10.2</reflections.version>
     <jakarta.version>3.0.0</jakarta.version>
 
     <slf4j.version>2.0.17</slf4j.version>
-    <logback.version>1.5.23</logback.version>
+    <logback.version>1.5.32</logback.version>
 
-    <junit.version>6.0.1</junit.version>
-    <assertj.version>3.27.6</assertj.version>
-    <mockito.version>5.21.0</mockito.version>
-    <bytebuddy.version>1.18.2</bytebuddy.version>
+    <junit.version>6.0.3</junit.version>
+    <assertj.version>3.27.7</assertj.version>
+    <mockito.version>5.23.0</mockito.version>
+    <bytebuddy.version>1.18.7</bytebuddy.version>
     <awaitility.version>4.3.0</awaitility.version>
     <jacoco.version>0.8.14</jacoco.version>
 
@@ -310,10 +312,12 @@ limitations under the License.
           <excludePackageNames>**/</excludePackageNames>
           <failOnError>false</failOnError>
           <outputDirectory>${project.build.directory}</outputDirectory>
-          <stylesheetfile>src/main/javadoc/overview.css</stylesheetfile>
+          <addStylesheets>
+            <addStyleSheet>efs.css</addStyleSheet>
+          </addStylesheets>
           <doctitle><![CDATA[efs v. ${project.version}<br>API Specification]]></doctitle>
           <header><![CDATA[efs<br>v. ${project.version}]]></header>
-          <bottom><![CDATA[Copyright &#169; 2025. Charles W. Rapp<br>All rights reserved]]></bottom>
+          <bottom><![CDATA[Copyright &#169; 2026. Charles W. Rapp<br>All rights reserved]]></bottom>
           <encoding>UTF-8</encoding>
           <windowtitle>efs ${project.version} API</windowtitle>
           <additionalJOptions>--allow-script-in-comments</additionalJOptions>

@@ -367,62 +367,12 @@ public final class ThreadAffinityConfig
      */
     public ThreadAffinityConfig()
     {
+        mAffinityType = AffinityType.ANY_CPU;
         mCpuId = -1;
     } // end of ThreadAffinityConfig()
 
     //
     // end of Constructors.
-    //-----------------------------------------------------------
-
-    //-----------------------------------------------------------
-    // Object Method Overrides.
-    //
-
-    @Override
-    public String toString()
-    {
-        final StringBuilder retval = new StringBuilder();
-
-        retval.append("[type=").append(mAffinityType)
-              .append(", bind=").append(mBindFlag);
-
-        if (mBindFlag)
-        {
-            retval.append(", core=").append(mWholeCore);
-        }
-
-        switch (mAffinityType)
-        {
-            case CPU_ID ->
-                retval.append(", cpu ID=").append(mCpuId);
-
-            case CPU_LAST_MINUS ->
-                retval.append(", offset=").append(mOffset);
-
-            case CPU_STRATEGIES ->
-            {
-                String sep = "";
-
-                retval.append(", strategies={");
-                for (AffinityStrategies s : mStrategies)
-                {
-                    retval.append(sep).append(s);
-                    sep = ",";
-                }
-                retval.append('}');
-            }
-
-            default -> {}
-        }
-        // No other data to append.
-
-        retval.append(']');
-
-        return (retval.toString());
-    } // end of toString()
-
-    //
-    // end of Object Method Overrides.
     //-----------------------------------------------------------
 
     //-----------------------------------------------------------

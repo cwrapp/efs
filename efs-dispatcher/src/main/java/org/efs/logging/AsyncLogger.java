@@ -17,6 +17,7 @@
 package org.efs.logging;
 
 import com.google.common.annotations.VisibleForTesting;
+import java.util.Objects;
 import java.util.function.Consumer;
 import org.efs.dispatcher.EfsDispatcher;
 import org.efs.dispatcher.EfsDispatcher.DispatcherType;
@@ -165,6 +166,8 @@ public final class AsyncLogger
      */
     /* package */ AsyncLogger(final Logger logger)
     {
+        Objects.requireNonNull(logger, "logger is null");
+
         mNestedLogger = logger;
     } // end of AsyncLogger(Logger)
 
@@ -629,7 +632,7 @@ public final class AsyncLogger
     @Override
     public boolean isWarnEnabled()
     {
-        return (mNestedLogger.isInfoEnabled());
+        return (mNestedLogger.isWarnEnabled());
     } // end of isWarnEnabled()
 
     @Override
@@ -697,7 +700,7 @@ public final class AsyncLogger
     @Override
     public boolean isWarnEnabled(final Marker marker)
     {
-        return (mNestedLogger.isInfoEnabled(marker));
+        return (mNestedLogger.isWarnEnabled(marker));
     } // end of isWarnEnabled(Marker)
 
     @Override
@@ -969,10 +972,7 @@ public final class AsyncLogger
      * Logs messages using the nested logger instance. This
      * class actually does nothing. All logging work is performed
      * by the {@code Runnable} task posted to this efs agent's
-     * event queue. This class is public to allow users to
-     * associate {@code AsyncLoggerAgent} to a specific efs
-     * dispatcher thread rather than the default dispatcher
-     * thread.
+     * event queue.
      */
     private static final class AsyncLoggerAgent
         implements IEfsAgent

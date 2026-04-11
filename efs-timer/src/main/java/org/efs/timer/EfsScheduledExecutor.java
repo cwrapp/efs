@@ -293,7 +293,7 @@ public final class EfsScheduledExecutor
      * Logging subsystem interface.
      */
     private static final Logger sLogger =
-        AsyncLoggerFactory.getLogger();
+        AsyncLoggerFactory.getLogger(EfsScheduledExecutor.class);
 
     //-----------------------------------------------------------
     // Locals.

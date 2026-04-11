@@ -259,11 +259,6 @@ public final class ThreadAffinityConfigTest
     {
         final AffinityType affinityType = AffinityType.ANY_CORE;
         final boolean bindFlag = false;
-        final String text =
-            String.format(
-                "[type=%s, bind=%b]",
-                affinityType,
-                bindFlag);
         final ThreadAffinityConfig config =
             new ThreadAffinityConfig();
 
@@ -271,7 +266,6 @@ public final class ThreadAffinityConfigTest
 
         assertThat(config.getAffinityType())
             .isEqualTo(affinityType);
-        assertThat(config.toString()).isEqualTo(text);
     } // end of anyCoreAffinity()
 
     @Test
@@ -280,12 +274,6 @@ public final class ThreadAffinityConfigTest
         final AffinityType affinityType = AffinityType.ANY_CPU;
         final boolean bindFlag = true;
         final boolean wholeCoreFlag = false;
-        final String text =
-            String.format(
-                "[type=%s, bind=%b, core=%b]",
-                affinityType,
-                bindFlag,
-                wholeCoreFlag);
         final ThreadAffinityConfig config =
             new ThreadAffinityConfig();
 
@@ -297,7 +285,6 @@ public final class ThreadAffinityConfigTest
             .isEqualTo(affinityType);
         assertThat(config.getBindFlag()).isTrue();
         assertThat(config.getWholeCoreFlag()).isFalse();
-        assertThat(config.toString()).isEqualTo(text);
     } // end of anyCpuAffinity()
 
     @Test
@@ -307,13 +294,6 @@ public final class ThreadAffinityConfigTest
         final int cpuId = 7;
         final boolean bindFlag = true;
         final boolean wholeCoreFlag = true;
-        final String text =
-            String.format(
-                "[type=%s, bind=%b, core=%b, cpu ID=%d]",
-                affinityType,
-                bindFlag,
-                wholeCoreFlag,
-                cpuId);
         final ThreadAffinityConfig config =
             new ThreadAffinityConfig();
 
@@ -327,7 +307,6 @@ public final class ThreadAffinityConfigTest
         assertThat(config.getCpuId()).isEqualTo(cpuId);
         assertThat(config.getBindFlag()).isTrue();
         assertThat(config.getWholeCoreFlag()).isTrue();
-        assertThat(config.toString()).isEqualTo(text);
     } // end of cpuIdAffinity()
 
     @Test
@@ -338,13 +317,6 @@ public final class ThreadAffinityConfigTest
         final int offset = 4;
         final boolean bindFlag = true;
         final boolean coreFlag = false;
-        final String text =
-            String.format(
-                "[type=%s, bind=%b, core=%b, offset=%d]",
-                affinityType,
-                bindFlag,
-                coreFlag,
-                offset);
         final ThreadAffinityConfig config =
             new ThreadAffinityConfig();
 
@@ -356,7 +328,6 @@ public final class ThreadAffinityConfigTest
             .isEqualTo(affinityType);
         assertThat(config.getLastMinusOffset()).isEqualTo(offset);
         assertThat(config.getBindFlag()).isTrue();
-        assertThat(config.toString()).isEqualTo(text);
     } // end of cpuLastMinusAffinity()
 
     @Test
@@ -370,14 +341,6 @@ public final class ThreadAffinityConfigTest
                 AffinityStrategies.SAME_CORE,
                 AffinityStrategies.SAME_SOCKET,
                 AffinityStrategies.ANY);
-        final String text =
-            String.format(
-                "[type=%s, bind=%b, strategies={%s,%s,%s}]",
-                affinityType,
-                bindFlag,
-                strategies.get(0),
-                strategies.get(1),
-                strategies.get(2));
         final ThreadAffinityConfig config =
             new ThreadAffinityConfig();
 
@@ -388,7 +351,6 @@ public final class ThreadAffinityConfigTest
             .isEqualTo(affinityType);
         assertThat(config.getStrategies())
             .containsExactlyElementsOf(strategies);
-        assertThat(config.toString()).isEqualTo(text);
     } // end of cpuStrategiesAffinity()
 
     //

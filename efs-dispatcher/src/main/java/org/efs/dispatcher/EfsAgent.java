@@ -60,7 +60,7 @@ import org.slf4j.LoggerFactory;
     public enum RunState
     {
         /**
-         * efs agent has no pending events. Is not be on run
+         * efs agent has no pending events and is not on run
          * queue.
          */
         IDLE,
@@ -210,6 +210,12 @@ import org.slf4j.LoggerFactory;
      */
     private final LongAdder mRunCount;
 
+    /**
+     * Number of times attempt to dispatch this agent failed due
+     * to run queue overflow.
+     */
+    private final LongAdder mMissedDispatchCount;
+
 //---------------------------------------------------------------
 // Member methods.
 //
@@ -241,6 +247,7 @@ import org.slf4j.LoggerFactory;
         mMaximumRunTime = new AtomicLong();
         mTotalRunTime = new LongAdder();
         mRunCount = new LongAdder();
+        mMissedDispatchCount = new LongAdder();
     } // end of EfsAgent(Builder)
 
     //
@@ -375,6 +382,7 @@ import org.slf4j.LoggerFactory;
                                mMaximumRunTime.get(),
                                mTotalRunTime.sum(),
                                mRunCount.sum(),
+                               mMissedDispatchCount.sum(),
                                mDispatcher.name(),
                                mMaxEvents));
     } // end of generateRunStats()
@@ -468,9 +476,11 @@ Ponger
     {
         if (sLogger.isTraceEnabled())
         {
-            sLogger.trace("{}: run state set to {}.",
-                          mAgent.name(),
-                          state);
+            sLogger.trace(
+                "{}: run state set to {}, dispatcher {}.",
+                mAgent.name(),
+                state,
+                mDispatcher.name());
         }
 
         mRunState = state;
@@ -483,14 +493,22 @@ Ponger
     /**
      * Marks this agent as no longer registered. Any pending
      * events will not be forwarded to agent.
+     *
+     * @see EfsDispatcher#deregister(IEfsAgent)
      */
     /* package */ void deregister()
     {
         mIsRegistered = false;
 
-        // Clear out undelivered events.
-        mEvents.clear();
-        mQueueSize.reset();
+        // Is this agent on its run queue?
+        if (!mOnRunQueue.get())
+        {
+            // No. Clear out undelivered events.
+            mEvents.clear();
+            mQueueSize.reset();
+        }
+        // Else the event queue will be cleared when this agent
+        // stops processing events.
     } // end of deregister()
 
     /**
@@ -505,6 +523,8 @@ Ponger
      * @throws IllegalStateException
      * if event queue is full preventing {@code event} from being
      * enqueued.
+     *
+     * @see EfsDispatcher#dispatch(Consumer, IEfsEvent, IEfsAgent)
      */
     /* package */ <E extends IEfsEvent> void dispatch(final Consumer<E> callback,
                                                       final E event)
@@ -519,6 +539,8 @@ Ponger
      * @throws IllegalStateException
      * if event queue is full preventing {@code task} from being
      * enqueued.
+     *
+     * @see EfsDispatcher#dispatch(Runnable, IEfsAgent)
      */
     /* package */ void dispatch(final Runnable task)
     {
@@ -536,6 +558,7 @@ Ponger
         else
         {
             mQueueSize.increment();
+
             postToRunQueue();
         }
     } // end of dispatch(Runnable)
@@ -604,17 +627,18 @@ Ponger
 
         updateRunStats(runTime);
 
+        // Is this agent now de-registered?
+        if (!mIsRegistered)
+        {
+            // Yes. Remove any events still on its event queue.
+            mEvents.clear();
+            mQueueSize.reset();
+        }
+
         // Mark this agent as idle and then attempt to put it
         // back on the run queue.
         runState(RunState.IDLE);
         mOnRunQueue.set(false);
-
-        // Is this agent now de-registered?
-        if (!mIsRegistered)
-        {
-            // Yes. Remove any events posted to its event queue.
-            mEvents.clear();
-        }
 
         postToRunQueue();
 
@@ -674,7 +698,10 @@ Ponger
             {
                 // Dispatcher run queue is full so agent is not
                 // on the run queue. Make note of this.
+                // The only way this is corrected is when another
+                // event is posted to agent.
                 mOnRunQueue.set(false);
+                mMissedDispatchCount.increment();
 
                 sLogger.warn(
                     "{}: failed to post this agent to {} dispatcher due to run queue overflow.",
@@ -773,17 +800,17 @@ Ponger
         private final long mEventQueueSize;
 
         /**
-         * Minimum nanoseconds spent processing messages.
+         * Minimum nanoseconds spent processing events.
          */
         private final long mMinimumRunTime;
 
         /**
-         * Maximum nanoseconds spent processing messages.
+         * Maximum nanoseconds spent processing events.
          */
         private final long mMaximumRunTime;
 
         /**
-         * Total nanoseconds spent processing messages.
+         * Total nanoseconds spent processing events.
          */
         private final long mTotalRunTime;
 
@@ -791,6 +818,12 @@ Ponger
          * Number of times this agent has been on core.
          */
         private final long mRunCount;
+
+        /**
+         * Number of times this agent failed to be dispatched
+         * due to run queue overflow.
+         */
+        private final long mMissedDispatchCount;
 
         /**
          * Dispatcher responsible for running this object.
@@ -817,6 +850,7 @@ Ponger
                            final long maxRunTime,
                            final long totalRunTime,
                            final long runCount,
+                           final long missedDispatchCount,
                            final String dispatcherName,
                            final int maxEvents)
         {
@@ -826,6 +860,7 @@ Ponger
             mMaximumRunTime = maxRunTime;
             mTotalRunTime = totalRunTime;
             mRunCount = runCount;
+            mMissedDispatchCount = missedDispatchCount;
             mDispatcherName = dispatcherName;
             mMaxEvents = maxEvents;
         } // end of AgentStats(...)
@@ -858,6 +893,7 @@ Ponger
                     "%n    max run time: %,d nanos" +
                     "%n  total run time: %,d nanos" +
                     "%n       run count: %,d" +
+                    "%n missed dispatch: %,d" +
                     "%n    avg run time: %,d nanos" +
                     "%n      dispatcher: %s" +
                     "%n      max events: %,d",
@@ -867,6 +903,7 @@ Ponger
                     mMaximumRunTime,
                     mTotalRunTime,
                     mRunCount,
+                    mMissedDispatchCount,
                     avgRunTime,
                     mDispatcherName,
                     mMaxEvents));
@@ -880,41 +917,94 @@ Ponger
         // Get Methods.
         //
 
+        /**
+         * Returns efs agent name.
+         * @return efs agent name.
+         */
         public String getAgentName()
         {
             return (mAgentName);
         } // end of getAgentName()
 
+        /**
+         * Returns agent event queue size as of this report. This
+         * size is approximate due to it being a snapshot of an
+         * active agent's metrics.
+         * @return agent event queue size.
+         */
         public long getEventQueueSize()
         {
             return (mEventQueueSize);
         } // end of getEventQueueSize()
 
+        /**
+         * Returns minimum nanoseconds spent processing events
+         * in a single run. Will be zero if agent has never
+         * processed events.
+         * @return minimum event processing time in nanoseconds.
+         */
         public long getMinimumRunTime()
         {
             return (mMinimumRunTime);
         } // end of getMinimumRunTime()
 
+        /**
+         * Returns maximum nanoseconds spent processing events in
+         * a single run. Will be zero if agent has never
+         * processed events.
+         * @return maximum event processing time in nanoseconds.
+         */
         public long getMaximumRunTime()
         {
             return (mMaximumRunTime);
         } // end of getMaximumRunTime()
 
+        /**
+         * Returns total nanoseconds spent processing events for
+         * all runs. Will be zero if agent has never processed
+         * events.
+         * @return total event processing time in nanoseconds.
+         */
         public long getTotalRunTime()
         {
             return (mTotalRunTime);
         } // end of getTotalRunTime()
 
+        /**
+         * Return number of times this agent has been on thread
+         * processing events.
+         * @return agent run count.
+         */
         public long getRunCount()
         {
             return (mRunCount);
         } // end of getRunCount()
 
+        /**
+         * Returns number of times this agent failed to be
+         * dispatched due to run queue overflow.
+         * @return missed agent dispatch count.
+         */
+        public long getMissedDispatchCount()
+        {
+            return (mMissedDispatchCount);
+        } // end of getMissedDispatchCount()
+
+        /**
+         * Returns name of dispatcher responsible for running
+         * this object.
+         * @return agent's dispatcher's name.
+         */
         public String getDispatcherName()
         {
             return (mDispatcherName);
         } // end of getDispatcherName()
 
+        /**
+         * Returns dispatcher's maximum allowed events per agent
+         * run.
+         * @return dispatcher's maximum events per agent run.
+         */
         public int getMaxEvents()
         {
             return (mMaxEvents);

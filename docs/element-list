@@ -1,6 +1,7 @@
 org.efs.activator
 org.efs.activator.config
 org.efs.activator.event
+org.efs.bus
 org.efs.dispatcher
 org.efs.dispatcher.config
 org.efs.event
@@ -8,3 +9,4 @@ org.efs.event.type
 org.efs.feed
 org.efs.logging
 org.efs.timer
+org.efs.util

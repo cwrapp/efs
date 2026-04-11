@@ -19,6 +19,7 @@ package org.efs.activator;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import java.util.List;
+import javax.annotation.concurrent.ThreadSafe;
 import net.sf.eBus.util.ValidationException;
 import net.sf.eBus.util.Validator;
 import org.efs.activator.config.WorkflowConfig;
@@ -83,6 +84,11 @@ import org.efs.activator.config.WorkflowStageConfig;
  * Please see {@link org.efs.activator} for a detailed
  * description on {@code EfsActivator} and workflows.
  * </p>
+ * <p>
+ * This class is thread-safe because its execution methods
+ * are only accessed by {@code EfsActivator} and that class
+ * itself is thread-safe.
+ * </p>
  *
  * @see EfsActivator
  * @see WorkflowStage
@@ -91,11 +97,25 @@ import org.efs.activator.config.WorkflowStageConfig;
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
 
+@ThreadSafe
 public final class Workflow
 {
 //---------------------------------------------------------------
 // Member data.
 //
+
+    //-----------------------------------------------------------
+    // Constants.
+    //
+
+    /**
+     * When an invalid workflow name is passed to
+     * {@link Builder#name(String)}, an
+     * {@code IllegalArgumentException} is thrown with message
+     * {@value}.
+     */
+    public static final String INVALID_WORKFLOW_NAME =
+        "name is either null, an empty string, or blank";
 
     //-----------------------------------------------------------
     // Locals.
@@ -200,16 +220,6 @@ public final class Workflow
         return (mStageCount);
     } // end of stageCount()
 
-    /**
-     * Returns {@code true} if this workflow is in-progress and
-     * not yet reached completion.
-     * @return {@code true} if workflow is in-progress.
-     */
-    public boolean isInProgress()
-    {
-        return (mCurrentStageIndex < mStageCount);
-    } // end of isInProgress()
-
     //
     // end of Get Methods.
     //-----------------------------------------------------------
@@ -223,17 +233,8 @@ public final class Workflow
      * be called prior to performing workflow execution via
      * {@link #executeNextStep(EfsActivator)},
      * {@link #executeNextStage(EfsActivator)}, or
-     * {@link #executeAllStages(EfsActivator)}.
-     * <p>
-     * Allowed values are [0, # stages]. Setting the current
-     * stage index to a value equal to this workflow's stage
-     * count it effectively terminates any in-progress stage
-     * execution.
-     * </p>
-     * <p>
-     * Initializing the stage index results each subordinate
-     * stage's step index being set to zero.
-     * </p>
+     * {@link #executeAllStages(EfsActivator)}. Initializes each
+     * stage to step index zero.
      *
      * @see #terminateWorkflow()
      * @see #executeNextStep(EfsActivator)
@@ -244,11 +245,13 @@ public final class Workflow
     {
         mCurrentStageIndex = 0;
 
-        mStages.forEach(WorkflowStage::intialStepIndex);
+        mStages.forEach(WorkflowStage::initialStepIndex);
     } // end of initializeWorkflow()
 
     /**
-     * Sets current stage and step to given values.
+     * Sets current stage and step to given values. Allowed
+     * values are [0, # stages) and [0, # steps) for specified
+     * stage.
      * @param stageIndex current stage index.
      * @param stepIndex current step index.
      * @throws IndexOutOfBoundsException
@@ -304,8 +307,7 @@ public final class Workflow
      * @return {@code true} if workflow is completed as a
      * result of this execution.
      * @throws IllegalStateException
-     * if there is no activation in progress or the activation
-     * fails.
+     * if activation fails.
      */
     /* package */ boolean executeNextStep(final EfsActivator activator)
     {
@@ -330,8 +332,7 @@ public final class Workflow
      * @return {@code true} if workflow is completed as a
      * result of this execution.
      * @throws IllegalStateException
-     * if there is no activation in progress or the activation
-     * fails.
+     * if activation fails.
      */
     /* package */ boolean executeNextStage(final EfsActivator activator)
     {
@@ -355,8 +356,7 @@ public final class Workflow
      * @return {@code true} if workflow is completed as a
      * result of this execution.
      * @throws IllegalStateException
-     * if there is no activation in progress or the activation
-     * fails.
+     * if activation fails.
      */
     /* package */ boolean executeAllStages(final EfsActivator activator)
     {
@@ -442,11 +442,11 @@ public final class Workflow
          */
         public Builder name(final String name)
         {
-            if (Strings.isNullOrEmpty(name))
+            if (Strings.isNullOrEmpty(name) || name.isBlank())
             {
                 throw (
                     new IllegalArgumentException(
-                        "name is either null or an empty string"));
+                        INVALID_WORKFLOW_NAME));
             }
 
             mName = name;

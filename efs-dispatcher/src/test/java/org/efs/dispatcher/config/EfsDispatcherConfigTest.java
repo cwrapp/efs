@@ -208,7 +208,7 @@ public class EfsDispatcherConfigTest
     public void eventQueueCapacityTooSmall()
     {
         final int capacity =
-            (EfsDispatcher.MIN_EVENT_QUEUE_SIZE - 1);
+            (EfsDispatcher.MIN_QUEUE_SIZE - 1);
         final EfsDispatcherConfig config =
             new EfsDispatcherConfig();
 
@@ -219,13 +219,32 @@ public class EfsDispatcherConfigTest
         catch (ConfigException confex)
         {
             assertThat(confex.getMessage())
-                .endsWith("capacity < " +
-                          EfsDispatcher.MIN_EVENT_QUEUE_SIZE);
+                .endsWith(
+                    EfsDispatcherConfig.CAPACITY_TOO_SMALL);
         }
     } // end of eventQueueCapacityTooSmall()
 
     @Test
-    public void zeroRunQueueCapacity()
+    public void eventQueueCapacityTooBig()
+    {
+        final int capacity = (Integer.MAX_VALUE - 2);
+        final EfsDispatcherConfig config =
+            new EfsDispatcherConfig();
+
+        try
+        {
+            config.setEventQueueCapacity(capacity);
+        }
+        catch (ConfigException confex)
+        {
+            assertThat(confex.getMessage())
+                .endsWith(
+                    EfsDispatcherConfig.CAPACITY_TOO_BIG);
+        }
+    } // end of eventQueueCapacityTooBig()
+
+    @Test
+    public void runQueueCapacityTooSmall()
     {
         final int capacity = 0;
         final EfsDispatcherConfig config =
@@ -238,9 +257,28 @@ public class EfsDispatcherConfigTest
         catch (ConfigException confex)
         {
             assertThat(confex.getMessage())
-                .endsWith("capacity <= zero");
+                .endsWith(
+                    EfsDispatcherConfig.CAPACITY_TOO_SMALL);
         }
-    } // end of zeroRunQueueCapacity()
+    } // end of runQueueCapacityTooSmall()
+
+    @Test
+    public void runQueueCapacityTooBig()
+    {
+        final int capacity = (Integer.MAX_VALUE - 2);
+        final EfsDispatcherConfig config =
+            new EfsDispatcherConfig();
+
+        try
+        {
+            config.setRunQueueCapacity(capacity);
+        }
+        catch (ConfigException confex)
+        {
+            assertThat(confex.getMessage())
+                .endsWith(EfsDispatcherConfig.CAPACITY_TOO_BIG);
+        }
+    } // end of runQueueCapacityTooBig()
 
     @Test
     public void zeroMaxEvents()

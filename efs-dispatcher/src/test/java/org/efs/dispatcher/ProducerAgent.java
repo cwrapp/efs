@@ -55,7 +55,7 @@ public final class ProducerAgent
      * Logging subsystem interface.
      */
     private static final Logger sLogger =
-        AsyncLoggerFactory.getLogger();
+        AsyncLoggerFactory.getLogger(ProducerAgent.class);
 
     /**
      * Timer used to schedule publish timer.
@@ -189,22 +189,6 @@ public final class ProducerAgent
 
     //
     // end of Abstract Method Overrides.
-    //-----------------------------------------------------------
-
-    //-----------------------------------------------------------
-    // Get Methods.
-    //
-
-    //
-    // end of Get Methods.
-    //-----------------------------------------------------------
-
-    //-----------------------------------------------------------
-    // Set Methods.
-    //
-
-    //
-    // end of Set Methods.
     //-----------------------------------------------------------
 
     //-----------------------------------------------------------

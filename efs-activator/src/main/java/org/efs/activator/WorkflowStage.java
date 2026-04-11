@@ -18,6 +18,7 @@ package org.efs.activator;
 
 import com.google.common.collect.ImmutableList;
 import java.util.List;
+import javax.annotation.concurrent.ThreadSafe;
 import net.sf.eBus.util.ValidationException;
 import net.sf.eBus.util.Validator;
 import org.efs.activator.config.WorkflowStageConfig;
@@ -34,6 +35,11 @@ import org.slf4j.Logger;
  * Please see {@link org.efs.activator} for a detailed
  * description on {@code EfsActivator} and workflows.
  * </p>
+ * <p>
+ * This class is thread-safe because its execution methods
+ * are only accessed by {@code EfsActivator} and that class
+ * itself is thread-safe.
+ * </p>
  *
  * @see EfsActivator
  * @see Workflow
@@ -42,15 +48,12 @@ import org.slf4j.Logger;
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
 
+@ThreadSafe
 public final class WorkflowStage
 {
 //---------------------------------------------------------------
 // Member data.
 //
-
-    //-----------------------------------------------------------
-    // Constants.
-    //
 
     //-----------------------------------------------------------
     // Statics.
@@ -60,7 +63,7 @@ public final class WorkflowStage
      * Logging subsystem interface.
      */
     private static final Logger sLogger =
-        AsyncLoggerFactory.getLogger();
+        AsyncLoggerFactory.getLogger(WorkflowStage.class);
 
     //-----------------------------------------------------------
     // Locals.
@@ -175,7 +178,7 @@ public final class WorkflowStage
      */
     /* package */ void validateStepIndex(final int stepIndex)
     {
-        if (stepIndex < 0 && stepIndex < mStepCount)
+        if (stepIndex < 0 || stepIndex >= mStepCount)
         {
             throw (
                 new IndexOutOfBoundsException(
@@ -203,13 +206,15 @@ public final class WorkflowStage
      * @see #executeNextStep(String, EfsActivator)
      * @see #executeAllSteps(String, EfsActivator)
      */
-    /* package */ void intialStepIndex()
+    /* package */ void initialStepIndex()
     {
         mCurrentStepIndex = 0;
-    } // end of intialStepIndex()
+    } // end of initialStepIndex()
 
     /**
-     * Sets step index to given value.
+     * Sets step index to given value. Note: caller has
+     * previously called {@link #validateStepIndex(int)} to
+     * guarantee that {@code stepIndex} is valid.
      * @param stepIndex step index.
      */
     /* package */ void setStepIndex(final int stepIndex)
@@ -247,8 +252,7 @@ public final class WorkflowStage
      * @return {@code true} if all steps in this stage are now
      * executed.
      * @throws IllegalStateException
-     * if this stage is not currently configured to activate
-     * steps or execution fails.
+     * if activation fails.
      * @throws RuntimeException
      * if current workflow step execution fails. Contains
      * workflow step exception as cause.

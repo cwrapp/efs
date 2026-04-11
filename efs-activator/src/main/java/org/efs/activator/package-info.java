@@ -352,7 +352,7 @@
  *     activates next step and stops.
  *   </li>
  * </ul>
- * <p>
+ * <p style="background-color:#ffcccc;padding:5px;border: 2px solid darkred;">
  * <strong>NOTE:</strong> {@code EfsActivator} keeps track of
  * each {@code IEfsActivateAgent}'s current state according to
  * the above execution methods. If all goes well, then workflows
@@ -399,7 +399,7 @@
  * The {@code ActivatorEvent} is delivered to listener agent via
  * the {@code Consumer<ActivatorEvent>} callback. The activator
  * listener is de-registered via
- * {@link org.efs.activator.EfsActivator#deregisterListener(java.util.function.Consumer, org.efs.dispatcher.IEfsAgent) EfsActivator.deregisterListener(Consumer&lt;ActivatorEvent&gt;, IEfsAgent)}.
+ * {@link org.efs.activator.EfsActivator#deregisterListener(org.efs.dispatcher.IEfsAgent) EfsActivator.deregisterListener(Consumer&lt;ActivatorEvent&gt;, IEfsAgent)}.
  * Note: an agent may not register with a different callback
  * if already currently registered.
  * </p>

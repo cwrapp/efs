@@ -17,7 +17,6 @@
 package org.efs.dispatcher;
 
 import com.google.common.base.Strings;
-import jakarta.annotation.Nonnull;
 import jakarta.annotation.Nullable;
 import java.time.Duration;
 import java.time.Instant;
@@ -26,7 +25,9 @@ import java.util.Formatter;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantLock;
@@ -42,17 +43,18 @@ import static org.efs.dispatcher.config.ThreadType.SPINNING;
 import static org.efs.dispatcher.config.ThreadType.SPINPARK;
 import static org.efs.dispatcher.config.ThreadType.SPINYIELD;
 import org.efs.logging.AsyncLoggerFactory;
-import org.jctools.queues.atomic.AtomicReferenceArrayQueue;
+import org.jctools.queues.atomic.MpmcAtomicArrayQueue;
+import org.jctools.queues.atomic.MpscAtomicArrayQueue;
 import org.slf4j.Logger;
 
 /**
  * A dispatcher thread watches a given
- * {@link java.util.concurrent.ConcurrentLinkedQueue run queue}
- * for {@link EfsAgent} instances ready to run, attempting to
- * acquire the next ready agent. When this thread successfully
- * acquires an agent, it has the agent execute its pending
- * events until either 1) the agent has no more events or 2) the
- * agent exhausts its maximum allowed event limit.
+ * {@link java.util.Queue run queue} for {@link EfsAgent}
+ * instances ready to run, attempting to acquire the next ready
+ * agent. When this thread successfully acquires an agent, it has
+ * the agent execute its pending events until either 1) the agent
+ * has no more events or 2) the agent exhausts its maximum
+ * allowed event limit.
  * <p>
  * Each dispatcher has a configurable run-time maximum event
  * (defaults to {@link #DEFAULT_MAX_EVENTS}). When an agent
@@ -170,7 +172,7 @@ public final class EfsDispatcherThread
      * Logging subsystem interface.
      */
     private static final Logger sLogger =
-        AsyncLoggerFactory.getLogger();
+        AsyncLoggerFactory.getLogger(EfsDispatcherThread.class);
 
     //-----------------------------------------------------------
     // Locals.
@@ -508,7 +510,6 @@ public final class EfsDispatcherThread
             }
             catch (InterruptedException interrupt)
             {
-                // Allow interrupt to flow up.
                 (Thread.currentThread()).interrupt();
             }
         }
@@ -518,8 +519,8 @@ public final class EfsDispatcherThread
 
     /**
      * Actively spins calling
-     * {@link ConcurrentLinkedQueue#poll()} to extract the
-     * next available agent from the run queue.
+     * {@link Queue#poll()} to extract  next available agent from
+     * run queue.
      * @return next available agent. Does <em>not</em> return
      * {@code null} while dispatcher thread is still running.
      */
@@ -537,10 +538,9 @@ public final class EfsDispatcherThread
 
     /**
      * Spins a fixed number of times calling
-     * {@link ConcurrentLinkedQueue#poll()} to extract the
-     * next available agent from the run queue. When the
-     * spin limit is reached, then parks for a fixed number
-     * of nanoseconds.
+     * {@link Queue#poll()} to extract next available agent from
+     * run queue. When spin limit is reached, then parks for
+     * fixed number of nanoseconds.
      * @return next available agent. Does <em>not</em> return
      * {@code null} while dispatcher thread is still running.
      */
@@ -568,10 +568,9 @@ public final class EfsDispatcherThread
 
     /**
      * Spins a fixed number of times calling
-     * {@link ConcurrentLinkedQueue#poll()} to extract the
-     * next available agent from the run queue. When the
-     * spin limit is reached, then this Dispatcher thread
-     * yields.
+     * {@link Queue#poll()} to extract next available agent from
+     * run queue. When spin limit is reached, then this
+     * Dispatcher thread yields.
      * @return next available agent. Does <em>not</em> return
      * {@code null} while dispatcher thread is still running.
      */
@@ -698,13 +697,10 @@ public final class EfsDispatcherThread
      * @param threadName agent is running on this named thread.
      * @param agent agent processing its event queue.
      */
-    private void processEvents(@Nonnull final String threadName,
-                               @Nonnull final EfsAgent agent)
+    private void processEvents(final String threadName,
+                               final EfsAgent agent)
     {
         final long busyStart;
-        final long busyStop;
-        final long readyTime;
-        final long busyTime;
         int eventCount = 0;
 
         mStats.updateState(DispatcherThreadState.BUSY,
@@ -731,10 +727,12 @@ public final class EfsDispatcherThread
         }
         finally
         {
-            busyStop = System.nanoTime();
-            readyTime =
+            final long busyStop = System.nanoTime();
+            final long rawReadyTime =
                 (busyStart - agent.getAndClearReadyTimestamp());
-            busyTime = (busyStop - busyStart);
+            final long readyTime =
+                (rawReadyTime < 0L ? 0L : rawReadyTime);
+            final long busyTime = (busyStop - busyStart);
 
             // Agent finished with its event processing.
             mStats.updateState(DispatcherThreadState.IDLE,
@@ -772,7 +770,7 @@ public final class EfsDispatcherThread
         private long mSpinLimit;
         private Duration mParkTime;
         private int mPriority;
-        private ThreadAffinityConfig mAffinity;
+        @Nullable private ThreadAffinityConfig mAffinity;
         private int mMaxEvents;
         private Queue<EfsAgent> mRunQueue;
 
@@ -1016,7 +1014,8 @@ public final class EfsDispatcherThread
                     .requireTrue(((mThreadType == BLOCKING &&
                                    mRunQueue instanceof BlockingQueue) ||
                                   (mThreadType != BLOCKING &&
-                                   mRunQueue instanceof AtomicReferenceArrayQueue)),
+                                   (mRunQueue instanceof MpscAtomicArrayQueue ||
+                                    mRunQueue instanceof MpmcAtomicArrayQueue))),
                                  "runQueue",
                                  "does not match thread type")
                     .throwException(EfsDispatcherThread.class);
@@ -1076,24 +1075,25 @@ public final class EfsDispatcherThread
         /**
          * Dispatcher thread start timestamp.
          */
-        private volatile Instant mStartTime;
+        private final AtomicReference<Instant> mStartTime;
 
         /**
          * Current dispatcher thread state.
          */
-        private volatile DispatcherThreadState mState;
+        private final AtomicReference<DispatcherThreadState> mState;
 
         /**
          * efs agent name currently running on dispatcher thread.
          * If there is not agent running, then returns
          * {@link #NO_EFS_AGENT}.
          */
-        private volatile String mAgentName;
+        private final AtomicReference<String> mAgentName;
 
         /**
-         * Total number of efs agents run on this dispatcher thread.
+         * Total number of efs agents run on this dispatcher
+         * thread.
          */
-        private long mAgentRunCount;
+        private final AtomicLong mAgentRunCount;
 
         /**
          * Tracks time agent spent on its dispatcher's queue
@@ -1123,9 +1123,12 @@ public final class EfsDispatcherThread
         @SuppressWarnings({"java:S107"})
         private DispatcherThreadStats()
         {
-            mState = DispatcherThreadState.NOT_STARTED;
-            mAgentName = NO_EFS_AGENT;
-            mAgentRunCount = 0L;
+            mStartTime = new AtomicReference<>();
+            mState =
+                new AtomicReference<>(
+                    DispatcherThreadState.NOT_STARTED);
+            mAgentName = new AtomicReference<>(NO_EFS_AGENT);
+            mAgentRunCount = new AtomicLong();
             mAgentReadyTime = new AgentStats("agent ready deltas",
                                               NANO_UNIT);
             mAgentRunTime = new AgentStats("agent run deltas",
@@ -1153,11 +1156,13 @@ public final class EfsDispatcherThread
 
             return (retval.append("[thread=").append(getName())
                           .append(", start time=")
-                          .append(mStartTime)
-                          .append(", state=").append(mState)
-                          .append(", agent=").append(mAgentName)
+                          .append(mStartTime.get())
+                          .append(", state=")
+                          .append(mState.get())
+                          .append(", agent=")
+                          .append(mAgentName.get())
                           .append(", run count=")
-                          .append(mAgentRunCount)
+                          .append(mAgentRunCount.get())
                           .append(",\n")
                           .append(mAgentReadyTime)
                           .append('\n')
@@ -1192,7 +1197,7 @@ public final class EfsDispatcherThread
          */
         @Nullable public Instant startTime()
         {
-            return (mStartTime);
+            return (mStartTime.get());
         } // end of startTime()
 
         /**
@@ -1201,7 +1206,7 @@ public final class EfsDispatcherThread
          */
         public DispatcherThreadState threadState()
         {
-            return (mState);
+            return (mState.get());
         } // end of threadState()
 
         /**
@@ -1213,7 +1218,7 @@ public final class EfsDispatcherThread
          */
         public String agentName()
         {
-            return (mAgentName);
+            return (mAgentName.get());
         } // end of agentName()
 
         /**
@@ -1223,7 +1228,9 @@ public final class EfsDispatcherThread
          */
         public Duration totalRunTime()
         {
-            return (Duration.between(mStartTime, Instant.now()));
+            return (
+                Duration.between(
+                    mStartTime.get(), Instant.now()));
         } // end of totalRunTime()
 
         /**
@@ -1232,12 +1239,18 @@ public final class EfsDispatcherThread
          */
         public long agentRunCount()
         {
-            return (mAgentRunCount);
+            return (mAgentRunCount).get();
         } // end of agentRunCount()
 
         /**
          * Returns agent statistics with respect to how long
          * agents spent on dispatcher ready queue before running.
+         * <p>
+         * Note: the returned agent statistics are
+         * <em>approximate</em> and are not guaranteed to exactly
+         * reflect agent performance up to the moment when this
+         * method is called.
+         * </p>
          * @return agent ready queue time statistics.
          */
         public AgentStats agentReadyTimeStats()
@@ -1248,6 +1261,12 @@ public final class EfsDispatcherThread
         /**
          * Returns agent statistics with respect to how long
          * agents spent processing events.
+         * <p>
+         * Note: the returned agent statistics are
+         * <em>approximate</em> and are not guaranteed to exactly
+         * reflect agent performance up to the moment when this
+         * method is called.
+         * </p>
          * @return agent run time statistics.
          */
         public AgentStats agentRunTimeStats()
@@ -1258,6 +1277,12 @@ public final class EfsDispatcherThread
         /**
          * Returns agent statistics with respect to how many
          * events agents processed per run.
+         * <p>
+         * Note: the returned agent statistics are
+         * <em>approximate</em> and are not guaranteed to exactly
+         * reflect agent performance up to the moment when this
+         * method is called.
+         * </p>
          * @return agent event processing statistics.
          */
         public AgentStats agentEventStats()
@@ -1279,7 +1304,7 @@ public final class EfsDispatcherThread
          */
         private void startTime(final Instant timestamp)
         {
-            mStartTime = timestamp;
+            mStartTime.set(timestamp);
         } // end of startTime(Instant)
 
         /**
@@ -1290,8 +1315,8 @@ public final class EfsDispatcherThread
         private void updateState(final DispatcherThreadState state,
                                  final String agentName)
         {
-            mState = state;
-            mAgentName = agentName;
+            mState.set(state);
+            mAgentName.set(agentName);
         } // end of updateState(DispatcherThreadState)
 
         /**
@@ -1310,7 +1335,7 @@ public final class EfsDispatcherThread
                                       final long runTime,
                                       final int eventCount)
         {
-            ++mAgentRunCount;
+            mAgentRunCount.incrementAndGet();
             mAgentReadyTime.addAgentStat(readyTime);
             mAgentRunTime.addAgentStat(runTime);
             mAgentEvent.addAgentStat(eventCount);
@@ -1366,7 +1391,7 @@ public final class EfsDispatcherThread
         /**
          * Number of agent stats inserted into {@link #mStats}.
          */
-        private volatile int mCount;
+        private final AtomicInteger mCount;
 
         /**
          * Raw stats used to calculate the moving average.
@@ -1377,17 +1402,17 @@ public final class EfsDispatcherThread
          * Insert next datum into {@link #mStats} at this
          * index.
          */
-        private volatile int mNextIndex;
+        private final AtomicInteger mNextIndex;
 
         /**
          * Current sum of all {@link #mStats} values.
          */
-        private volatile long mSum;
+        private final AtomicLong mSum;
 
         /**
          * Moving average of agent stats.
          */
-        private volatile long mMovingAverage;
+        private final AtomicLong mMovingAverage;
 
     //-----------------------------------------------------------
     // Member methods.
@@ -1407,11 +1432,11 @@ public final class EfsDispatcherThread
         {
             mStatsName = statsName;
             mUnit = unit;
-            mCount = 0;
+            mCount = new AtomicInteger();
             mStats = new long[MAX_AGENT_STATS];
-            mNextIndex = 0;
-            mSum = 0L;
-            mMovingAverage = 0L;
+            mNextIndex = new AtomicInteger();
+            mSum = new AtomicLong();
+            mMovingAverage = new AtomicLong();
         } // end of AgentStat(String, String)
 
         //
@@ -1467,7 +1492,7 @@ public final class EfsDispatcherThread
                                   stats[p99],
                                   mUnit);
                     output.format(" avg: %,d %s",
-                                  mMovingAverage,
+                                  mMovingAverage.get(),
                                   mUnit);
 
                     retval = output.toString();
@@ -1518,7 +1543,7 @@ public final class EfsDispatcherThread
          */
         public int agentRunCount()
         {
-            return (mCount);
+            return (mCount.get());
         } // end of agentRunCount()
 
         /**
@@ -1532,10 +1557,12 @@ public final class EfsDispatcherThread
          */
         public long[] stats()
         {
-            final long[] retval = Arrays.copyOf(mStats, mCount);
+            final int statsCount = mCount.get();
+            final long[] retval =
+                Arrays.copyOf(mStats, statsCount);
 
             // Do we need to sort this array?
-            if (mCount > 1)
+            if (statsCount > 1)
             {
                 // Yes.
                 Arrays.sort(retval);
@@ -1550,7 +1577,7 @@ public final class EfsDispatcherThread
          */
         public long movingAverage()
         {
-            return (mMovingAverage);
+            return (mMovingAverage.get());
         } // end of movingAverage()
 
         //
@@ -1570,22 +1597,24 @@ public final class EfsDispatcherThread
             // Make sure datum is valid.
             if (datum >= 0L)
             {
-                final long removedValue = mStats[mNextIndex];
+                final int statsIndex = mNextIndex.get();
+                final long removedValue = mStats[statsIndex];
 
                 // Update ring buffer.
-                mStats[mNextIndex] = datum;
+                mStats[statsIndex] = datum;
 
                 // Update datum count.
-                mCount =
-                    (Math.min((mCount + 1), MAX_AGENT_STATS));
+                mCount.set((Math.min((mCount.get() + 1),
+                                     MAX_AGENT_STATS)));
 
                 // Update sum by subtracting removed value (0 if
                 // not previously set) and adding new datum.
-                mSum = ((mSum - removedValue) + datum);
+                mSum.set((mSum.get() - removedValue) + datum);
 
                 // Advance index and recompute average.
-                mNextIndex = ((mNextIndex + 1) & MAX_AGENT_MASK);
-                mMovingAverage = (mSum / mCount);
+                mNextIndex.set(
+                    (statsIndex + 1) & MAX_AGENT_MASK);
+                mMovingAverage.set(mSum.get() / mCount.get());
             }
         } // end of addAgentStat(long)
 

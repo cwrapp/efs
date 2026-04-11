@@ -23,6 +23,8 @@ import com.typesafe.config.Config;
 import com.typesafe.config.ConfigBeanFactory;
 import com.typesafe.config.ConfigException;
 import com.typesafe.config.ConfigFactory;
+import jakarta.annotation.Nonnull;
+import jakarta.annotation.Nullable;
 import java.io.File;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -33,6 +35,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import javax.annotation.concurrent.ThreadSafe;
@@ -67,6 +70,14 @@ import org.slf4j.Logger;
  * prior to {@link #initializeWorkflow(String) initiating}
  * another workflow.
  * </p>
+ * <p>
+ * That said, this API does <strong><em>not</em></strong>
+ * preclude the user from building multiple {@code EfsActivator}
+ * instances and processing multiple workflows in parallel -
+ * which is thread unsafe. It is recommended that an application
+ * create a single activator and use that to process all
+ * workflows.
+ * </p>
  *
  * @see Workflow
  * @see WorkflowStage
@@ -87,6 +98,13 @@ public final class EfsActivator
     //
 
     /**
+     * {@code IllegalArgumentException} message when an invalid
+     * workflow name is provided is {@value}.
+     */
+    public static final String INVALID_WORKFLOW_NAME =
+        "workflowName is either null or an empty string";
+
+    /**
      * {@code IllegalStateException} message when execution is
      * called but there is not workflow in progress
      * ("{@value}").
@@ -99,6 +117,13 @@ public final class EfsActivator
      * {@value}.
      */
     public static final String NULL_AGENT = "agent is null";
+
+    /**
+     * {@code IllegalStateException} message for an agent not
+     * registered with a dispatcher is {@value}.
+     */
+    public static final String UNREGISTERED_AGENT =
+        "agent not registered with dispatcher";
 
     /**
      * {@code NullPointerException} message for a null callback
@@ -120,7 +145,7 @@ public final class EfsActivator
      * Logging subsystem interface.
      */
     private static final Logger sLogger =
-        AsyncLoggerFactory.getLogger();
+        AsyncLoggerFactory.getLogger(EfsActivator.class);
 
     //-----------------------------------------------------------
     // Locals.
@@ -142,9 +167,16 @@ public final class EfsActivator
     private final List<ActivatorListener> mListeners;
 
     /**
+     * Set to {@code true} if {@link #mListeners} has changes
+     * which need to be applied to {@code AgentInfo} listener
+     * list copy.
+     */
+    private final AtomicBoolean mDirtyListenersList;
+
+    /**
      * Currently executing this workflow.
      */
-    private volatile Workflow mCurrentWorkflow;
+    private final AtomicReference<Workflow> mCurrentWorkflow;
 
 //---------------------------------------------------------------
 // Member methods.
@@ -162,6 +194,8 @@ public final class EfsActivator
         mWorkflows = createWorkflowMap(builder.mWorkflows);
         mAgents = new ConcurrentHashMap<>();
         mListeners = new ArrayList<>();
+        mDirtyListenersList = new AtomicBoolean();
+        mCurrentWorkflow = new AtomicReference<>();
     } // end of EfsActivator(Builder)
 
     //
@@ -180,10 +214,23 @@ public final class EfsActivator
      */
     public String workflow()
     {
-        return (mCurrentWorkflow == null ?
+        final Workflow wf = mCurrentWorkflow.get();
+
+        return (wf == null ?
                 NO_WORKFLOW_IN_PROGRESS :
-                mCurrentWorkflow.name());
+                wf.name());
     } // end of workflow()
+
+    /**
+     * Returns {@code true} if there is a workflow activation in
+     * progress and {@code false} otherwise.
+     * @return {@code true} if a workflow activation is in
+     * progress.
+     */
+    public boolean isInProgress()
+    {
+        return (mCurrentWorkflow.get() != null);
+    } // end of isInProgress()
 
     /**
      * Returns named agent's current state.
@@ -254,10 +301,13 @@ public final class EfsActivator
      * </ul>
      * <p>
      * This activator may not have an in-progress workflow when
-     * attempting initialize a workflow.
+     * attempting initialize a workflow. A workflow remains
+     * in-progress until either the workflow reaches completion
+     * or is {@link #terminateWorkflow() terminated}.
      * </p>
      * <p>
-     * Note: {@link #execute(String, EfsAgentState, EfsAgentState, Duration)}
+     * Note:
+     * {@link #execute(String, EfsAgentState, EfsAgentState, Duration)}
      * may always be called whether a workflow is in progress or
      * not.
      * </p>
@@ -273,13 +323,13 @@ public final class EfsActivator
      * @see #executeNextStage()
      * @see #executeNextStep()
      */
-    public void initializeWorkflow(final String workflowName)
+    public synchronized void initializeWorkflow(@Nonnull final String workflowName)
     {
         if (Strings.isNullOrEmpty(workflowName))
         {
             throw (
                 new IllegalArgumentException(
-                    "workflowName is either null or an empty string"));
+                    INVALID_WORKFLOW_NAME));
         }
 
         // Is this workflow known?
@@ -290,21 +340,22 @@ public final class EfsActivator
                     "unknown workflow \"" + workflowName + "\""));
         }
 
+        final Workflow wf = mWorkflows.get(workflowName);
+        final Workflow witnessWf =
+            mCurrentWorkflow.compareAndExchange(null, wf);
+
         // Is there a workflow in progress?
-        if (mCurrentWorkflow != null &&
-            mCurrentWorkflow.isInProgress())
+        if (witnessWf != null)
         {
             throw (
                 new IllegalStateException(
                     "workflow " +
-                    mCurrentWorkflow.name() +
+                    witnessWf.name() +
                     " in-progress; complete before setting another workflow"));
         }
 
-        mCurrentWorkflow = mWorkflows.get(workflowName);
-
         // Set all stages to initial state.
-        mCurrentWorkflow.initializeWorkflow();
+        wf.initializeWorkflow();
     } // end of initializeWorkflow(String)
 
     /**
@@ -318,17 +369,19 @@ public final class EfsActivator
      * if either {@code stageIndex} or {@code stepIndex} is
      * out-of-bounds.
      */
-    public void setWorkflowStage(final int stageIndex,
-                                 final int stepIndex)
+    public synchronized void setWorkflowStage(final int stageIndex,
+                                              final int stepIndex)
     {
-        if (mCurrentWorkflow == null)
+        final Workflow wf = mCurrentWorkflow.get();
+
+        if (wf == null)
         {
             throw (
                 new IllegalStateException(
                     NO_WORKFLOW_IN_PROGRESS));
         }
 
-        mCurrentWorkflow.setStage(stageIndex, stepIndex);
+        wf.setStage(stageIndex, stepIndex);
     } // end of setWorkflowStage(int, int)
 
     /**
@@ -347,8 +400,8 @@ public final class EfsActivator
      * if {@code agentName} is either {@code null}, an empty
      * string, or does not reference a known agent.
      */
-    public void agentState(final String agentName,
-                           final EfsAgentState state)
+    public synchronized void agentState(@Nonnull final String agentName,
+                                        @Nonnull final EfsAgentState state)
     {
         if (Strings.isNullOrEmpty(agentName))
         {
@@ -371,12 +424,13 @@ public final class EfsActivator
      *
      * @see #initializeWorkflow(String)
      */
-    public void terminateWorkflow()
+    public synchronized void terminateWorkflow()
     {
-        if (mCurrentWorkflow != null)
+        final Workflow wf = mCurrentWorkflow.getAndSet(null);
+
+        if (wf != null)
         {
-            mCurrentWorkflow.terminateWorkflow();
-            mCurrentWorkflow = null;
+            wf.terminateWorkflow();
         }
     } // end of terminateWorkflow()
 
@@ -387,8 +441,11 @@ public final class EfsActivator
      * <p>
      * Please note that an agent may only have one current
      * registration. If the agent is
-     * {@link #deregisterListener(Consumer, IEfsAgent) de-registered},
-     * then it may register again.
+     * {@link #deregisterListener(IEfsAgent) de-registered},
+     * then it may register again. If you wish to change the
+     * activation event callback for a currently registered
+     * listener, then you must first de-register that listener
+     * agent and then re-register with a new callback.
      * </p>
      * @param callback agent callback lambda.
      * @param agent agent listening to activator changes.
@@ -396,15 +453,24 @@ public final class EfsActivator
      * if either {@code calback} or {@code agent} is
      * {@code null}.
      * @throws IllegalStateException
-     * if {@code agent} is already registered.
+     * if {@code agent} is not registered with an
+     * {@code EfsDispatcher} or is already registered as an
+     * activator listener.
      *
-     * @see #deregisterListener(Consumer, IEfsAgent)
+     * @see #deregisterListener(IEfsAgent)
      */
-    public void registerListener(final Consumer<ActivatorEvent> callback,
-                                 final IEfsAgent agent)
+    public void registerListener(@Nonnull final Consumer<ActivatorEvent> callback,
+                                 @Nonnull final IEfsAgent agent)
     {
         Objects.requireNonNull(callback, NULL_CALLBACK);
         Objects.requireNonNull(agent, NULL_AGENT);
+
+        // Is this agent registered with a dispatcher.
+        if (!EfsDispatcher.isRegistered(agent))
+        {
+            throw (
+                new IllegalStateException(UNREGISTERED_AGENT));
+        }
 
         synchronized (mListeners)
         {
@@ -421,30 +487,28 @@ public final class EfsActivator
             }
 
             mListeners.add(l);
+            mDirtyListenersList.set(true);
         }
     } // end of registerListener(Consumer<>, IEfsAgent)
 
     /**
      * Retracts registered agent from activator state listening.
      * Does nothing if agent is not currently registered.
-     * @param callback agent callback lambda.
      * @param agent agent listening to activator changes.
      * @throws NullPointerException
-     * if either {@code calback} or {@code agent} is
-     * {@code null}.
+     * if {@code agent} is {@code null}.
      *
      * @see #registerListener(Consumer, IEfsAgent)
      */
-    public void deregisterListener(final Consumer<ActivatorEvent> callback,
-                                   final IEfsAgent agent)
+    public void deregisterListener(@Nonnull final IEfsAgent agent)
     {
-        Objects.requireNonNull(callback, NULL_CALLBACK);
         Objects.requireNonNull(agent, NULL_AGENT);
 
         synchronized (mListeners)
         {
             mListeners.remove(
-                new ActivatorListener(callback, agent));
+                new ActivatorListener(null, agent));
+            mDirtyListenersList.set(true);
         }
     } // end of deregisterListener(Consumer<>, IEfsAgent)
 
@@ -458,25 +522,30 @@ public final class EfsActivator
      * @return {@code true} if workflow is completed.
      * @throws IllegalStateException
      * if there is no activation in progress or the activation
-     * fails.
+     * fails. <strong>Note:</strong> if activation step fails,
+     * workflow remains in place but in an unknown state. User
+     * should either recover the workflow by judiciously calling
+     * {@link #execute(String, EfsAgentState, EfsAgentState, Duration)}
+     * or {@link #terminateWorkflow() terminating} workflow.
      */
-    public boolean executeNextStep()
+    public synchronized boolean executeNextStep()
     {
+        final Workflow wf = mCurrentWorkflow.get();
         final boolean retcode;
 
-        if (mCurrentWorkflow == null)
+        if (wf == null)
         {
             throw (
                 new IllegalStateException(
                     NO_WORKFLOW_IN_PROGRESS));
         }
 
-        retcode = mCurrentWorkflow.executeNextStep(this);
+        retcode = wf.executeNextStep(this);
 
         // Is the workflow completed?
         if (retcode)
         {
-            mCurrentWorkflow = null;
+            mCurrentWorkflow.set(null);
         }
 
         return (retcode);
@@ -488,25 +557,30 @@ public final class EfsActivator
      * @return {@code true} if workflow is completed.
      * @throws IllegalStateException
      * if there is no activation in progress or the activation
-     * fails.
+     * fails. <strong>Note:</strong> if activation step fails,
+     * workflow remains in place but in an unknown state. User
+     * should either recover the workflow by judiciously calling
+     * {@link #execute(String, EfsAgentState, EfsAgentState, Duration)}
+     * or {@link #terminateWorkflow() terminating} workflow.
      */
-    public boolean executeNextStage()
+    public synchronized boolean executeNextStage()
     {
+        final Workflow wf = mCurrentWorkflow.get();
         final boolean retcode;
 
-        if (mCurrentWorkflow == null)
+        if (wf == null)
         {
             throw (
                 new IllegalStateException(
                     NO_WORKFLOW_IN_PROGRESS));
         }
 
-        retcode = mCurrentWorkflow.executeNextStage(this);
+        retcode = wf.executeNextStage(this);
 
         // Is the workflow completed?
         if (retcode)
         {
-            mCurrentWorkflow = null;
+            mCurrentWorkflow.set(null);
         }
 
         return (retcode);
@@ -517,19 +591,25 @@ public final class EfsActivator
      * @return {@code true}.
      * @throws IllegalStateException
      * if there is no activation in progress or the activation
-     * fails.
+     * fails. <strong>Note:</strong> if activation step fails,
+     * workflow remains in place but in an unknown state. User
+     * should either recover the workflow by judiciously calling
+     * {@link #execute(String, EfsAgentState, EfsAgentState, Duration)}
+     * or {@link #terminateWorkflow() terminating} workflow.
      */
-    public boolean executeWorkflow()
+    public synchronized boolean executeWorkflow()
     {
-        if (mCurrentWorkflow == null)
+        final Workflow wf = mCurrentWorkflow.get();
+
+        if (wf == null)
         {
             throw (
                 new IllegalStateException(
                     NO_WORKFLOW_IN_PROGRESS));
         }
 
-        mCurrentWorkflow.executeAllStages(this);
-        mCurrentWorkflow = null;
+        wf.executeAllStages(this);
+        mCurrentWorkflow.set(null);
 
         return (true);
     } // end of executeWorkflow()
@@ -552,10 +632,10 @@ public final class EfsActivator
      * @throws IllegalStateException
      * if activation fails.
      */
-    public void execute(final String agentName,
-                        final EfsAgentState beginState,
-                        final EfsAgentState endState,
-                        final Duration transitionTime)
+    public synchronized void execute(@Nonnull final String agentName,
+                                     @Nonnull final EfsAgentState beginState,
+                                     @Nonnull final EfsAgentState endState,
+                                     @Nonnull final Duration transitionTime)
     {
         // Create a one-time workflow step to transition the
         // given arguments.
@@ -587,13 +667,26 @@ public final class EfsActivator
      * @param fileName name of file containing efs activator
      * definition.
      * @return activator loaded from configuration file.
+     * @throws IllegalArgumentException
+     * if:
+     * <ul>
+     *   <li>
+     *     {@code fileName} is a non-existent file,
+     *   </li>
+     *   <li>
+     *     {@code fileName} is not a regular file,
+     *   </li>
+     *   <li>
+     *     {@code fileName} cannot be read.
+     *   </li>
+     * </ul>
      * @throws ConfigException
      * if {@code fileName} contain an invalid efs activator
      * configuration.
      */
     public static EfsActivator loadActivator(final String fileName)
     {
-        final File configFile = new File(fileName);
+        final File configFile = openFile(fileName);
         final Config configSource =
             ConfigFactory.parseFile(configFile);
         final EfsActivatorConfig activatorConfig =
@@ -645,8 +738,7 @@ public final class EfsActivator
         }
 
         // Is this agent and activate agent:
-        if (!IEfsActivateAgent.class.isAssignableFrom(
-                agent.getClass()))
+        if (!(agent instanceof IEfsActivateAgent))
         {
             throw (
                 new IllegalStateException(
@@ -657,6 +749,53 @@ public final class EfsActivator
 
         return (new AgentInfo((IEfsActivateAgent) agent));
     } // end of createAgent(String)
+
+    /**
+     * Returns an file after validating that it is an existing
+     * and readable regular file.
+     * @param fileName file name.
+     * @return {@code File} based on {@code fileName}.
+     * @throws IllegalArgumentException
+     * if:
+     * <ul>
+     *   <li>
+     *     {@code fileName} is a non-existent file,
+     *   </li>
+     *   <li>
+     *     {@code fileName} is not a regular file,
+     *   </li>
+     *   <li>
+     *     {@code fileName} cannot be read.
+     *   </li>
+     * </ul>
+     */
+    private static File openFile(final String fileName)
+    {
+        final File retval = new File(fileName);
+
+        if (!retval.exists())
+        {
+            throw (
+                new IllegalArgumentException(
+                    "\"" + fileName + "\" does not exist"));
+        }
+
+        if (!retval.isFile())
+        {
+            throw (
+                new IllegalArgumentException(
+                    "\"" + fileName + "\" not regular file"));
+        }
+
+        if (!retval.canRead())
+        {
+            throw (
+                new IllegalArgumentException(
+                    "\"" + fileName + "\" unreadable"));
+        }
+
+        return (retval);
+    } // end of openFile(String)
 
     /**
      * Returns a mapping of workflow name to the workflow
@@ -745,7 +884,6 @@ public final class EfsActivator
 
             final Set<String> wfNames = new TreeSet<>();
             final List<String> problems = new ArrayList<>();
-            String wfName;
 
             for (Workflow w : workflows)
             {
@@ -754,20 +892,15 @@ public final class EfsActivator
                     problems.add(
                         "workflows contains null workflow");
                 }
-                else if (Strings.isNullOrEmpty((wfName = w.name())))
-                {
-                    problems.add(
-                        "workflow name is null or an empty string");
-                }
-                else if (wfNames.contains(wfName))
+                else if (wfNames.contains(w.name()))
                 {
                     problems.add(
                         "workflows contains duplicate workflow " +
-                        wfName);
+                        w.name());
                 }
                 else
                 {
-                    wfNames.add(wfName);
+                    wfNames.add(w.name());
                 }
             }
 
@@ -854,6 +987,18 @@ public final class EfsActivator
     //-----------------------------------------------------------
     // Member data.
     //
+
+        //-------------------------------------------------------
+        // Statics.
+        //
+
+        /**
+         * Immutable copy of {@link #mListeners} used for
+         * post {@link ActivatorEvent}s to listeners. Initialized
+         * to an empty, immutable list.
+         */
+        private static List<ActivatorListener> sListenerCopy =
+            ImmutableList.of();
 
         //-------------------------------------------------------
         // Locals.
@@ -955,8 +1100,29 @@ public final class EfsActivator
 
             mState.set(finalState);
 
+            // Does the listener list copy need to be updated?
+            if (mDirtyListenersList.get())
+            {
+                // Make an immutable copy of listeners list and
+                // iterate over copy.
+                // Why? Do not wish to iterate while inside
+                // synchronized block.
+                synchronized (mListeners)
+                {
+                    // Did another thread update the list?
+                    // Need to check again after grabbing
+                    // synchronizer.
+                    if (mDirtyListenersList.compareAndSet(true, false))
+                    {
+                        // No. Make the copy.
+                        sListenerCopy =
+                            ImmutableList.copyOf(mListeners);
+                    }
+                }
+            }
+
             // Inform listeners about this activator change.
-            mListeners.forEach(l -> l.dispatch(event));
+            sListenerCopy.forEach(l -> l.dispatch(event));
         } // end of state(...)
 
         /**
@@ -987,9 +1153,12 @@ public final class EfsActivator
         //
 
         /**
-         * Dispatch activator event to this callback.
+         * Dispatch activator event to this callback. Set to
+         * {@code null} when
+         * {@link #deregisterListener(IEfsAgent) deregistering}
+         * a listener.
          */
-        private final Consumer<ActivatorEvent> mCallback;
+        @Nullable private final Consumer<ActivatorEvent> mCallback;
 
         /**
          * Dispatch activator event to this agent.
