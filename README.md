@@ -38,7 +38,7 @@ available from GitHub Package Registry
     <dependency>
         <groupId>com.github.cwrapp</groupId>
         <artifactId>efs-bom</artifactId>
-        <version>0.6.0</version>
+        <version>0.6.1</version>
         <type>pom</type>
         <scope>import</scope>
     </dependency>

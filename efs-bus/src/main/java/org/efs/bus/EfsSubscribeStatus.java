@@ -18,6 +18,7 @@ package org.efs.bus;
 
 import jakarta.annotation.Nonnull;
 import java.util.Objects;
+import javax.annotation.concurrent.ThreadSafe;
 import net.sf.eBus.util.ValidationException;
 import net.sf.eBus.util.Validator;
 import org.efs.event.EfsTopicKey;
@@ -42,6 +43,7 @@ import org.efs.event.IEfsEventBuilder;
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
 
+@ThreadSafe
 public final class EfsSubscribeStatus<E extends IEfsEvent>
     implements IEfsEvent
 {
@@ -205,8 +207,226 @@ public final class EfsSubscribeStatus<E extends IEfsEvent>
 //
 
     /**
-     * TODO
+     * Builder for constructing {@link EfsSubscribeStatus} events.
+     *
+     * <p>
+     * <strong>Purpose:</strong><br>
+     * {@code Builder} is used to construct
+     * {@code EfsSubscribeStatus} events sent to publishing
+     * agents to inform them of the current subscriber count for
+     * a given type+topic key. Publishers receive these status
+     * updates when subscribers join or leave a topic, allowing
+     * them to manage publishing resources efficiently.
+     * </p>
+     *
+     * <p>
+     * <strong>Immutability and Thread Safety:</strong>
+     * </p>
+     * <p>
+     * While the builder itself is not thread-safe, the resulting
+     * {@link EfsSubscribeStatus} events are immutable and fully
+     * thread-safe. It is recommended that a new builder be used
+     * for each new event rather than re-using a builder across
+     * multiple events.
+     * </p>
+     *
+     * <p>
+     * <strong>Fluent API:</strong>
+     * </p>
+     * <p>
+     * All setter methods return {@code this} to enable method chaining:
+     * </p>
+     * <pre><code>
+     * EfsSubscribeStatus&lt;MyEvent&gt; status = EfsSubscribeStatus.builder()
+     *     .topicKey(myTopicKey)
+     *     .previousSubscribers(5)
+     *     .activeSubscribers(7)
+     *     .build();</code></pre>
+     *
+     * <p>
+     * <strong>Required Fields:</strong>
+     * </p>
+     * <p>
+     * The following fields must be set before calling {@link #build()}:
+     * </p>
+     * <ul>
+     *   <li>
+     *     <strong>topicKey:</strong> Status applies to this
+     *     type+topic key.
+     *   </li>
+     *   <li>
+     *     <strong>previousSubscribers:</strong> Previous
+     *     subscriber count (&ge; 0)
+     *   </li>
+     *   <li>
+     *     <strong>activeSubscribers:</strong> Current active
+     *     subscriber count (&ge; 0)
+     *   </li>
+     * </ul>
+     * <p>
+     * If any required field is not set, {@link #build()} throws
+     * a {@link net.sf.eBus.util.ValidationException}.
+     * </p>
+     *
+     * <h2>Basic Usage Example</h2>
+     * <pre><code>
+     * // Create a builder
+     * EfsSubscribeStatus.Builder&lt;OrderEvent&gt; builder = EfsSubscribeStatus.builder();
+     *
+     * // Set the topic
+     * builder.topicKey(EfsTopicKey.getKey(OrderEvent.class, "orders"));
+     *
+     * // Set subscriber counts when a new subscriber joins
+     * builder.previousSubscribers(5);   // Was 5 subscribers
+     * builder.activeSubscribers(6);     // Now 6 subscribers
+     *
+     * // Build the status event
+     * EfsSubscribeStatus&lt;OrderEvent&gt; status = builder.build();</code></pre>
+     *
+     * <h2>Use Case 1: Tracking Growing Subscriber Interest</h2>
+     * <p>
+     * A publisher can use the status updates to decide whether to allocate more resources
+     * for publishing:
+     * </p>
+     * <pre><code>
+     * private void handleSubscriberStatusChange(EfsSubscribeStatus&lt;SensorEvent&gt; status) {
+     *     int previous = status.previousSubscribers();
+     *     int active = status.activeSubscribers();
+     *
+     *     // Subscribers added
+     *     if (active &gt; previous) {
+     *         System.out.println("Subscribers increased from " + previous + " to " + active);
+     *         allocatePublishingResources();
+     *
+     *     // Subscribers removed
+     *     } else if (active &lt; previous) {
+     *         System.out.println("Subscribers decreased from " + previous + " to " + active);
+     *
+     *         if (active == 0) {
+     *             System.out.println("No more subscribers, stopping publisher");
+     *             stopPublisher();
+     *         }
+     *     }
+     * }</code></pre>
+     *
+     * <h2>Use Case 2: Event Bus Publishing Flow</h2>
+     * <p>
+     * When a publisher advertises a type+topic key, this builder
+     * is used internally by the event bus to construct status
+     * events sent back to the publisher:
+     * </p>
+     * <pre><code>
+     * // Inside EfsEventBus.TopicFeed (internal usage)
+     * private void forwardSubscribeStatus(final int previousCount, final int activeCount) {
+     *     if (!mPublishers.isEmpty()) {
+     *         final EfsSubscribeStatus.Builder&lt;E&gt; builder =
+     *             EfsSubscribeStatus.builder();
+     *         final EfsSubscribeStatus&lt;E&gt; status =
+     *             builder.topicKey(mTopicKey)
+     *                    .previousSubscribers(previousCount)
+     *                    .activeSubscribers(activeCount)
+     *                    .build();
+     *
+     *         // Dispatch to all publishers
+     *         for (Advertisement&lt;E&gt; ad : mPublishers.values()) {
+     *             ad.forwardSubscribeStatus(status);
+     *         }
+     *     }
+     * }</code></pre>
+     *
+     * <h2>Use Case 3: Method Chaining Pattern</h2>
+     * <p>
+     * Take full advantage of the fluent API for concise and
+     * readable code:
+     * </p>
+     * <pre><code>
+     * // Clean, readable one-liner
+     * EfsSubscribeStatus&lt;PaymentEvent&gt; status = EfsSubscribeStatus.builder()
+     *     .topicKey(EfsTopicKey.getKey(PaymentEvent.class, "payments/processing"))
+     *     .previousSubscribers(10)
+     *     .activeSubscribers(12)
+     *     .build();
+     *
+     * // Different approach: step-by-step
+     * EfsSubscribeStatus.Builder&lt;PaymentEvent&gt; builder = EfsSubscribeStatus.builder();
+     * builder.topicKey(paymentTopic);
+     * if (newSubscriberJoined()) {
+     *     builder.previousSubscribers(currentCount - 1);
+     *     builder.activeSubscribers(currentCount);
+     * }
+     * EfsSubscribeStatus&lt;PaymentEvent&gt; status = builder.build();</code></pre>
+     *
+     * <p>
+     * <strong>Validation Behavior:</strong>
+     * </p>
+     * <p>
+     * When {@link #build()} is called, the builder validates:
+     * </p>
+     * <ul>
+     *   <li>
+     *     topicKey is not null → throws
+     *     {@code NullPointerException} via
+     *     {@link #topicKey(EfsTopicKey)}
+     *   </li>
+     *   <li>
+     *     previousSubscribers ≥ 0 → throws
+     *     {@code IllegalArgumentException} via
+     *     {@link #previousSubscribers(int)}
+     *   </li>
+     *   <li>
+     *     activeSubscribers ≥ 0 → throws
+     *     {@code IllegalArgumentException} via
+     *     {@link #activeSubscribers(int)}
+     *   </li>
+     *   <li>
+     *     All required fields are set → throws
+     *    {@code ValidationException} if not
+     *   </li>
+     * </ul>
+     *
+     * <p>
+     * <strong>Error Examples:</strong>
+     * </p>
+     * <pre><code>
+     * // Error: topicKey not set
+     * try {
+     *     EfsSubscribeStatus&lt;MyEvent&gt; status = EfsSubscribeStatus.builder()
+     *         .previousSubscribers(5)
+     *         .activeSubscribers(6)
+     *         .build();
+     * } catch (ValidationException e) {
+     *     // topicKey is required
+     * }
+     *
+     * // Error: negative subscriber count
+     * try {
+     *     EfsSubscribeStatus&lt;MyEvent&gt; status = EfsSubscribeStatus.builder()
+     *         .topicKey(myTopic)
+     *         .previousSubscribers(-1)  // Invalid!
+     *         .activeSubscribers(5)
+     *         .build();
+     * } catch (IllegalArgumentException e) {
+     *     System.out.println(e.getMessage()); // "subscriber count &lt; 0"
+     * }
+     *
+     * // Error: null topic key
+     * try {
+     *     EfsSubscribeStatus&lt;MyEvent&gt; status = EfsSubscribeStatus.builder()
+     *         .topicKey(null)  // Invalid!
+     *         .previousSubscribers(5)
+     *         .activeSubscribers(6)
+     *         .build();
+     * } catch (NullPointerException e) {
+     *     // topicKey is null
+     * }</code></pre>
+     *
      * @param <E> efs event class.
+     *
+     * @see EfsSubscribeStatus
+     * @see EfsSubscribeStatus#builder()
+     * @see org.efs.event.IEfsEventBuilder
+     * @see net.sf.eBus.util.ValidationException
+     *
      */
     public static final class Builder<E extends IEfsEvent>
         implements IEfsEventBuilder<EfsSubscribeStatus<E>>
