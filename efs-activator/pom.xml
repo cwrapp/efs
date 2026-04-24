@@ -26,7 +26,7 @@ limitations under the License.
   <parent>
     <groupId>com.github.cwrapp</groupId>
     <artifactId>efs-parent</artifactId>
-    <version>0.6.0</version>
+    <version>0.6.1</version>
   </parent>
 
   <artifactId>efs-activator</artifactId>

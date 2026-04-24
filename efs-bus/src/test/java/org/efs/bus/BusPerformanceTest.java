@@ -19,7 +19,6 @@ package org.efs.bus;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.efs.dispatcher.EfsDispatcher;
 import org.efs.dispatcher.config.ThreadType;
 import org.efs.event.EfsTopicKey;
@@ -97,10 +96,6 @@ public class BusPerformanceTest
     private static final Logger sLogger =
         AsyncLoggerFactory.getLogger(BusPerformanceTest.class);
 
-    //-----------------------------------------------------------
-    // Locals.
-    //
-
 //---------------------------------------------------------------
 // Member methods.
 //
@@ -115,52 +110,6 @@ public class BusPerformanceTest
     //-----------------------------------------------------------
     // JUnit Tests.
     //
-
-    //
-    // Error tests.
-    //
-
-    @Test
-    public void nullBusNameTest()
-    {
-        final String busName = null;
-
-        assertThatThrownBy(
-            () ->
-            {
-                EfsEventBus.findOrCreateBus(busName);
-            })
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessage(EfsEventBus.INVALID_BUS_NAME);
-    } // end of nullBusNameTest()
-
-    @Test
-    public void emptyBusNameTest()
-    {
-        final String busName = "";
-
-        assertThatThrownBy(
-            () ->
-            {
-                EfsEventBus.findOrCreateBus(busName);
-            })
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessage(EfsEventBus.INVALID_BUS_NAME);
-    } // end of emptyBusNameTest()
-
-    @Test
-    public void blankBusNameTest()
-    {
-        final String busName = "\t";
-
-        assertThatThrownBy(
-            () ->
-            {
-                EfsEventBus.findOrCreateBus(busName);
-            })
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessage(EfsEventBus.INVALID_BUS_NAME);
-    } // end of blankBusNameTest()
 
     //
     // Performance tests.

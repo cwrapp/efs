@@ -1,3 +1,9 @@
+# 0.6.1: April 24,2026
+
+  - Improved org.efs.bus documentation.
+  - Improved org.efs.bus unit tests and code coverage.
+  - Improved org.efs.bus.EfsEventBus performance.
+
 # 0.6.0: April 11, 2026
 
   - Added org.efs.bus module which supports routing events
