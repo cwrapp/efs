@@ -27,7 +27,119 @@ import net.sf.eBus.util.ValidationException;
 import net.sf.eBus.util.Validator;
 
 /**
- * TODO
+ * Measures and tracks latency metrics for performance analysis
+ * of timed operations. Collects individual latency deltas
+ * (time measurements in nanoseconds), computes statistical
+ * metrics, and organizes deltas into configurable histogram
+ * buckets  for detailed latency distribution analysis.
+ * <p>
+ * <strong>Purpose:</strong>
+ * </p>
+ * <p>
+ * This class is designed for performance testing and
+ * benchmarking scenarios where detailed latency metrics are
+ * needed. It collects up to a configured maximum number of
+ * latency measurements and computes comprehensive statistics
+ * including minimum, maximum, average, median, and percentile
+ * latencies (95th, 99th, 99.9th, and 99.99th percentiles).
+ * </p>
+ * <p>
+ * <strong>Latency Bucketing:</strong>
+ * </p>
+ * <p>
+ * Collected latencies are automatically organized into histogram
+ * buckets to visualize the distribution of latency measurements.
+ * Each bucket tracks a configurable nanosecond time interval.
+ * An overflow bucket captures all measurements exceeding the
+ * maximum bucket threshold.
+ * </p>
+ * <p>
+ * <strong>Configuration:</strong>
+ * </p>
+ * <p>
+ * {@code LatencyTracker} instances are created using the
+ * {@link Builder} pattern:
+ * </p>
+ * <ul>
+ *   <li>
+ *     {@link Builder#deltaCount(int)} - Maximum number of
+ *     latency deltas to collect. Once this limit is reached,
+ *     additional deltas are ignored.
+ *   </li>
+ *   <li>
+ *     {@link Builder#bucketIntervalSize(long)} - Nanosecond size
+ *     of each histogram bucket. Each bucket represents
+ *     measurements within this time range.
+ *   </li>
+ *   <li>
+ *     {@link Builder#bucketMaximum(long)} - Nanosecond threshold
+ *     for the overflow bucket. Measurements at or above this
+ *     value are counted in the overflow bucket.
+ *   </li>
+ * </ul>
+ * <p>
+ * <strong>Usage Example:</strong>
+ * </p>
+ * <pre><code>
+ * LatencyTracker tracker =
+ *     (LatencyTracker.builder()).deltaCount(100000)            // Collect up to 100,000 measurements
+ *                               .bucketIntervalSize(1_000_000) // 1 millisecond buckets
+ *                               .bucketMaximum(100_000_000)    // Overflow bucket at 100 milliseconds
+ *                               .build();
+ *
+ * tracker.startTime(Instant.now());
+ *
+ * // ... perform timed operations ...
+ * long startNano = System.nanoTime();
+ * // ... operation to measure ...
+ * long endNano = System.nanoTime();
+ * tracker.addDelta(endNano - startNano);
+ *
+ * tracker.stopTime(Instant.now());
+ *
+ * // Print results
+ * System.out.println(tracker);</code></pre>
+ * <p>
+ * <strong>Statistics Provided:</strong>
+ * </p>
+ * <p>
+ * The {@link #toString()} method generates a comprehensive
+ * report including:
+ * </p>
+ * <ul>
+ *   <li>
+ *     Test run duration (if start and stop times are set)
+ *   </li>
+ *   <li>
+ *     Minimum latency
+ *   </li>
+ *   <li>
+ *     Median (50th percentile) latency
+ *   </li>
+ *   <li>
+ *     Average latency
+ *   </li>
+ *   <li>
+ *     95th, 99th, 99.9th, and 99.99th percentile latencies
+ *   </li>
+ *   <li>
+ *     Maximum latency
+ *   </li>
+ *   <li>
+ *     Histogram of latencies organized by bucket intervals
+ *   </li>
+ * </ul>
+ *
+ * <p>
+ * <strong>Thread Safety:</strong>
+ * </p>
+ * <p>
+ * This class is not thread-safe. If measurements are collected from multiple
+ * threads, external synchronization is required.
+ * </p>
+ *
+ * @see Builder
+ * @see Bucket
  *
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
@@ -474,24 +586,62 @@ public final class LatencyTracker
 //
 
     /**
-     * {@link LatencyTracker} builder class. Used to set
-     * following values:
+     * Builder for constructing {@link LatencyTracker} instances
+     * with configurable latency measurement parameters.
+     * <p>
+     * The {@code Builder} uses the fluent builder pattern to
+     * configure the following  aspects of latency tracking:
+     * </p>
      * <ul>
      *   <li>
-    delta deltaCount: tracker collects up to this many latency
-    deltas.
-  </li>
-     *   <li>
-     *     bucket interval size: a {@link Bucket bucket} tracks
-     *     number of deltas within a nanosecond interval.
+     *     <strong>Delta Count:</strong> Maximum number of
+     *     individual latency  measurements to collect. Once this
+     *     limit is reached, the tracker ignores additional
+     *     measurements.
      *   </li>
      *   <li>
-     *     maximum bucket: latency deltas &ge; to this nanosecond
-     *     value are stored in an overflow bucket.
+     *     <strong>Bucket Interval Size:</strong> Nanosecond time
+     *     range represented by each histogram bucket. For
+     *     example, 1,000,000 nanoseconds (1 millisecond) creates
+     *     buckets for latencies in ranges of [0-1ms),
+     *     [1-2ms), etc.
+     *   </li>
+     *   <li>
+     *     <strong>Bucket Maximum:</strong> Nanosecond threshold
+     *     at which the overflow bucket begins. All measurements
+     *     &ge; this value are counted in the overflow bucket,
+     *     useful for capturing outlier measurements beyond
+     *     expected ranges.
      *   </li>
      * </ul>
-     * After setting the above values, {@code LatencyTracker}
-     * instance is created via {@link #build()}.
+     * <p>
+     * <strong>Configuration Requirements:</strong>
+     * </p>
+     * <p>
+     * All three configuration values must be set before calling
+     * {@link #build()}:
+     * </p>
+     * <ul>
+     *   <li>Delta count must be &gt; zero</li>
+     *   <li>Bucket interval size must be &gt; zero</li>
+     *   <li>Bucket maximum must be &gt; zero</li>
+     *   <li>Bucket maximum must be &ge; bucket interval size</li>
+     * </ul>
+     * <p>
+     * <strong>Example:</strong>
+     * </p>
+     * <pre><code>
+     * LatencyTracker tracker = LatencyTracker.builder()
+     *     .deltaCount(50000)
+     *     .bucketIntervalSize(500_000)   // 0.5 millisecond buckets
+     *     .bucketMaximum(10_000_000)      // 10 millisecond overflow threshold
+     *     .build();</code></pre>
+     *
+     * @see LatencyTracker
+     * @see #deltaCount(int)
+     * @see #bucketIntervalSize(long)
+     * @see #bucketMaximum(long)
+     * @see #build()
      */
     public static final class Builder
     {
@@ -654,8 +804,78 @@ result in incrementing bucket delta deltaCount.
     } // end of class Builder
 
     /**
-     * Tracks number of nanosecond latency deltas within a given
-     * interval.
+     * Histogram bucket that tracks the count of latency
+     * measurements within a specific nanosecond time interval.
+     * <p>
+     * Each bucket represents a bounded interval of nanosecond
+     * latencies. The interval is defined by an inclusive begin
+     * time and an exclusive end time. As latency measurements
+     * are added to the {@link LatencyTracker}, they are
+     * automatically placed into the appropriate bucket based on
+     * their value.
+     * </p>
+     * <p>
+     * <strong>Bucket Types:</strong>
+     * </p>
+     * <p>
+     * Two types of buckets are used in a latency tracker:
+     * </p>
+     * <ul>
+     *   <li>
+     *     <strong>Regular Buckets:</strong> Represent a bounded
+     *     interval with both begin and end times. For example, a
+     *     bucket might track latencies in the range
+     *     [1,000,000 - 2,000,000) nanoseconds
+     *     (1-2 milliseconds).
+     *   </li>
+     *   <li>
+     *     <strong>Overflow Bucket:</strong> The final bucket
+     *     with no upper bound (end time of 0), captures all
+     *     measurements &ge; maximum bucket threshold.
+     *   </li>
+     * </ul>
+     * <p>
+     * <strong>Interval Semantics:</strong>
+     * </p>
+     * <p>
+     * Bucket intervals follow standard half-open interval semantics:
+     * </p>
+     * <ul>
+     *   <li>
+     *     Begin time is <strong>inclusive</strong> -
+     *     measurements equal to begin time are included in this
+     *     bucket
+     *   </li>
+     *   <li>
+     *     End time is <strong>exclusive</strong> - measurements
+     *     equal to end time belong to the next bucket (or are
+     *     out of bounds)
+     *   </li>
+     * </ul>
+     *
+     * <p>
+     * <strong>Example Bucket Ranges:</strong>
+     * </p>
+     * <p>
+     * With a bucket interval size of 1,000,000 nanoseconds
+     * (1 millisecond):
+     * </p>
+     * <ul>
+     *   <li>
+     *     Bucket 0: [0, 1,000,000) - measurements 0 to 999,999
+     *     nanoseconds
+     *   </li>
+     *   <li>
+     *     Bucket 1: [1,000,000, 2,000,000) - measurements
+     *     1,000,000 to 1,999,999 nanoseconds
+     *   </li>
+     *   <li>
+     *     Overflow: [100,000,000, 0) - measurements
+     *     100,000,000+ nanoseconds
+     *   </li>
+     * </ul>
+     *
+     * @see LatencyTracker
      */
     public static final class Bucket
     {

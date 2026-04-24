@@ -177,9 +177,313 @@ bus.subscribeAll(TopOfBook.class, "[A-I].*", true, this::onPublishStatus, this::
  * In the above scenario
  * </p>
  * <h2>Sample Event Bus Code</h2>
+ *
+ * <h3>Example 1: Basic Concrete Topic Publishing and Subscription</h3>
  * <p>
- * TODO
+ * This example shows a publisher and subscriber exchanging order
+ * events on a concrete topic.
  * </p>
+ * <pre><code>// Publisher side - advertise ability to publish OrderEvent on "orders" topic
+ * EfsEventBus eventBus = EfsEventBus.findOrCreateBus("orderBus");
+ * EfsTopicKey&lt;OrderEvent&gt; orderTopic =
+ *     EfsTopicKey.getKey(OrderEvent.class, "orders");
+ *
+ * Advertisement&lt;OrderEvent&gt; orderAdvertisement = eventBus.advertise(
+ *     orderTopic,
+ *     status -&gt; {
+ *         // Called when subscriber count changes
+ *         if (status.activeSubscribers() &gt; 0) {
+ *             System.out.println("Now have " + status.activeSubscribers() +
+ *                               " active subscribers");
+ *         } else if (status.activeSubscribers() == 0) {
+ *             System.out.println("No more subscribers, can pause publishing");
+ *         }
+ *     },
+ *     publisherAgent
+ * );
+ *
+ * // Enable publishing
+ * orderAdvertisement.publishStatus(true);
+ *
+ * // Publish orders as they arrive
+ * while (hasMoreOrders()) {
+ *     OrderEvent order = getNextOrder();
+ *
+ *     // Check if there are subscribers before publishing
+ *     if (orderAdvertisement.hasSubscribers()) {
+ *         orderAdvertisement.publish(order);
+ *         System.out.println("Published order: " + order.getOrderId());
+ *     }
+ * }
+ *
+ * // When done publishing, close the advertisement
+ * orderAdvertisement.close();
+ *
+ *
+ * // Subscriber side - subscribe to OrderEvent on "orders" topic
+ * Subscription&lt;OrderEvent&gt; orderSubscription = eventBus.subscribe(
+ *     orderTopic,
+ *     publishStatus -&gt; {
+ *         // Called when publisher availability changes
+ *         if (publishStatus.activePublishers() &gt; 0) {
+ *             System.out.println("Publisher is active, ready to receive orders");
+ *         } else {
+ *             System.out.println("No active publishers");
+ *         }
+ *     },
+ *     order -&gt; {
+ *         // Receive and process each order event
+ *         System.out.println("Received order: " + order.getOrderId() +
+ *                           " for $" + order.getAmount());
+ *         processOrder(order);
+ *     },
+ *     subscriberAgent
+ * );
+ *
+ * // ... subscribe remains active and receives events ...
+ *
+ * // Close subscription when done
+ * orderSubscription.close();</code></pre>
+ *
+ * <h3>Example 2: Inbox (Conflated) Subscription for Market Data</h3>
+ * <p>
+ * This example shows using inbox subscriptions for market data where only
+ * the latest price is relevant, intermediate price updates can be skipped.
+ * </p>
+ * <pre><code>// Publisher publishes market ticks
+ * EfsTopicKey&lt;PriceTickEvent&gt; priceTopic =
+ *     EfsTopicKey.getKey(PriceTickEvent.class, "ACME/NYSE");
+ *
+ * Advertisement&lt;PriceTickEvent&gt; priceAdvertisement =
+ *     eventBus.advertise(priceTopic,
+ *                        status,
+ *                        e -&gt; {
+ *                            // handle subscriber changes
+ *                        },
+ *                        publisherAgent);
+ * priceAdvertisement.publishStatus(true);
+ *
+ * // Fast publisher - publishes many ticks per second
+ * for (double price : priceStream) {
+ *     priceAdvertisement.publish(new PriceTickEvent(price));
+ * }
+ *
+ * // Subscriber uses inbox subscription - only cares about latest price
+ * Subscription&lt;PriceTickEvent&gt; priceSubscription =
+ *     eventBus.subscribeInbox(priceTopic,
+ *                             e -&gt; {
+ *                                 // handle publisher changes
+ *                             },
+ *                             latestTick -&gt; {
+ *                                 // Only receives the latest tick, skipping intermediate ones
+ *                                 System.out.println("Latest ACME price: $" + latestTick.getPrice());
+ *                                 updatePricingDisplay(latestTick);
+ *                             },
+ *                             subscriberAgent
+ * );
+ *
+ * priceSubscription.close();</code></pre>
+ *
+ * <h3>Example 3: Event Router for Distributing High-Volume Events</h3>
+ * <p>
+ * This example shows using a router to distribute events from a
+ * single topic to multiple worker agents based on content
+ * (e.g., order priority).
+ * </p>
+ * <pre><code>// Create router that routes orders to different handlers based on priority
+ * IEventRouter&lt;OrderEvent&gt; orderRouter = event -&gt; {
+ *     if ("URGENT".equals(event.getPriority())) {
+ *         // Route urgent orders to priority handler
+ *         return new EfsDispatchTarget&lt;&gt;(priorityWorkerAgent,
+ *                                           priorityOrderHandler);
+ *     } else if ("HIGH".equals(event.getPriority())) {
+ *         // Route high priority to expedited handler
+ *         return new EfsDispatchTarget&lt;&gt;(expeditedWorkerAgent,
+ *                                           expeditedOrderHandler);
+ *     } else {
+ *         // Route standard orders to normal handler
+ *         return new EfsDispatchTarget&lt;&gt;(standardWorkerAgent,
+ *                                           standardOrderHandler);
+ *     }
+ * };
+ *
+ * // Subscribe with router
+ * Subscription&lt;OrderEvent&gt; routerSubscription =
+ *     eventBus.subscribeRouter(orderTopic,
+ *                              publishStatus -&gt; {
+ *                                  // handle publisher changes
+ *                              },
+ *                              orderRouter,
+ *                              coordinatorAgent);
+ *
+ * // Events are now distributed to appropriate workers based on priority
+ * routerSubscription.close();</code></pre>
+ *
+ * <h3>Example 4: Wildcard Advertising and Subscription for Market Data</h3>
+ * <p>
+ * This example shows publishing and subscribing to multiple ticker symbols
+ * using wildcard patterns. A publisher handles all stocks starting with A-M,
+ * while a subscriber wants all tech stocks (symbols containing "TECH").
+ * </p>
+ * <pre><code>// Publisher advertises ability to publish for multiple symbols using wildcard
+ * WildcardAdvertisement&lt;PriceTickEvent&gt; tickerAdvertisement =
+ *     eventBus.advertiseAll(PriceTickEvent.class,
+ *                           "[A-M].*",  // Regex: all symbols starting with A-M
+ *         status -&gt; {
+ *             System.out.println("Subscriber count for " +
+ *                               status.topicKey() + ": " +
+ *                               status.activeSubscribers());
+ *         },
+ *         newTopic -&gt; {
+ *             // Called when a new concrete topic matches the wildcard
+ *             System.out.println("New topic discovered: " + newTopic.topic());
+ *         },
+ *         publisherAgent
+ *     );
+ *
+ * // Enable publishing for all matching topics
+ * tickerAdvertisement.publishStatusAll(true);
+ *
+ * // Publish data for discovered topics
+ * for (String symbol : symbolsAtoM) {
+ *     EfsTopicKey&lt;PriceTickEvent&gt; symbolKey =
+ *         EfsTopicKey.getKey(PriceTickEvent.class, symbol);
+ *     Advertisement&lt;PriceTickEvent&gt; ad =
+ *         tickerAdvertisement.advertisement(symbolKey);
+ *
+ *     if (ad != null) {
+ *         ad.publish(new PriceTickEvent(symbol, currentPrice(symbol)));
+ *     }
+ * }
+ *
+ *
+ * // Subscriber subscribes to all TECH symbols using wildcard
+ * WildcardSubscription&lt;PriceTickEvent&gt; techSubscription =
+ *     eventBus.subscribeAll(
+ *         PriceTickEvent.class,
+ *         ".*TECH.*",  // Regex: all topics containing "TECH"
+ *         false,       // Not an inbox subscription
+ *         publishStatus -&gt; {
+ *             System.out.println("Publisher count: " +
+ *                               publishStatus.activePublishers());
+ *         },
+ *         priceEvent -&gt; {
+ *             // Receive all TECH stock price updates
+ *             System.out.println(priceEvent.getSymbol() + " -> $" +
+ *                               priceEvent.getPrice());
+ *         },
+ *         newTopic -&gt; {
+ *             // Called when a new TECH topic is discovered
+ *             System.out.println("Subscribing to new tech symbol: " +
+ *                               newTopic.topic());
+ *         },
+ *         subscriberAgent
+ *     );
+ *
+ * // Get list of all subscribed topics
+ * List&lt;String&gt; techTopics = techSubscription.subscriptionTopics();
+ * System.out.println("Currently subscribed to: " + techTopics);
+ *
+ * techSubscription.close();</code></pre>
+ *
+ * <h3>Example 5: Complete Order Processing Pipeline</h3>
+ * <p>
+ * This comprehensive example shows a complete order processing
+ * system with publishers, multiple subscription types, and
+ * proper resource cleanup.
+ * </p>
+ * <pre><code>class OrderProcessingService {
+ *     private final EfsEventBus eventBus;
+ *     private final IEfsAgent publisherAgent;
+ *     private final IEfsAgent subscriberAgent;
+ *     private Advertisement&lt;OrderEvent&gt; orderAdvertisement;
+ *     private Subscription&lt;OrderEvent&gt; orderProcessorSubscription;
+ *     private Subscription&lt;OrderConfirmationEvent&gt; confirmationSubscription;
+ *
+ *     public OrderProcessingService(EfsEventBus bus, IEfsAgent pubAgent,
+ *                                   IEfsAgent subAgent) {
+ *         this.eventBus = bus;
+ *         this.publisherAgent = pubAgent;
+ *         this.subscriberAgent = subAgent;
+ *     }
+ *
+ *     public void startup() {
+ *         // Advertise ability to publish orders
+ *         EfsTopicKey&lt;OrderEvent&gt; orderTopic =
+ *             EfsTopicKey.getKey(OrderEvent.class, "orders");
+ *
+ *         orderAdvertisement = eventBus.advertise(
+ *             orderTopic,
+ *             this::handleSubscriberStatusChange,
+ *             publisherAgent
+ *         );
+ *         orderAdvertisement.publishStatus(true);
+ *
+ *         // Subscribe to process orders
+ *         orderProcessorSubscription = eventBus.subscribe(
+ *             orderTopic,
+ *             this::handlePublisherStatus,
+ *             this::processOrder,
+ *             subscriberAgent
+ *         );
+ *
+ *         // Subscribe to order confirmations
+ *         EfsTopicKey&lt;OrderConfirmationEvent&gt; confirmTopic =
+ *             EfsTopicKey.getKey(OrderConfirmationEvent.class,
+ *                               "order-confirmations");
+ *         confirmationSubscription = eventBus.subscribe(
+ *             confirmTopic,
+ *             status -&gt; {
+ *                 // handle
+ *             },
+ *             this::handleConfirmation,
+ *             subscriberAgent
+ *         );
+ *     }
+ *
+ *     public void publishOrder(OrderEvent order) {
+ *         if (orderAdvertisement.hasSubscribers()) {
+ *             orderAdvertisement.publish(order);
+ *         } else {
+ *             System.out.println("No subscribers available for orders");
+ *         }
+ *     }
+ *
+ *     private void processOrder(OrderEvent order) {
+ *         System.out.println("Processing order: " + order.getOrderId());
+ *         // Process the order...
+ *     }
+ *
+ *     private void handleConfirmation(OrderConfirmationEvent confirmation) {
+ *         System.out.println("Order confirmed: " + confirmation.getOrderId());
+ *     }
+ *
+ *     private void handleSubscriberStatusChange(
+ *         EfsSubscribeStatus&lt;OrderEvent&gt; status) {
+ *         System.out.println("Order subscribers: " +
+ *                           status.activeSubscribers());
+ *     }
+ *
+ *     private void handlePublisherStatus(
+ *         EfsPublishStatus&lt;OrderEvent&gt; status) {
+ *         System.out.println("Active publishers: " +
+ *                           status.activePublishers());
+ *     }
+ *
+ *     public void shutdown() throws Exception {
+ *         // Close all subscriptions and advertisements
+ *         if (orderProcessorSubscription != null) {
+ *             orderProcessorSubscription.close();
+ *         }
+ *         if (confirmationSubscription != null) {
+ *             confirmationSubscription.close();
+ *         }
+ *         if (orderAdvertisement != null) {
+ *             orderAdvertisement.close();
+ *         }
+ *         System.out.println("Order processing service shut down");
+ *     }
+ * }</code></pre>
  */
 
 package org.efs.bus;
