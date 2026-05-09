@@ -808,11 +808,12 @@ public final class EfsDispatcherThread
          */
         /* package */ Builder threadName(final String threadName)
         {
-            if (Strings.isNullOrEmpty(threadName))
+            if (Strings.isNullOrEmpty(threadName) ||
+                threadName.isBlank())
             {
                 throw (
                     new IllegalArgumentException(
-                        "threadName is either null or an empty string"));
+                        EfsDispatcher.INVALID_THREAD_NAME));
             }
 
             mThreadName = threadName;
@@ -831,7 +832,7 @@ public final class EfsDispatcherThread
         {
             mThreadType =
                 Objects.requireNonNull(
-                    threadType, "threadType is null");
+                    threadType, EfsDispatcher.NULL_THREAD_TYPE);
 
             return (this);
         } // end of threadType(ThreadType)
@@ -855,7 +856,7 @@ public final class EfsDispatcherThread
             {
                 throw (
                     new IllegalArgumentException(
-                        "priority out of bounds"));
+                        EfsDispatcher.INVALID_PRIORITY));
             }
 
             mPriority = priority;
@@ -878,7 +879,7 @@ public final class EfsDispatcherThread
             {
                 throw (
                     new IllegalArgumentException(
-                        "limit < zero"));
+                        EfsDispatcher.INVALID_SPIN_LIMIT));
             }
 
             mSpinLimit = limit;
@@ -899,13 +900,14 @@ public final class EfsDispatcherThread
          */
         /* package */ Builder parkTime(final Duration time)
         {
-            Objects.requireNonNull(time, "time is null");
+            Objects.requireNonNull(
+                time, EfsDispatcher.NULL_TIME);
 
             if (time.isNegative())
             {
                 throw (
                     new IllegalArgumentException(
-                        "time < zero"));
+                        EfsDispatcher.INVALID_TIME));
             }
 
             mParkTime = time;
@@ -940,7 +942,7 @@ public final class EfsDispatcherThread
             {
                 throw (
                     new IllegalArgumentException(
-                        "maxEvents <= zero"));
+                        EfsDispatcher.INVALID_MAX_EVENTS));
             }
 
             mMaxEvents = maxEvents;
@@ -958,7 +960,8 @@ public final class EfsDispatcherThread
         /* package */ Builder runQueue(final Queue<EfsAgent> queue)
         {
             mRunQueue =
-                Objects.requireNonNull(queue, "queue is null");
+                Objects.requireNonNull(
+                    queue, EfsDispatcher.NULL_RUN_QUEUE);
 
             return (this);
         } // end of runQueue(Queue<>)

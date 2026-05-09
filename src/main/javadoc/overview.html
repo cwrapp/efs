@@ -76,7 +76,7 @@
     <div style="color: #ffff00; font-size: 50px; text-align: center;">Event File System</div>
     <div style="color: #f2f2f2; font-size: 10px; text-align: right;">
       <!-- UPDATE FOR RELEASE -->
-      Updated: April 24, 2026<br/>Version: 0.6.1
+      Updated: May 9, 2026<br/>Version: 0.6.2
     </div>
   </div>
 
@@ -246,25 +246,26 @@ EfsDispatcher.dispatch(consumer::onAppEvent, event, consumer);</code></pre>
   <p>
     As an aside, if producing agent expects a reply event
     from consuming agent, efs provides
-    {@link org.efs.dispatcher.ReplyTo} class. The producing
-    agent creates a {@code ReplyTo} instance containing the
-    producing agent's method lambda and {@code this}
-    reference and placing that reply-to instance into the
-    event. Extending the above example to demonstrate how
-    consuming agent replies to an event:
+    {@link org.efs.dispatcher.EfsDispatchTarget} class. The
+    producing agent creates a {@code EfsDispatchTarget} instance
+    containing the producing agent's method lambda and
+    {@code this} reference and placing that dispatch target
+    instance into the event. Extending the above example to
+    demonstrate how consuming agent replies to an event:
   </p>
   <pre><code>// Note: method onReply does <em>not</em> need to be public.
-final ReplyTo&lt;ReplyEvent&gt; replyTo = new ReplyTo&lt;&gt;(this::onReply, this);
+final EfsDispatchTarget&lt;ReplyEvent&gt; replyTo = new EfsDispatchTarget&lt;&gt;(this::onReply, this);
 final AppEvent event = new AppEvent(replyTo);
 
 EfsDispatcher.dispatch(consumer::onAppEvent, event, consumer);
 
 // Consumer agent posts a reply as follows:
 public void onAppEvent(final AppEvent event) {
-final ReplyEvent reply = new ReplyEvent("done");
+    final ReplyEvent reply = new ReplyEvent("done");
 
-// In this example, AppEvent returns ReplyTo instance in method getReplyTo.
-(event.getReplyTo()).dispatch(ReplyEvent);
+    // In this example, AppEvent.reply method passes ReplyEvent instance to
+    // EfsDispatchTarget.dispatch method.
+    event.reply(reply);
 }</code></pre>
   <p>
     Unlike the initial dispatch, the consuming agent does
@@ -465,7 +466,7 @@ final ReplyEvent reply = new ReplyEvent("done");
   </p>
   <p>
     <!-- UPDATE FOR RELEASE -->
-    Updated: April 24, 2026<br>Version. 0.6.1
+    Updated: May 9, 2026<br>Version. 0.6.2
   </p>
 
     @author <a href="mailto:rapp@acm.org">Charles Rapp</a>

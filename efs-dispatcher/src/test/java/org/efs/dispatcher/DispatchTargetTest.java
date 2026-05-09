@@ -16,14 +16,20 @@
 
 package org.efs.dispatcher;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.function.Consumer;
-import org.assertj.core.api.Assertions;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.efs.dispatcher.config.ThreadType;
 import org.efs.event.IEfsEvent;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
@@ -44,17 +50,70 @@ public class DispatchTargetTest
     // Constants.
     //
 
+    private static final String DISPATCHER_NAME =
+        "test-dispatcher";
+    private static final ThreadType THREAD_TYPE =
+        ThreadType.BLOCKING;
+    private static final int THREAD_COUNT = 2;
+    private static final int THREAD_PRIORITY = 3;
+    private static final int MAX_EVENTS = 4;
+
+    private static final String TEST_AGENT_NAME = "test-agent";
+
     //-----------------------------------------------------------
     // Statics.
     //
+
+    private static IEfsDispatcher sDispatcher;
 
     //-----------------------------------------------------------
     // Locals.
     //
 
+    private IEfsAgent mTestAgent;
+
 //---------------------------------------------------------------
 // Member methods.
 //
+
+    //-----------------------------------------------------------
+    // JUnit Initialization.
+    //
+
+    @BeforeAll
+    private static void testClassSetUp()
+    {
+        final EfsDispatcher.Builder builder =
+            EfsDispatcher.builder(DISPATCHER_NAME);
+
+        builder.threadType(THREAD_TYPE)
+               .numThreads(THREAD_COUNT)
+               .priority(THREAD_PRIORITY)
+               .dispatcherType(EfsDispatcher.DispatcherType.EFS)
+               .eventQueueCapacity(8)
+               .runQueueCapacity(1)
+               .maxEvents(MAX_EVENTS)
+               .build();
+    } // end of testClassSetUp()
+
+    @BeforeEach
+    public void setUp()
+    {
+        mTestAgent = mock(IEfsAgent.class);
+        when(mTestAgent.name()).thenReturn(TEST_AGENT_NAME);
+
+        EfsDispatcher.register(mTestAgent, DISPATCHER_NAME);
+    } // end of setUp()
+
+    @AfterEach
+    public void tearDown()
+    {
+        EfsDispatcher.deregister(mTestAgent);
+    } // end of tearDown()
+
+    //
+    // end of JUnit Initialization.
+    //-----------------------------------------------------------
 
     //-----------------------------------------------------------
     // JUnit Tests.
@@ -65,9 +124,9 @@ public class DispatchTargetTest
     public void ctorNullCallback()
     {
         final Consumer<TestEvent> callback = null;
-        final IEfsAgent agent = mock(IEfsAgent.class);
+        final IEfsAgent agent = mTestAgent;
 
-        Assertions.assertThatThrownBy(
+        assertThatThrownBy(
             () -> new EfsDispatchTarget<>(callback, agent))
             .isInstanceOf(NullPointerException.class)
             .hasMessage(EfsDispatcher.NULL_CALLBACK);
@@ -80,7 +139,7 @@ public class DispatchTargetTest
         final Consumer<TestEvent> callback = e -> {};
         final IEfsAgent agent = null;
 
-        Assertions.assertThatThrownBy(
+        assertThatThrownBy(
             () -> new EfsDispatchTarget<>(callback, agent))
             .isInstanceOf(NullPointerException.class)
             .hasMessage(EfsDispatcher.NULL_AGENT);
@@ -91,7 +150,7 @@ public class DispatchTargetTest
     public void ctorSuccess()
     {
         final Consumer<TestEvent> callback = e -> {};
-        final IEfsAgent agent = mock(IEfsAgent.class);
+        final IEfsAgent agent = mTestAgent;
         final EfsDispatchTarget<TestEvent> target =
             new EfsDispatchTarget<>(callback, agent);
 
@@ -99,6 +158,79 @@ public class DispatchTargetTest
         assertThat(target.callback()).isSameAs(callback);
         assertThat(target.agent()).isSameAs(agent);
     } // end of ctorSuccess()
+
+    @Test
+    @DisplayName("Dispatch null target")
+    public void dispatchNullTarget()
+    {
+        final EfsDispatchTarget<TestEvent> target = null;
+        final TestEvent event = mock(TestEvent.class);
+
+        assertThatThrownBy(
+            () -> EfsDispatcher.dispatch(target, event))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(EfsDispatcher.NULL_DISPATCH_TARGET);
+    } // end of dispatchNullTarget()
+
+    @Test
+    @DisplayName("Dispatch target with null event")
+    public void dispatchTargetNullEvent()
+    {
+        final Consumer<TestEvent> callback = e -> {};
+        final IEfsAgent agent = mTestAgent;
+        final EfsDispatchTarget<TestEvent> target =
+            new EfsDispatchTarget<>(callback, agent);
+        final TestEvent event = null;
+
+        assertThatThrownBy(
+            () -> EfsDispatcher.dispatch(target, event))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(EfsDispatcher.NULL_EVENT);
+    } // end of dispatchTargetNullEvent()
+
+    @Test
+    @DisplayName("Dispatch unregistered agent")
+    public void dispatchUnregisteredAgent()
+    {
+        final String agentName = "unregistered";
+        final Consumer<TestEvent> callback = e -> {};
+        final IEfsAgent agent = mock(IEfsAgent.class);
+        final EfsDispatchTarget<TestEvent> target =
+            new EfsDispatchTarget<>(callback, agent);
+        final TestEvent event = mock(TestEvent.class);
+
+        when(agent.name()).thenReturn(agentName);
+
+        assertThatThrownBy(
+            () -> EfsDispatcher.dispatch(target, event))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage(
+                "efs agent " + agentName + " not registered");
+    } // end of dispatchUnregisteredAgent()
+
+    @Test
+    @DisplayName("Dispatch target success")
+    public void dispatchTargetSuccess()
+    {
+        final CountDownLatch signal = new CountDownLatch(1);
+        final Consumer<TestEvent> callback =
+            e -> signal.countDown();
+        final IEfsAgent agent = mTestAgent;
+        final EfsDispatchTarget<TestEvent> target =
+            new EfsDispatchTarget<>(callback, agent);
+        final TestEvent event = mock(TestEvent.class);
+
+        EfsDispatcher.dispatch(target, event);
+
+        try
+        {
+            signal.await();
+        }
+        catch (InterruptedException interrupt)
+        {}
+
+        assertThat(signal.getCount()).isZero();
+    } // end of dispatchTargetSuccess()
 
     //
     // end of JUnit Tests.

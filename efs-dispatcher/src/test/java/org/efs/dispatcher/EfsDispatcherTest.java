@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.function.Consumer;
 import net.sf.eBus.util.ValidationException;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.efs.dispatcher.EfsDispatcher.DispatcherType;
 import org.efs.dispatcher.config.EfsDispatcherConfig;
 import org.efs.dispatcher.config.ThreadAffinityConfig;
@@ -110,15 +111,10 @@ public final class EfsDispatcherTest
     {
         final String dispatcherName = null;
 
-        try
-        {
-            EfsDispatcher.builder(dispatcherName);
-        }
-        catch (IllegalArgumentException argex)
-        {
-            assertThat(argex)
-                .hasMessage(EfsDispatcher.INVALID_NAME);
-        }
+        assertThatThrownBy(
+            () -> EfsDispatcher.builder(dispatcherName))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_NAME);
     } // end of builderNullDispatcherName()
 
     @Test
@@ -126,17 +122,11 @@ public final class EfsDispatcherTest
     {
         final String dispatcherName = "";
 
-        try
-        {
-            EfsDispatcher.builder(dispatcherName);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex)
-                .hasMessage(EfsDispatcher.INVALID_NAME);
-        }
+
+        assertThatThrownBy(
+            () -> EfsDispatcher.builder(dispatcherName))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_NAME);
     } // end of builderEmptyDispatcherName()
 
     @Test
@@ -144,17 +134,10 @@ public final class EfsDispatcherTest
     {
         final String dispatcherName = "   ";
 
-        try
-        {
-            EfsDispatcher.builder(dispatcherName);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex)
-                .hasMessage(EfsDispatcher.INVALID_NAME);
-        }
+        assertThatThrownBy(
+            () -> EfsDispatcher.builder(dispatcherName))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_NAME);
     } // end of builderBlankDispatcherName()
 
     @Test
@@ -165,17 +148,10 @@ public final class EfsDispatcherTest
         final EfsDispatcher.Builder builder =
             EfsDispatcher.builder(dispatcherName);
 
-        try
-        {
-            builder.numThreads(numThreads);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex)
-                .hasMessage("numThreads <= zero");
-        }
+        assertThatThrownBy(
+            () -> builder.numThreads(numThreads))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_NUM_THREADS);
     } // end of builderZeroThreadCount()
 
     @Test
@@ -186,16 +162,10 @@ public final class EfsDispatcherTest
         final EfsDispatcher.Builder builder =
             EfsDispatcher.builder(dispatcherName);
 
-        try
-        {
-            builder.threadType(type);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(NullPointerException.class);
-            assertThat(jex).hasMessage("type is null");
-        }
+        assertThatThrownBy(
+            () -> builder.threadType(type))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(EfsDispatcher.NULL_TYPE);
     } // end of builderNullThreadType()
 
     @Test
@@ -206,16 +176,10 @@ public final class EfsDispatcherTest
         final EfsDispatcher.Builder builder =
             EfsDispatcher.builder(dispatcherName);
 
-        try
-        {
-            builder.priority(priority);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex).hasMessage("priority out of bounds");
-        }
+        assertThatThrownBy(
+            () -> builder.priority(priority))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_PRIORITY);
     } // end of builderPiorityLessThanMin()
 
     @Test
@@ -226,16 +190,10 @@ public final class EfsDispatcherTest
         final EfsDispatcher.Builder builder =
             EfsDispatcher.builder(dispatcherName);
 
-        try
-        {
-            builder.priority(priority);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex).hasMessage("priority out of bounds");
-        }
+        assertThatThrownBy(
+            () -> builder.priority(priority))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_PRIORITY);
     } // end of builderPriorityGreaterThanMax()
 
     @Test
@@ -246,16 +204,10 @@ public final class EfsDispatcherTest
         final EfsDispatcher.Builder builder =
             EfsDispatcher.builder(dispatcherName);
 
-        try
-        {
-            builder.spinLimit(limit);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex).hasMessage("limit <= zero");
-        }
+        assertThatThrownBy(
+            () -> builder.spinLimit(limit))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_SPIN_LIMIT);
     } // end of builderZeroSpinLimit()
 
     @Test
@@ -266,16 +218,10 @@ public final class EfsDispatcherTest
         final EfsDispatcher.Builder builder =
             EfsDispatcher.builder(dispatcherName);
 
-        try
-        {
-            builder.parkTime(time);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(NullPointerException.class);
-            assertThat(jex).hasMessage("time is null");
-        }
+        assertThatThrownBy(
+            () -> builder.parkTime(time))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(EfsDispatcher.NULL_TIME);
     } // end of builderNullParkTime()
 
     @Test
@@ -286,16 +232,10 @@ public final class EfsDispatcherTest
         final EfsDispatcher.Builder builder =
             EfsDispatcher.builder(dispatcherName);
 
-        try
-        {
-            builder.parkTime(time);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex).hasMessage("time <= zero");
-        }
+        assertThatThrownBy(
+            () -> builder.parkTime(time))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_TIME);
     } // end of builderNegativeParkTime()
 
     @Test
@@ -306,16 +246,10 @@ public final class EfsDispatcherTest
         final EfsDispatcher.Builder builder =
             EfsDispatcher.builder(dispatcherName);
 
-        try
-        {
-            builder.dispatcherType(type);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(NullPointerException.class);
-            assertThat(jex).hasMessage("type is null");
-        }
+        assertThatThrownBy(
+            () -> builder.dispatcherType(type))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(EfsDispatcher.NULL_TYPE);
     } // end of builderNullDispatcherType()
 
     @Test
@@ -326,16 +260,11 @@ public final class EfsDispatcherTest
         final EfsDispatcher.Builder builder =
             EfsDispatcher.builder(dispatcherName);
 
-        try
-        {
-            builder.eventQueueCapacity(capacity);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex).hasMessage("capacity < 2");
-        }
+        assertThatThrownBy(
+            () -> builder.eventQueueCapacity(capacity))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(
+                EfsDispatcher.INVALID_EVENT_QUEUE_CAPACITY);
     } // end of builderNegativeEventQueueCapacity()
 
     @Test
@@ -346,16 +275,11 @@ public final class EfsDispatcherTest
         final EfsDispatcher.Builder builder =
             EfsDispatcher.builder(dispatcherName);
 
-        try
-        {
-            builder.runQueueCapacity(capacity);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex).hasMessage("capacity <= zero");
-        }
+        assertThatThrownBy(
+            () -> builder.runQueueCapacity(capacity))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(
+                EfsDispatcher.INVALID_RUN_QUEUE_CAPACITY);
     } // end of builderZeroRunQueueCapacity()
 
     @Test
@@ -366,16 +290,10 @@ public final class EfsDispatcherTest
         final EfsDispatcher.Builder builder =
             EfsDispatcher.builder(dispatcherName);
 
-        try
-        {
-            builder.maxEvents(maxEvents);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex).hasMessage("maxEvents <= zero");
-        }
+        assertThatThrownBy(
+            () -> builder.maxEvents(maxEvents))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_MAX_EVENTS);
     } // end of builderZeroMaxEvents()
 
     @Test
@@ -386,16 +304,10 @@ public final class EfsDispatcherTest
         final EfsDispatcher.Builder builder =
             EfsDispatcher.builder(dispatcherName);
 
-        try
-        {
-            builder.dispatcher(dispatcher);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(NullPointerException.class);
-            assertThat(jex).hasMessage("dispatcher is null");
-        }
+        assertThatThrownBy(
+            () -> builder.dispatcher(dispatcher))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(EfsDispatcher.NULL_DISPATCHER);
     } // end of builderNullDispatcher()
 
     @Test
@@ -405,15 +317,10 @@ public final class EfsDispatcherTest
         final EfsDispatcher.Builder builder =
             EfsDispatcher.builder(dispatcherName);
 
-        try
-        {
-            builder.dispatcherType(DispatcherType.EFS).build();
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(ValidationException.class);
-        }
+        assertThatThrownBy(
+            () -> builder.dispatcherType(DispatcherType.EFS)
+                         .build())
+            .isInstanceOf(ValidationException.class);
     } // end of builderInvalidSettings()
 
     @Test
@@ -433,8 +340,7 @@ public final class EfsDispatcherTest
             createAffinityConfig();
         final EfsDispatcher.Builder builder =
             EfsDispatcher.builder(dispatcherName);
-        final List<EfsAgent.AgentStats> runStats =
-            EfsAgent.runTimeStats();
+        final List<EfsAgent.AgentStats> runStats;
         final EfsDispatcher dispatcher =
             (EfsDispatcher)
                 builder.numThreads(numThreads)
@@ -462,50 +368,24 @@ public final class EfsDispatcherTest
         assertThat(EfsDispatcher.getDispatcher(dispatcherName))
             .isSameAs(dispatcher);
 
-        assertThat(runStats).isNotNull();
-        assertThat(runStats).isNotEmpty();
-
-        try
-        {
-            EfsDispatcher.register(
-                sEfsAgentEmptyName, dispatcherName);
-        }
-        catch (IllegalArgumentException argex)
-        {
-            assertThat(argex)
-                .hasMessage(EfsDispatcher.MISSING_AGENT_NAME);
-        }
-
-        try
-        {
-            EfsDispatcher.register(
-                sEfsAgentBlankName, dispatcherName);
-        }
-        catch (IllegalArgumentException argex)
-        {
-            assertThat(argex)
-                .hasMessage(EfsDispatcher.MISSING_AGENT_NAME);
-        }
-
-        try
-        {
-            EfsDispatcher.register(sEfsAgent, "");
-        }
-        catch (IllegalArgumentException argex)
-        {
-            assertThat(argex)
-                .hasMessage(EfsDispatcher.INVALID_NAME);
-        }
-
-        try
-        {
-            EfsDispatcher.register(sEfsAgent, "fubar");
-        }
-        catch (IllegalArgumentException argex)
-        {
-            assertThat(argex)
-                .hasMessage("unknown dispatcher \"fubar\"");
-        }
+        assertThatThrownBy(
+            () -> EfsDispatcher.register(sEfsAgentEmptyName,
+                                         dispatcherName))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.MISSING_AGENT_NAME);
+        assertThatThrownBy(
+            () -> EfsDispatcher.register(sEfsAgentBlankName,
+                                         dispatcherName))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.MISSING_AGENT_NAME);
+        assertThatThrownBy(
+            () -> EfsDispatcher.register(sEfsAgent, ""))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_NAME);
+        assertThatThrownBy(
+            () -> EfsDispatcher.register(sEfsAgent, "fubar"))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("unknown dispatcher \"fubar\"");
 
         EfsDispatcher.clearAgents();
         EfsDispatcher.register(sEfsAgent, dispatcherName);
@@ -516,70 +396,49 @@ public final class EfsDispatcherTest
         assertThat(EfsDispatcher.agent(EFS_AGENT_NAME))
             .isEqualTo(sEfsAgent);
 
-        try
-        {
-            EfsDispatcher.register(sEfsAgent, dispatcherName);
-        }
-        catch (IllegalStateException statex)
-        {
-            assertThat(statex)
-                .hasMessage(
-                    String.format(
-                        "efs agent \"%s\" currently registered",
-                        EFS_AGENT_NAME));
-        }
-
-        try
-        {
-            EfsDispatcher.dispatcher(null);
-        }
-        catch (NullPointerException nullex)
-        {
-            assertThat(nullex)
-                .hasMessage(EfsDispatcher.NULL_AGENT);
-        }
-
+        assertThatThrownBy(
+            () -> EfsDispatcher.register(sEfsAgent,
+                                         dispatcherName))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage(
+                String.format(
+                    "efs agent \"%s\" currently registered",
+                    EFS_AGENT_NAME));
+        assertThatThrownBy(
+            () -> EfsDispatcher.dispatcher(null))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(EfsDispatcher.NULL_AGENT);
         assertThat(EfsDispatcher.dispatcher(sEfsAgent))
             .isEqualTo(dispatcherName);
+        assertThatThrownBy(
+            () -> EfsDispatcher.dispatch(null, sEfsAgent))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(EfsDispatcher.NULL_TASK);
+        assertThatThrownBy(
+            () ->
+                EfsDispatcher.dispatch(
+                    () -> System.out.println("Do it!"), null))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(EfsDispatcher.NULL_AGENT);
 
-        try
-        {
-            EfsDispatcher.dispatch(null, sEfsAgent);
-        }
-        catch (NullPointerException nullex)
-        {
-            assertThat(nullex)
-                .hasMessage(EfsDispatcher.NULL_TASK);
-        }
-
-        try
-        {
-            EfsDispatcher.dispatch(
-                () -> System.out.println("Do it!"), null);
-        }
-        catch (NullPointerException nullex)
-        {
-            assertThat(nullex)
-                .hasMessage(EfsDispatcher.NULL_AGENT);
-        }
-
-        try
-        {
-            EfsDispatcher.dispatch(
-                () -> System.out.println("Do it!"),
-                sEfsAgentNotRegistered);
-        }
-        catch (IllegalStateException statex)
-        {
-            assertThat(statex)
-                .hasMessage(
-                    String.format(
-                        "efs agent %s not registered",
-                        EFS_AGENT_NOT_REGISTERED_NAME));
-        }
+        assertThatThrownBy(
+            () ->
+                EfsDispatcher.dispatch(
+                    () -> System.out.println("Do it!"),
+                    sEfsAgentNotRegistered))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage(
+                String.format(
+                    "efs agent %s not registered",
+                    EFS_AGENT_NOT_REGISTERED_NAME));
 
         EfsDispatcher.dispatch(
             () -> System.out.println("Do it!"), sEfsAgent);
+
+        runStats = EfsAgent.runTimeStats();
+
+        assertThat(runStats).isNotNull();
+        assertThat(runStats).isNotEmpty();
 
         EfsDispatcher.deregister(sEfsAgent);
 
@@ -617,18 +476,14 @@ public final class EfsDispatcherTest
                .threadAffinity(affinityConfig)
                .build();
 
-        try
-        {
-            EfsDispatcher.builder(dispatcherName);
-        }
-        catch (IllegalStateException statex)
-        {
-            assertThat(statex).
-                hasMessage(
-                    "dispatcher " +
-                    dispatcherName +
-                    " already exists");
-        }
+        // Create a duplicate dispatcher by building a second
+        // time.
+        assertThatThrownBy(
+            () -> builder.build())
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage("dispatcher " +
+                        dispatcherName +
+                        " already exists");
     } // end of builderDuplicateDispatcher()
 
     @Test
@@ -691,15 +546,10 @@ public final class EfsDispatcherTest
     {
         final String dispatcherName = null;
 
-        try
-        {
-            EfsDispatcher.getDispatcher(dispatcherName);
-        }
-        catch (IllegalArgumentException argex)
-        {
-            assertThat(argex)
-                .hasMessage(EfsDispatcher.INVALID_NAME);
-        }
+        assertThatThrownBy(
+            () -> EfsDispatcher.getDispatcher(dispatcherName))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_NAME);
     } // end of getDispatcherNullName()
 
     @Test
@@ -707,15 +557,10 @@ public final class EfsDispatcherTest
     {
         final String dispatcherName = "";
 
-        try
-        {
-            EfsDispatcher.getDispatcher(dispatcherName);
-        }
-        catch (IllegalArgumentException argex)
-        {
-            assertThat(argex)
-                .hasMessage(EfsDispatcher.INVALID_NAME);
-        }
+        assertThatThrownBy(
+            () -> EfsDispatcher.getDispatcher(dispatcherName))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_NAME);
     } // end of getDispatcherEmptyName()
 
     @Test
@@ -723,15 +568,10 @@ public final class EfsDispatcherTest
     {
         final String dispatcherName = null;
 
-        try
-        {
-            EfsDispatcher.isDispatcher(dispatcherName);
-        }
-        catch (IllegalArgumentException argex)
-        {
-            assertThat(argex)
-                .hasMessage(EfsDispatcher.INVALID_NAME);
-        }
+        assertThatThrownBy(
+            () -> EfsDispatcher.isDispatcher(dispatcherName))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_NAME);
     } // end of isDispatcherNullName()
 
     @Test
@@ -739,15 +579,10 @@ public final class EfsDispatcherTest
     {
         final String dispatcherName = "";
 
-        try
-        {
-            EfsDispatcher.isDispatcher(dispatcherName);
-        }
-        catch (IllegalArgumentException argex)
-        {
-            assertThat(argex)
-                .hasMessage(EfsDispatcher.INVALID_NAME);
-        }
+        assertThatThrownBy(
+            () -> EfsDispatcher.isDispatcher(dispatcherName))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_NAME);
     } // end of isDispatcherEmptyName()
 
     //

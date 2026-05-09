@@ -22,17 +22,19 @@ limitations under the License.
 
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>com.github.cwrapp</groupId>
+  <groupId>io.github.cwrapp</groupId>
   <artifactId>efs-parent</artifactId>
-  <version>0.6.1</version>
+  <version>0.6.2</version>
 
   <packaging>pom</packaging>
 
   <name>efs - event file system</name>
   <description>
-    Description will be provided in future release.
+    efs - Event File System is envisioned as a reliable, robust,
+    and low-latency event persistence and delivery API from
+    publishing agent to subscribing agent.
   </description>
-  <url>https://ebus.sourceforge.io/eBus/index.html</url>
+  <url>https://cwrapp.github.io/efs</url>
 
   <licenses>
     <license>
@@ -44,6 +46,7 @@ limitations under the License.
 
   <!-- scm tag required by Maven Central Respository -->
   <scm>
+    <connection>scm:git:git://github.com/cwrapp/efs.git</connection>
     <url>https://github.com/cwrapp/efs.git</url>
   </scm>
 
@@ -58,8 +61,6 @@ limitations under the License.
         <role>developer</role>
         <role>administrator</role>
       </roles>
-      <timezone>
-      </timezone>
     </developer>
   </developers>
 
@@ -74,6 +75,7 @@ limitations under the License.
     <module>efs-util</module>
   </modules>
 
+<!-- Delete?
   <distributionManagement>
 
     <repository>
@@ -83,6 +85,7 @@ limitations under the License.
     </repository>
 
   </distributionManagement>
+-->
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -111,7 +114,7 @@ limitations under the License.
     <junit.version>6.0.3</junit.version>
     <assertj.version>3.27.7</assertj.version>
     <mockito.version>5.23.0</mockito.version>
-    <bytebuddy.version>1.18.7</bytebuddy.version>
+    <bytebuddy.version>1.18.8</bytebuddy.version>
     <awaitility.version>4.3.0</awaitility.version>
     <jacoco.version>0.8.14</jacoco.version>
 
@@ -120,6 +123,20 @@ limitations under the License.
 
   <dependencyManagement>
     <dependencies>
+
+      <!-- efs dependencies -->
+
+      <dependency>
+        <groupId>io.github.cwrapp</groupId>
+        <artifactId>efs-event</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>io.github.cwrapp</groupId>
+        <artifactId>efs-dispatcher</artifactId>
+        <version>${project.version}</version>
+      </dependency>
 
       <!-- eBus dependencies -->
 
@@ -240,6 +257,13 @@ limitations under the License.
       </dependency>
 
       <!-- Test dependencies -->
+
+      <dependency>
+        <groupId>io.github.cwrapp</groupId>
+        <artifactId>efs-util</artifactId>
+        <version>${project.version}</version>
+        <scope>test</scope>
+      </dependency>
 
       <dependency>
         <groupId>org.junit.jupiter</groupId>
@@ -392,7 +416,7 @@ limitations under the License.
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-gpg-plugin</artifactId>
-        <version>1.6</version>
+        <version>3.2.8</version>
 
         <executions>
           <execution>
@@ -410,17 +434,15 @@ limitations under the License.
         </executions>
       </plugin>
 
-<!-- Delete?
       <plugin>
         <groupId>org.sonatype.central</groupId>
         <artifactId>central-publishing-maven-plugin</artifactId>
-        <version>0.8.0</version>
+        <version>0.10.0</version>
         <extensions>true</extensions>
         <configuration>
           <publishingServerId>central</publishingServerId>
         </configuration>
       </plugin>
--->
 
     </plugins>
   </build>

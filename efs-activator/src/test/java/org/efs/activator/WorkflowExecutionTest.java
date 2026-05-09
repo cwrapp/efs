@@ -90,10 +90,15 @@ public class WorkflowExecutionTest
     // Statics.
     //
 
-    private static EfsActivator sActivator;
     private static MarketDataAgent sMDAgent;
     private static MakeMoneyAlgoAgent sAlgoAgent;
-    private static ActivatorListener sListener;
+
+    //-----------------------------------------------------------
+    // Locals.
+    //
+
+    private EfsActivator mActivator;
+    private ActivatorListener mListener;
 
 //---------------------------------------------------------------
 // Member methods.
@@ -108,38 +113,37 @@ public class WorkflowExecutionTest
     {
         sMDAgent = new MarketDataAgent();
         sAlgoAgent = new MakeMoneyAlgoAgent();
-        sListener = new ActivatorListener(ACTIVATOR_LISTENER);
 
         EfsDispatcher.register(sMDAgent, MD_DISPATCHER);
         EfsDispatcher.register(sAlgoAgent, ALGO_DISPATCHER);
-        EfsDispatcher.register(sListener, UTILITY_DISPATCHER);
-
-        sActivator =
-            EfsActivator.loadActivator(ACTIVATOR_FILE_NAME);
-
-        sListener.register(sActivator);
     } // end of setUpClass()
 
     @AfterAll
     public static void tearDownClass()
     {
-        sListener.deregister(sActivator);
-
         EfsDispatcher.deregister(sMDAgent);
         EfsDispatcher.deregister(sAlgoAgent);
-        EfsDispatcher.deregister(sListener);
     } // end of tearDownClass()
 
     @BeforeEach
     public void setUp()
     {
-        sListener.clearEvents();
+        mListener = new ActivatorListener(ACTIVATOR_LISTENER);
+        EfsDispatcher.register(mListener, UTILITY_DISPATCHER);
+
+        mActivator =
+            EfsActivator.loadActivator(ACTIVATOR_FILE_NAME);
+
+        mListener.register(mActivator);
     } // end of setUp()
 
     @AfterEach
     public void tearDown()
     {
-        sActivator.terminateWorkflow();
+        mListener.deregister(mActivator);
+        EfsDispatcher.deregister(mListener);
+
+        mActivator.terminateWorkflow();
     } // end of tearDown()
 
     //
@@ -161,7 +165,7 @@ public class WorkflowExecutionTest
         CountDownLatch doneSignal =
             new CountDownLatch(numActivations);
 
-        sListener.doneSignal(doneSignal);
+        mListener.doneSignal(doneSignal);
 
         wfName = HOT_START;
         agentName = MarketDataAgent.AGENT_NAME;
@@ -231,10 +235,10 @@ public class WorkflowExecutionTest
                         EfsAgentState.ACTIVATING,
                         EfsAgentState.ACTIVE));
 
-        sActivator.initializeWorkflow(wfName);
-        sActivator.executeWorkflow();
+        mActivator.initializeWorkflow(wfName);
+        mActivator.executeWorkflow();
 
-        assertThat(sActivator.workflow())
+        assertThat(mActivator.workflow())
             .isEqualTo(EfsActivator.NO_WORKFLOW_IN_PROGRESS);
 
         // Give the activator listener a chance to receive all
@@ -248,12 +252,12 @@ public class WorkflowExecutionTest
         {}
 
         assertThat(
-            sActivator.agentState(MarketDataAgent.AGENT_NAME))
+            mActivator.agentState(MarketDataAgent.AGENT_NAME))
             .isEqualTo(EfsAgentState.ACTIVE);
         assertThat(
-            sActivator.agentState(MakeMoneyAlgoAgent.AGENT_NAME))
+            mActivator.agentState(MakeMoneyAlgoAgent.AGENT_NAME))
             .isEqualTo(EfsAgentState.ACTIVE);
-        assertThat(sListener.events())
+        assertThat(mListener.events())
             .containsExactlyElementsOf(expectedEvents);
 
         wfName = HOT_SHUTDOWN;
@@ -326,11 +330,11 @@ public class WorkflowExecutionTest
                         EfsAgentState.STOPPED));
 
         doneSignal = new CountDownLatch(numActivations);
-        sListener.clearEvents();
-        sListener.doneSignal(doneSignal);
+        mListener.doneSignal(doneSignal);
+        mListener.clearEvents();
 
-        sActivator.initializeWorkflow(wfName);
-        sActivator.executeWorkflow();
+        mActivator.initializeWorkflow(wfName);
+        mActivator.executeWorkflow();
 
         // Give the activator listener a chance to receive all
         // activator events.
@@ -343,12 +347,12 @@ public class WorkflowExecutionTest
         {}
 
         assertThat(
-            sActivator.agentState(MarketDataAgent.AGENT_NAME))
+            mActivator.agentState(MarketDataAgent.AGENT_NAME))
             .isEqualTo(EfsAgentState.STOPPED);
         assertThat(
-            sActivator.agentState(MakeMoneyAlgoAgent.AGENT_NAME))
+            mActivator.agentState(MakeMoneyAlgoAgent.AGENT_NAME))
             .isEqualTo(EfsAgentState.STOPPED);
-        assertThat(sListener.events())
+        assertThat(mListener.events())
             .containsExactlyElementsOf(expectedEvents);
     } // end of fullExecution()
 
@@ -363,7 +367,7 @@ public class WorkflowExecutionTest
         CountDownLatch doneSignal =
             new CountDownLatch(numActivations);
 
-        sListener.doneSignal(doneSignal);
+        mListener.doneSignal(doneSignal);
 
         wfName = WARM_START;
         agentName = MarketDataAgent.AGENT_NAME;
@@ -418,9 +422,9 @@ public class WorkflowExecutionTest
                         EfsAgentState.STARTING,
                         EfsAgentState.STAND_BY));
 
-        sActivator.initializeWorkflow(wfName);
+        mActivator.initializeWorkflow(wfName);
 
-        while (!sActivator.executeNextStage())
+        while (!mActivator.executeNextStage())
         {}
 
         // Give the activator listener a chance to receive all
@@ -434,12 +438,12 @@ public class WorkflowExecutionTest
         {}
 
         assertThat(
-            sActivator.agentState(MarketDataAgent.AGENT_NAME))
+            mActivator.agentState(MarketDataAgent.AGENT_NAME))
             .isEqualTo(EfsAgentState.ACTIVE);
         assertThat(
-            sActivator.agentState(MakeMoneyAlgoAgent.AGENT_NAME))
+            mActivator.agentState(MakeMoneyAlgoAgent.AGENT_NAME))
             .isEqualTo(EfsAgentState.STAND_BY);
-        assertThat(sListener.events())
+        assertThat(mListener.events())
             .containsExactlyElementsOf(expectedEvents);
 
         wfName = WARM_SHUTDOWN;
@@ -496,12 +500,12 @@ public class WorkflowExecutionTest
                         EfsAgentState.STOPPED));
 
         doneSignal = new CountDownLatch(numActivations);
-        sListener.clearEvents();
-        sListener.doneSignal(doneSignal);
+        mListener.clearEvents();
+        mListener.doneSignal(doneSignal);
 
-        sActivator.initializeWorkflow(wfName);
+        mActivator.initializeWorkflow(wfName);
 
-        while (!sActivator.executeNextStage())
+        while (!mActivator.executeNextStage())
         {}
 
         // Give the activator listener a chance to receive all
@@ -515,12 +519,12 @@ public class WorkflowExecutionTest
         {}
 
         assertThat(
-            sActivator.agentState(MarketDataAgent.AGENT_NAME))
+            mActivator.agentState(MarketDataAgent.AGENT_NAME))
             .isEqualTo(EfsAgentState.STOPPED);
         assertThat(
-            sActivator.agentState(MakeMoneyAlgoAgent.AGENT_NAME))
+            mActivator.agentState(MakeMoneyAlgoAgent.AGENT_NAME))
             .isEqualTo(EfsAgentState.STOPPED);
-        assertThat(sListener.events())
+        assertThat(mListener.events())
             .containsExactlyElementsOf(expectedEvents);
     } // end of byStageExecution()
 
@@ -535,7 +539,7 @@ public class WorkflowExecutionTest
         CountDownLatch doneSignal =
             new CountDownLatch(numActivations);
 
-        sListener.doneSignal(doneSignal);
+        mListener.doneSignal(doneSignal);
 
         wfName = WARM_START;
         agentName = MarketDataAgent.AGENT_NAME;
@@ -590,9 +594,9 @@ public class WorkflowExecutionTest
                         EfsAgentState.STARTING,
                         EfsAgentState.STAND_BY));
 
-        sActivator.initializeWorkflow(wfName);
+        mActivator.initializeWorkflow(wfName);
 
-        while (!sActivator.executeNextStep())
+        while (!mActivator.executeNextStep())
         {}
 
         // Give the activator listener a chance to receive all
@@ -606,12 +610,12 @@ public class WorkflowExecutionTest
         {}
 
         assertThat(
-            sActivator.agentState(MarketDataAgent.AGENT_NAME))
+            mActivator.agentState(MarketDataAgent.AGENT_NAME))
             .isEqualTo(EfsAgentState.ACTIVE);
         assertThat(
-            sActivator.agentState(MakeMoneyAlgoAgent.AGENT_NAME))
+            mActivator.agentState(MakeMoneyAlgoAgent.AGENT_NAME))
             .isEqualTo(EfsAgentState.STAND_BY);
-        assertThat(sListener.events())
+        assertThat(mListener.events())
             .containsExactlyElementsOf(expectedEvents);
 
         wfName = WARM_TO_HOT;
@@ -635,12 +639,12 @@ public class WorkflowExecutionTest
                         EfsAgentState.ACTIVE));
 
         doneSignal = new CountDownLatch(numActivations);
-        sListener.clearEvents();
-        sListener.doneSignal(doneSignal);
+        mListener.doneSignal(doneSignal);
+        mListener.clearEvents();
 
-        sActivator.initializeWorkflow(wfName);
+        mActivator.initializeWorkflow(wfName);
 
-        while (!sActivator.executeNextStep())
+        while (!mActivator.executeNextStep())
         {}
 
         // Give the activator listener a chance to receive all
@@ -654,12 +658,12 @@ public class WorkflowExecutionTest
         {}
 
         assertThat(
-            sActivator.agentState(MarketDataAgent.AGENT_NAME))
+            mActivator.agentState(MarketDataAgent.AGENT_NAME))
             .isEqualTo(EfsAgentState.ACTIVE);
         assertThat(
-            sActivator.agentState(MakeMoneyAlgoAgent.AGENT_NAME))
+            mActivator.agentState(MakeMoneyAlgoAgent.AGENT_NAME))
             .isEqualTo(EfsAgentState.ACTIVE);
-        assertThat(sListener.events())
+        assertThat(mListener.events())
             .containsExactlyElementsOf(expectedEvents);
 
         wfName = HOT_SHUTDOWN;
@@ -733,11 +737,11 @@ public class WorkflowExecutionTest
                         EfsAgentState.STOPPED));
 
         doneSignal = new CountDownLatch(numActivations);
-        sListener.clearEvents();
-        sListener.doneSignal(doneSignal);
+        mListener.doneSignal(doneSignal);
+        mListener.clearEvents();
 
-        sActivator.initializeWorkflow(wfName);
-        sActivator.executeWorkflow();
+        mActivator.initializeWorkflow(wfName);
+        mActivator.executeWorkflow();
 
         // Give the activator listener a chance to receive all
         // activator events.
@@ -750,38 +754,38 @@ public class WorkflowExecutionTest
         {}
 
         assertThat(
-            sActivator.agentState(MarketDataAgent.AGENT_NAME))
+            mActivator.agentState(MarketDataAgent.AGENT_NAME))
             .isEqualTo(EfsAgentState.STOPPED);
         assertThat(
-            sActivator.agentState(MakeMoneyAlgoAgent.AGENT_NAME))
+            mActivator.agentState(MakeMoneyAlgoAgent.AGENT_NAME))
             .isEqualTo(EfsAgentState.STOPPED);
-        assertThat(sListener.events())
+        assertThat(mListener.events())
             .containsExactlyElementsOf(expectedEvents);
     } // end of byStepExecution()
 
     @Test
     public void registerListenerTwice()
     {
-        assertThat(sActivator.isRegisteredListener(sListener))
+        assertThat(mActivator.isRegisteredListener(mListener))
             .isTrue();
 
         try
         {
-            sListener.register(sActivator);
+            mListener.register(mActivator);
         }
         catch (IllegalStateException statex)
         {
             assertThat(statex)
                 .hasMessage("agent %s is already registered",
-                            sListener.name());
+                            mListener.name());
         }
 
-        assertThat(sActivator.isRegisteredListener(sListener))
+        assertThat(mActivator.isRegisteredListener(mListener))
             .isTrue();
 
-        sListener.deregister(sActivator);
+        mListener.deregister(mActivator);
 
-        assertThat(sActivator.isRegisteredListener(sListener))
+        assertThat(mActivator.isRegisteredListener(mListener))
             .isFalse();
     } // end of registerListenerTwice()
 

@@ -315,10 +315,10 @@ public final class Workflow
             mStages.get(mCurrentStageIndex);
         final String stageName = mName + "-" + mCurrentStageIndex;
 
-        // Is this stage now completed?
+        // Is this stage now successfully completed?
         if (stage.executeNextStep(stageName, activator))
         {
-            // Move to the next workflow stage.
+            // Yes. Move to the next workflow stage.
             ++mCurrentStageIndex;
         }
 
@@ -469,6 +469,13 @@ public final class Workflow
                 throw (
                     new IllegalArgumentException(
                         "stages is either null or an empty list"));
+            }
+
+            if (stages.contains(null))
+            {
+                throw (
+                    new IllegalArgumentException(
+                        "stages contains a null element"));
             }
 
             mStages = ImmutableList.copyOf(stages);

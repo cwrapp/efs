@@ -22,6 +22,7 @@ import java.lang.reflect.Proxy;
 import java.util.concurrent.CountDownLatch;
 import java.util.function.Consumer;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.efs.dispatcher.EfsDispatcher.DispatcherType;
 import org.efs.dispatcher.config.ThreadType;
 import org.efs.event.IEfsEvent;
@@ -148,15 +149,12 @@ public final class DispatcherRegisterTest
             "efs agent " + mAgentName + " not registered";
 
         assertThat(EfsDispatcher.isRegistered(mAgent)).isFalse();
-
-        try
-        {
-            EfsDispatcher.dispatch(consumer, mEvent, mAgent);
-        }
-        catch (IllegalStateException statex)
-        {
-            assertThat(statex).hasMessage(message);
-        }
+        assertThatThrownBy(
+            () -> EfsDispatcher.dispatch(consumer,
+                                         mEvent,
+                                         mAgent))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage(message);
     } // end of unregisteredAgentDispatchConsumer()
 
     @Test
@@ -167,15 +165,10 @@ public final class DispatcherRegisterTest
             "efs agent " + mAgentName + " not registered";
 
         assertThat(EfsDispatcher.isRegistered(mAgent)).isFalse();
-
-        try
-        {
-            EfsDispatcher.dispatch(task, mAgent);
-        }
-        catch (IllegalStateException statex)
-        {
-            assertThat(statex).hasMessage(message);
-        }
+        assertThatThrownBy(
+            () -> EfsDispatcher.dispatch(task, mAgent))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage(message);
     } // end of unregisteredAgentDispatchTask()
 
     @Test
@@ -212,14 +205,12 @@ public final class DispatcherRegisterTest
 
         EfsDispatcher.deregister(mAgent);
 
-        try
-        {
-            EfsDispatcher.dispatch(consumer, mEvent, mAgent);
-        }
-        catch (IllegalStateException statex)
-        {
-            assertThat(statex).hasMessage(message);
-        }
+        assertThatThrownBy(
+            () -> EfsDispatcher.dispatch(consumer,
+                                         mEvent,
+                                         mAgent))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage(message);
     } // end of registerDeregisterDispatchTest()
 
     //

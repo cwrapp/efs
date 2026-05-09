@@ -86,6 +86,20 @@ import org.slf4j.LoggerFactory;
 //
 
     //-----------------------------------------------------------
+    // Constants.
+    //
+
+    //
+    // Exception messages.
+    //
+
+    /**
+     * {@code NullPointerException} thrown when target is
+     * {@code null} has message {@value}.
+     */
+    public static final String NULL_TARGET = "target is null";
+
+    //-----------------------------------------------------------
     // Statics.
     //
 
@@ -668,7 +682,7 @@ Ponger
      *   </li>
      * </ul>
      */
-    private void postToRunQueue()
+    /* package */ void postToRunQueue()
     {
         // Is this agent still registered?
         // Does it have events to deliver?
@@ -1083,7 +1097,8 @@ Ponger
         public Builder agent(final IEfsAgent target)
         {
             mAgent =
-                Objects.requireNonNull(target, "target is null");
+                Objects.requireNonNull(
+                    target, EfsDispatcher.NULL_DISPATCH_TARGET);
 
             return (this);
         } // end of agent(IEfsAgent)
@@ -1101,7 +1116,7 @@ Ponger
         {
             mDispatcher =
                 Objects.requireNonNull(
-                    dispatcher, "dispatcher is null");
+                    dispatcher, EfsDispatcher.NULL_DISPATCHER);
 
             return (this);
         } // end of dispatcher(IEfsDispatcher)
@@ -1120,7 +1135,7 @@ Ponger
             {
                 throw (
                     new IllegalArgumentException(
-                        "maxEvents <= zero"));
+                        EfsDispatcher.INVALID_MAX_EVENTS));
             }
 
             mMaxEvents = maxEvents;
@@ -1140,11 +1155,11 @@ Ponger
          */
         public Builder eventQueueCapacity(final int capacity)
         {
-            if (capacity <= 0)
+            if (capacity < EfsDispatcher.MIN_QUEUE_SIZE)
             {
                 throw (
                     new IllegalArgumentException(
-                        "capacity <= zero"));
+                        EfsDispatcher.INVALID_EVENT_QUEUE_CAPACITY));
             }
 
             mEventQueueCapacity =

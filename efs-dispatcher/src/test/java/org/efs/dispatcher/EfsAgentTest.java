@@ -18,6 +18,7 @@ package org.efs.dispatcher;
 import java.util.function.Consumer;
 import net.sf.eBus.util.ValidationException;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.efs.dispatcher.EfsAgent.RunState;
 import org.efs.event.IEfsEvent;
 import org.junit.jupiter.api.BeforeAll;
@@ -103,14 +104,9 @@ public class EfsAgentTest
         final IEfsAgent eobj = null;
         final EfsAgent.Builder builder = EfsAgent.builder();
 
-        try
-        {
-            builder.agent(eobj);
-        }
-        catch (NullPointerException nullex)
-        {
-            assertThat(nullex).hasMessage("target is null");
-        }
+        assertThatThrownBy(() -> builder.agent(eobj))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(EfsDispatcher.NULL_DISPATCH_TARGET);
     } // end of builderNullTarget()
 
     @Test
@@ -119,14 +115,9 @@ public class EfsAgentTest
         final IEfsDispatcher dispatcher = null;
         final EfsAgent.Builder builder = EfsAgent.builder();
 
-        try
-        {
-            builder.dispatcher(dispatcher);
-        }
-        catch (NullPointerException nullex)
-        {
-            assertThat(nullex).hasMessage("dispatcher is null");
-        }
+        assertThatThrownBy(() -> builder.dispatcher(dispatcher))
+            .isInstanceOfAny(NullPointerException.class)
+            .hasMessage(EfsDispatcher.NULL_DISPATCHER);
     } // end of builderNullDispatcher()
 
     @Test
@@ -135,31 +126,23 @@ public class EfsAgentTest
         final int maxEvents = 0;
         final EfsAgent.Builder builder = EfsAgent.builder();
 
-        try
-        {
-            builder.maxEvents(maxEvents);
-        }
-        catch (IllegalArgumentException argex)
-        {
-            assertThat(argex).hasMessage("maxEvents <= zero");
-        }
+        assertThatThrownBy(() -> builder.maxEvents(maxEvents))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_MAX_EVENTS);
     } // end of builderZeroMaxEvents()
 
     @Test
-    public void builderZeroCapacity()
+    public void builderTooSmallCapacity()
     {
-        final int capacity = 0;
+        final int capacity = (EfsDispatcher.MIN_QUEUE_SIZE - 1);
         final EfsAgent.Builder builder = EfsAgent.builder();
 
-        try
-        {
-            builder.eventQueueCapacity(capacity);
-        }
-        catch (IllegalArgumentException argex)
-        {
-            assertThat(argex).hasMessage("capacity <= zero");
-        }
-    } // end of builderZeroCapacity()
+        assertThatThrownBy(
+            () -> builder.eventQueueCapacity(capacity))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(
+                EfsDispatcher.INVALID_EVENT_QUEUE_CAPACITY);
+    } // end of builderTooSmallCapacity()
 
     @Test
     public void builderExceedsMaxCapacity()
@@ -171,14 +154,10 @@ public class EfsAgentTest
                 capacity);
         final EfsAgent.Builder builder = EfsAgent.builder();
 
-        try
-        {
-            builder.eventQueueCapacity(capacity);
-        }
-        catch (IllegalArgumentException argex)
-        {
-            assertThat(argex).hasMessage(text);
-        }
+        assertThatThrownBy(
+            () -> builder.eventQueueCapacity(capacity))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(text);
     } // end of builderExceedsMaxCapacity()
 
     @Test
@@ -186,19 +165,13 @@ public class EfsAgentTest
     {
         final EfsAgent.Builder builder = EfsAgent.builder();
 
-        try
-        {
-            builder.build();
-        }
-        catch (ValidationException vex)
-        {
-            assertThat(vex)
-                .hasMessageContainingAll(
+        assertThatThrownBy(() -> builder.build())
+            .isInstanceOf(ValidationException.class)
+            .hasMessageContainingAll(
                     "agent: not set",
                     "maxEvents: not set",
                     "dispatcher: not set",
                     "eventQueueCapacity: not set");
-        }
     } // end of builderInvalidSettings()
 
     @Test

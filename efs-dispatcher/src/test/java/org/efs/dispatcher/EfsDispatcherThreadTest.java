@@ -21,6 +21,7 @@ import java.util.Queue;
 import java.util.concurrent.LinkedBlockingQueue;
 import net.sf.eBus.util.ValidationException;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.efs.dispatcher.EfsDispatcherThread.DispatcherThreadState;
 import org.efs.dispatcher.EfsDispatcherThread.DispatcherThreadStats;
 import org.efs.dispatcher.config.ThreadType;
@@ -92,17 +93,9 @@ public class EfsDispatcherThreadTest
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
 
-        try
-        {
-            builder.threadName(threadName);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex)
-                .hasMessage("threadName is either null or an empty string");
-        }
+        assertThatThrownBy(() -> builder.threadName(threadName))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_THREAD_NAME);
     } // end of builderNullThreadName()
 
     @Test
@@ -112,18 +105,22 @@ public class EfsDispatcherThreadTest
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
 
-        try
-        {
-            builder.threadName(threadName);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex)
-                .hasMessage("threadName is either null or an empty string");
-        }
+        assertThatThrownBy(() -> builder.threadName(threadName))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_THREAD_NAME);
     } // end of builderEmptyThreadName()
+
+    @Test
+    public void builderBlankThreadName()
+    {
+        final String threadName = "\t";
+        final EfsDispatcherThread.Builder builder =
+            EfsDispatcherThread.builder();
+
+        assertThatThrownBy(() -> builder.threadName(threadName))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_THREAD_NAME);
+    } // end of builderBlankThreadName()
 
     @Test
     public void builderNullThreadType()
@@ -132,16 +129,9 @@ public class EfsDispatcherThreadTest
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
 
-        try
-        {
-            builder.threadType(threadType);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(NullPointerException.class);
-            assertThat(jex).hasMessage("threadType is null");
-        }
+        assertThatThrownBy(() -> builder.threadType(threadType))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(EfsDispatcher.NULL_THREAD_TYPE);
     } // end of builderNullThreadType()
 
     @Test
@@ -151,16 +141,9 @@ public class EfsDispatcherThreadTest
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
 
-        try
-        {
-            builder.priority(priority);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex).hasMessage("priority out of bounds");
-        }
+        assertThatThrownBy(() -> builder.priority(priority))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_PRIORITY);
     } // end of builderPriorityLessThanMin()
 
     @Test
@@ -170,16 +153,9 @@ public class EfsDispatcherThreadTest
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
 
-        try
-        {
-            builder.priority(priority);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex).hasMessage("priority out of bounds");
-        }
+        assertThatThrownBy(() -> builder.priority(priority))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_PRIORITY);
     } // end of builderPriorityGreaterThanMax()
 
     @Test
@@ -189,16 +165,9 @@ public class EfsDispatcherThreadTest
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
 
-        try
-        {
-            builder.spinLimit(spinLimit);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex).hasMessage("limit < zero");
-        }
+        assertThatThrownBy(() -> builder.spinLimit(spinLimit))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_SPIN_LIMIT);
     } // end of builderNegativeSpinLimit()
 
     @Test
@@ -208,16 +177,9 @@ public class EfsDispatcherThreadTest
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
 
-        try
-        {
-            builder.parkTime(parkTime);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(NullPointerException.class);
-            assertThat(jex).hasMessage("time is null");
-        }
+        assertThatThrownBy(() -> builder.parkTime(parkTime))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(EfsDispatcher.NULL_TIME);
     } // end of builderNullParkTime()
 
     @Test
@@ -227,16 +189,9 @@ public class EfsDispatcherThreadTest
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
 
-        try
-        {
-            builder.parkTime(parkTime);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex).hasMessage("time < zero");
-        }
+        assertThatThrownBy(() -> builder.parkTime(parkTime))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_TIME);
     } // end of builderNegativeParkTime()
 
     @Test
@@ -246,16 +201,9 @@ public class EfsDispatcherThreadTest
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
 
-        try
-        {
-            builder.maxEvents(maxEvents);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(IllegalArgumentException.class);
-            assertThat(jex).hasMessage("maxEvents <= zero");
-        }
+        assertThatThrownBy(() -> builder.maxEvents(maxEvents))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_MAX_EVENTS);
     } // end of builderZeroMaxEvents()
 
     @Test
@@ -265,16 +213,9 @@ public class EfsDispatcherThreadTest
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
 
-        try
-        {
-            builder.runQueue(runQueue);
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(NullPointerException.class);
-            assertThat(jex).hasMessage("queue is null");
-        }
+        assertThatThrownBy(() -> builder.runQueue(runQueue))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(EfsDispatcher.NULL_RUN_QUEUE);
     } // end of builderNullRunQueue()
 
     @Test
@@ -283,19 +224,10 @@ public class EfsDispatcherThreadTest
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
 
-        try
-        {
-            builder.build();
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(ValidationException.class);
-            assertThat(jex)
-                .hasMessageContainingAll(
-                    "threadName: not set",
-                    "threadType: not set");
-        }
+        assertThatThrownBy(() -> builder.build())
+            .isInstanceOf(ValidationException.class)
+            .hasMessageContainingAll("threadName: not set",
+                                     "threadType: not set");
     } // end of builderThreadTypeNotSet()
 
     @Test
@@ -306,20 +238,12 @@ public class EfsDispatcherThreadTest
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
 
-        try
-        {
-            builder.threadName(threadName)
-                   .threadType(threadType)
-                   .build();
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(ValidationException.class);
-            assertThat(jex)
-                .hasMessageContainingAll(
-                    "runQueue: not set");
-        }
+        assertThatThrownBy(
+            () -> builder.threadName(threadName)
+                         .threadType(threadType)
+                         .build())
+            .isInstanceOf(ValidationException.class)
+            .hasMessageContainingAll("runQueue: not set");
     } // end of builderInvalidBlockingSettings()
 
     @Test
@@ -333,23 +257,16 @@ public class EfsDispatcherThreadTest
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
 
-        try
-        {
-            builder.threadName(threadName)
-                   .threadType(threadType)
-                   .priority(priority)
-                   .maxEvents(maxEvents)
-                   .runQueue(runQueue)
-                   .build();
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(ValidationException.class);
-            assertThat(jex)
-                .hasMessageContainingAll(
+        assertThatThrownBy(
+            () -> builder.threadName(threadName)
+                         .threadType(threadType)
+                         .priority(priority)
+                         .maxEvents(maxEvents)
+                         .runQueue(runQueue)
+                         .build())
+            .isInstanceOf(ValidationException.class)
+            .hasMessageContainingAll(
                     "runQueue: does not match thread type");
-        }
     } // end of builderBlockingRunQueueMismatch()
 
     @Test
@@ -360,20 +277,12 @@ public class EfsDispatcherThreadTest
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
 
-        try
-        {
-            builder.threadName(threadName)
-                   .threadType(threadType)
-                   .build();
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(ValidationException.class);
-            assertThat(jex)
-                .hasMessageContainingAll(
-                    "runQueue: not set");
-        }
+        assertThatThrownBy(
+            () -> builder.threadName(threadName)
+                         .threadType(threadType)
+                         .build())
+            .isInstanceOf(ValidationException.class)
+            .hasMessageContainingAll("runQueue: not set");
     } // end of builderInvalidSpinningSettings()
 
     @Test
@@ -386,22 +295,15 @@ public class EfsDispatcherThreadTest
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
 
-        try
-        {
-            builder.threadName(threadName)
-                   .threadType(threadType)
-                   .maxEvents(maxEvents)
-                   .runQueue(runQueue)
-                   .build();
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(ValidationException.class);
-            assertThat(jex)
-                .hasMessageContaining(
-                    "spinLimit: not set for spin+park/spin+yield thread type");
-        }
+        assertThatThrownBy(
+            () -> builder.threadName(threadName)
+                         .threadType(threadType)
+                         .maxEvents(maxEvents)
+                         .runQueue(runQueue)
+                         .build())
+            .isInstanceOf(ValidationException.class)
+            .hasMessageContaining(
+                "spinLimit: not set for spin+park/spin+yield thread type");
     } // end of builderInvalidSpinYieldSettings()
 
     @Test
@@ -415,23 +317,16 @@ public class EfsDispatcherThreadTest
         final EfsDispatcherThread.Builder builder =
             EfsDispatcherThread.builder();
 
-        try
-        {
-            builder.threadName(threadName)
-                   .threadType(threadType)
-                   .maxEvents(maxEvents)
-                   .runQueue(runQueue)
-                   .spinLimit(spinLimit)
-                   .build();
-        }
-        catch (Exception jex)
-        {
-            assertThat(jex)
-                .isInstanceOf(ValidationException.class);
-            assertThat(jex)
-                .hasMessageContaining(
-                    "parkTime: not set for spin+park thread type");
-        }
+        assertThatThrownBy(
+            () -> builder.threadName(threadName)
+                         .threadType(threadType)
+                         .maxEvents(maxEvents)
+                         .runQueue(runQueue)
+                         .spinLimit(spinLimit)
+                         .build())
+            .isInstanceOf(ValidationException.class)
+            .hasMessageContaining(
+                "parkTime: not set for spin+park thread type");
     } // end of builderInvalidSpinParkSettings()
 
     @Test

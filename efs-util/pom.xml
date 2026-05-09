@@ -24,9 +24,9 @@ limitations under the License.
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId>com.github.cwrapp</groupId>
+    <groupId>io.github.cwrapp</groupId>
     <artifactId>efs-parent</artifactId>
-    <version>0.6.1</version>
+    <version>0.6.2</version>
   </parent>
 
   <artifactId>efs-util</artifactId>

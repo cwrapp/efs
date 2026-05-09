@@ -88,6 +88,11 @@ public final class WorkflowStage
      * Current step index. Set to {@link #mStepCount} when
      * this stage is not configured for step execution. This is
      * the initial value.
+     * <p>
+     * This value's correctness is guaranteed that is is accessed
+     * only within the context of the thread-safe
+     * {@link EfsActivator}.
+     * </p>
      */
     private int mCurrentStepIndex;
 
@@ -122,7 +127,9 @@ public final class WorkflowStage
     /**
      * Returns text containing workflow stage index and
      * subordinate steps. Example output is:
-     * <pre><code>[agent=market-data-agent, transition=STAND_BY -> STOPPED, allowed time=PT0.5S</code></pre>
+     * <pre><code>[index=2, steps={
+     *   [0] [agent=market-data-agent, transition=STAND_BY -> STOPPED, allowed time=PT0.5S]
+     * }]</code></pre>
      * @return textual representation of this workflow step.
      */
     @Override
@@ -216,6 +223,8 @@ public final class WorkflowStage
      * previously called {@link #validateStepIndex(int)} to
      * guarantee that {@code stepIndex} is valid.
      * @param stepIndex step index.
+     *
+     * @see #validateStepIndex(int)
      */
     /* package */ void setStepIndex(final int stepIndex)
     {
@@ -246,11 +255,13 @@ public final class WorkflowStage
 
     /**
      * Executes current workflow step only and goes no further.
+     * If this workflow step fails an
+     * {@code IllegalStateException} is thrown. Workflow is
+     * guaranteed to be left in a good state in this case.
      * @param stageName name uniquely identifying this stage
      * within a workflow.
      * @param activator workflow activator.
-     * @return {@code true} if all steps in this stage are now
-     * executed.
+     * @return {@code true} if next step successfully executed.
      * @throws IllegalStateException
      * if activation fails.
      * @throws RuntimeException
@@ -271,6 +282,9 @@ public final class WorkflowStage
                       stageName,
                       mCurrentStepIndex);
 
+        // Note: workflow step throws an IllegalStateException if
+        // execution fails. Therefore, a safe return means step
+        // successfully executed.
         step.execute(stepName, activator);
 
         sLogger.trace("{}: step {} executed successfully.",
@@ -285,12 +299,15 @@ public final class WorkflowStage
     } // end of executeNextStep(EfsActivator)
 
     /**
-     * Executes all remaining steps in this stage.
+     * Executes all remaining steps in this stage. If any step
+     * execution fails an {@code IllegalStateException} is
+     * thrown. Workflow is guaranteed to be left in a good state
+     * in this case.
      * @param stageName name uniquely identifying this stage
      * within a workflow.
      * @param activator workflow activator.
-     * @return {@code true} since all steps in this stage are
-     * now executed.
+     * @return {@code true} if all steps in this stage executed
+     * successfully.
      * @throws IllegalStateException
      * if activation fails.
      *

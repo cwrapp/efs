@@ -267,6 +267,9 @@ public abstract class AbstractTestAgent
             "        median= %,11d nanoseconds.%n",
             latencies[median]);
         output.format(
+            "       average= %,11d nanoseconds.%n",
+            mAverageLatency);
+        output.format(
             "75%% percentile= %,11d nanoseconds%n",
             latencies[p75]);
         output.format(
@@ -279,9 +282,8 @@ public abstract class AbstractTestAgent
             "99%% percentile= %,11d nanoseconds%n",
             latencies[p99]);
         output.format(
-            "       maximum= %,11d nanoseconds.%n", mMaxLatency);
-        output.format(
-            "       average= %,11d nanoseconds.%n%n", mAverageLatency);
+            "       maximum= %,11d nanoseconds.%n%n",
+            mMaxLatency);
 
         output.format("Time intervals:%n");
         for (i = 0; i < BUCKET_COUNT; ++i)

@@ -22,6 +22,7 @@ import java.util.List;
 import net.openhft.affinity.AffinityLock;
 import net.openhft.affinity.AffinityStrategies;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.efs.dispatcher.config.ThreadAffinity;
 import org.efs.dispatcher.config.ThreadAffinityConfig;
 import org.efs.dispatcher.config.ThreadAffinityConfig.AffinityType;
@@ -106,15 +107,10 @@ public class ThreadAffinityTest
     {
         final ThreadAffinityConfig config = null;
 
-        try
-        {
-            ThreadAffinity.acquireLock(config);
-        }
-        catch (NullPointerException nullex)
-        {
-            assertThat(nullex)
-                .hasMessage(ThreadAffinity.NULL_CONFIG);
-        }
+        assertThatThrownBy(
+            () -> ThreadAffinity.acquireLock(config))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(ThreadAffinity.NULL_CONFIG);
     } // end of aquireLockNullConfig()
 
     @Test
@@ -124,15 +120,11 @@ public class ThreadAffinityTest
         final ThreadAffinityConfig config =
             createAnyCoreAffinity();
 
-        try
-        {
-            ThreadAffinity.acquireLock(affinityLock, config);
-        }
-        catch (NullPointerException nullex)
-        {
-            assertThat(nullex)
-                .hasMessage(ThreadAffinity.NULL_LOCK);
-        }
+        assertThatThrownBy(
+            () -> ThreadAffinity.acquireLock(affinityLock,
+                                             config))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(ThreadAffinity.NULL_LOCK);
     } // end of acquireLockNullLock()
 
     @Disabled
@@ -140,24 +132,14 @@ public class ThreadAffinityTest
     public void acquireLockNullConfig2()
     {
         final ThreadAffinityConfig config = null;
+        final AffinityLock affinityLock =
+            ThreadAffinity.acquireLock(createAnyCoreAffinity());
 
-        try
-        {
-            final AffinityLock affinityLock =
-                ThreadAffinity.acquireLock(
-                    createAnyCoreAffinity());
-
-            ThreadAffinity.acquireLock(affinityLock, config);
-        }
-        catch (IllegalArgumentException argex)
-        {
-            // Ignore.
-        }
-        catch (NullPointerException nullex)
-        {
-            assertThat(nullex)
-                .hasMessage(ThreadAffinity.NULL_CONFIG);
-        }
+        assertThatThrownBy(
+            () -> ThreadAffinity.acquireLock(affinityLock,
+                                             config))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(ThreadAffinity.NULL_CONFIG);
     } // end of acquireLockNullConfig2()
 
     @Test
@@ -243,16 +225,11 @@ public class ThreadAffinityTest
         final ThreadAffinityConfig config =
             createCpuStrategiesAffinity();
 
-        try
-        {
-            ThreadAffinity.acquireLock(config);
-        }
-        catch (IllegalStateException statex)
-        {
-            assertThat(statex)
-                .hasMessage(
-                    "affinity lock acquisition using strategies requires an existing lock");
-        }
+        assertThatThrownBy(
+            () -> ThreadAffinity.acquireLock(config))
+            .isInstanceOfAny(IllegalStateException.class)
+            .hasMessage(
+                "affinity lock acquisition using strategies requires an existing lock");
     } // end of aquireLockCpuStrategiesWithoutLock()
 
     @Test
@@ -262,39 +239,27 @@ public class ThreadAffinityTest
         final ThreadAffinityConfig config =
             createCpuStrategiesAffinity();
 
-        try
-        {
-            ThreadAffinity.acquireLock(affinityLock, config);
-        }
-        catch (NullPointerException nullex)
-        {
-            assertThat(nullex).hasMessage("lock is null");
-        }
+        assertThatThrownBy(
+            () -> ThreadAffinity.acquireLock(affinityLock,
+                                             config))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage("lock is null");
     } // end of acquireLockCpuStrategiesNullLock()
 
     @Test
     public void acquireLockCpuStrategiesWrongType()
     {
-        try
-        {
-            final AffinityLock affinityLock =
-                ThreadAffinity.acquireLock(
-                    createCpuIdAffinity());
-            final ThreadAffinityConfig config =
-                createAnyCoreAffinity();
+        final AffinityLock affinityLock =
+            ThreadAffinity.acquireLock(createCpuIdAffinity());
+        final ThreadAffinityConfig config =
+            createAnyCoreAffinity();
 
-            ThreadAffinity.acquireLock(affinityLock, config);
-        }
-        catch (IllegalStateException statex)
-        {
-            // Ignore.
-        }
-        catch (IllegalArgumentException argex)
-        {
-            assertThat(argex)
-                .hasMessage(
-                    "invalid affinity type ANY_CORE, must be CPU_STRATEGIES");
-        }
+        assertThatThrownBy(
+            () -> ThreadAffinity.acquireLock(affinityLock,
+                                             config))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(
+                "invalid affinity type ANY_CORE, must be CPU_STRATEGIES");
     } // end of acquireLockCpuStrategiesWrongType()
 
     @Test

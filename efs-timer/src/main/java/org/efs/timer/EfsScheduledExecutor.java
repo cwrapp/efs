@@ -16,11 +16,8 @@
 
 package org.efs.timer;
 
-import com.google.common.collect.ImmutableList;
-import jakarta.annotation.Nonnull;
 import jakarta.annotation.Nullable;
 import java.time.Duration;
-import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -51,7 +48,7 @@ import org.slf4j.Logger;
  * </p>
  * <p>
  * Unlike {@code java.util.concurrent.ScheduledExecutorService},
- efs scheduled service does <em>not</em> support delay or
+ * efs scheduled service does <em>not</em> support delay or
  * period &lt; zero. A repeating fixed delay or repeating fixed
  * rate period must be &gt; zero. A zero single-shot delay or
  * initial delay must be &ge; zero.
@@ -68,12 +65,25 @@ import org.slf4j.Logger;
  * Note that the {@code ScheduledExecutorService} instance must
  * not be {@code null} or shut down.
  * <p>
- * It is possible to use this {@code ScheduledExecutorService}
- * instance for other tasks and even shutdown this service
- * independently of the {@code EfsScheduledExecutor} instance
- * encapsulating this service. This is because
- * {@code EfsScheduledExecutor} tracks the
- * {@code ScheduledExecutorService} status.
+ * {@code EfsScheduledExecutor} uses a user-provided
+ * {@code ScheduledExecutorService} instance. The user is
+ * responsible for creating, maintaining, and terminating this
+ * executor service. {@code EfsScheduleExecutor} assumes that
+ * its encapsulated executor service is available when scheduling
+ * callback tasks. This means that
+ * {@code RejectedExecutionException} may be thrown when calling
+ * {@code EfsScheduleExecutor} schedule methods. Caller is
+ * responsible for handling these exceptions when thrown.
+ * </p>
+ * <p>
+ * By encapsulating a user-provided
+ * {@code ScheduledExecutorService}, {@code EfsScheduledExecutor}
+ * allows the user to select the executor service implementation.
+ * </p>
+ * <p>
+ * Because this {@code ScheduledExecutorService} is owned by the
+ * {@code EfsScheduledExecutor} user it is possible to use this
+ * executor service for other tasks.
  * </p>
  * <h2>Usage Example</h2>
  This code example assumes that an efs scheduled service was
@@ -161,7 +171,7 @@ public final class EfsScheduledExecutor
      * Use command line option {@code -D}{@value}{@code=<file>}
      * to specify file containing a typesafe HOCON {a form of
      * JSON} configuration for one or more's
-     * {@code EfsScheduledExcutor}s.
+     * {@code EfsScheduledExecutor}s.
      */
     public static final String SCHEDULER_CONFIG_OPTION =
         "org.efs.timer.configFile";
@@ -279,12 +289,6 @@ public final class EfsScheduledExecutor
     public static final String UNREGISTERED_AGENT =
         " is not registered with a dispatcher";
 
-    /**
-     * Shut down scheduler message is {@value}.
-     */
-    public static final String EXEC_SHUT_DOWN =
-        "scheduled executor is shut down";
-
     //-----------------------------------------------------------
     // Statics.
     //
@@ -344,38 +348,6 @@ public final class EfsScheduledExecutor
     //
 
     /**
-     * Returns {@code true} if this service has <em>not</em>
-     * been shut down.
-     * @return {@code true} if this service is running.
-     */
-    public boolean isRunning()
-    {
-        return (!mExecutor.isShutdown());
-    } // end of isRunning()
-
-    /**
-     * Returns {@code true} if this service has been shut down.
-     * @return {@code true} if this service has been shut down
-     */
-    public boolean isShutdown()
-    {
-        return (mExecutor.isShutdown());
-    } // end of isShutdown()
-
-    /**
-     * Returns {@code true} if all tasks have completed following
-     * shut down. Note that {@code isTerminated} is never
-     * {@code true} unless either {@code shutdown} or
-     * {@code shutdownNow} was called first.
-     * @return {@code true} if all tasks have completed following
-     * shut down.
-     */
-    public boolean isTerminated()
-    {
-        return (mExecutor.isTerminated());
-    } // end of isTerminated()
-
-    /**
      * Returns encapsulated Java scheduled executor service.
      * @return encapsulated Java scheduled executor service.
      */
@@ -389,106 +361,12 @@ public final class EfsScheduledExecutor
     //-----------------------------------------------------------
 
     //-----------------------------------------------------------
-    // Set Methods.
-    //
-
-    /**
-     * Initiates an orderly shutdown in which previously
-     * submitted tasks are executed, but no new tasks will be
-     * accepted. Invocation has no additional effect if already
-     * shut down. Shuts down this executor thread which results
-     * in all currently scheduled timers being canceled.
-     * <p>
-     * This method does not wait for previously submitted tasks
-     * to complete execution. Use {@link #awaitTermination} to do
-     * that.
-     * </p>
-     * @throws SecurityException
-     * if a security manager exists and shutting down this
-     * {@code ExecutorService} may manipulate threads that caller
-     * is not permitted to modify because it does not hold
-     * {@code RuntimePermission("modifyThread")}, or the security
-     * manager's {@code checkAccess} method denies access.
-     */
-    public void shutdown()
-    {
-        // Is this scheduled service currently running?
-        if (!mExecutor.isShutdown())
-        {
-            // Yes. Shut down the encapsulated scheduled
-            // service.
-            mExecutor.shutdown();
-        }
-    } // end of shutdown()
-
-    /**
-     * Attempts to stop all actively executing tasks and halts
-     * processing of waiting tasks, and returns list of tasks
-     * awaiting execution.
-     * <p>
-     * This method does not wait for actively executing tasks to
-     * terminate. Use {@link #awaitTermination} to do that.
-     * </p>
-     * @return list of tasks that never commenced execution. This
-     * list may be empty but never {@code null}.
-     * @throws SecurityException
-     * if a security manager exists and shutting down this
-     * {@code ExecutorService} may manipulate threads that caller
-     * is not permitted to modify because it does not hold
-     * {@code RuntimePermission("modifyThread")}, or the security
-     * manager's {@code checkAccess} method denies access.
-     */
-    @Nonnull public List<Runnable> shutdownNow()
-    {
-        final List<Runnable> retval;
-
-        // Is this scheduled service currently running?
-        if (mExecutor.isShutdown())
-        {
-            // No. Return an empty runnable tasks list.
-            retval = ImmutableList.of();
-        }
-        else
-        {
-            // Yes. Now shut down the encapsulated scheduled
-            // service.
-            retval = mExecutor.shutdownNow();
-        }
-
-        return (retval);
-    } // end of shutdownNow()
-
-    /**
-     * Blocks until all tasks have completed execution after a
-     * shutdown request, or the timeout occurs, or the current
-     * thread is interrupted, whichever happens first.
-     * @param timeout maximum wait time.
-     * @param unit {@code timeout} time unit.
-     * @return {@code true} if this service terminated and
-{@code false} if the timeout elapsed before termination
-     * @throws InterruptedException
-     * if interrupted while waiting.
-     */
-    public boolean awaitTermination(final long timeout,
-                                    final TimeUnit unit)
-        throws InterruptedException
-    {
-        return (mExecutor.awaitTermination(timeout, unit));
-    } // end of awaitTermination(long, TimeUnit)
-
-    //
-    // end of Set Methods.
-    //-----------------------------------------------------------
-
-    //-----------------------------------------------------------
     // Schedule Methods.
     //
 
     /**
      * Submits a single-shot timer which expires after the given
-     * delay. Note that once a callback begins executing, it will
-     * <em>not</em> be stopped if returned future is canceled or
-     * the underlying executor service is shut down.
+     * delay.
      * @param timerName timer name meaningful to caller. This
      * name may be {@code null} or an empty string.
      * @param datum user-provided data which will be forwarded
@@ -556,7 +434,12 @@ public final class EfsScheduledExecutor
                     EXCESSIVE_DELAY, arthex));
         }
 
-        validateAgent(agent);
+        if (!EfsDispatcher.isRegistered(agent))
+        {
+            throw (
+                new RejectedExecutionException(
+                    agent.name() + UNREGISTERED_AGENT));
+        }
 
         sLogger.debug(
             "scheduling single shot timer, delay={}, agent={}, timer={}.",
@@ -566,14 +449,13 @@ public final class EfsScheduledExecutor
 
         // Create timer task and schedule with service.
         task =
-            new EfsTimerTask(
-                timerName, datum, callback, agent, this);
+            new EfsTimerTask(timerName, datum, callback, agent);
         retval = mExecutor.schedule(task,
                                     nanosDelay,
                                     TimeUnit.NANOSECONDS);
 
         return (retval);
-    } // end of scheduleAtFixedRate(Runnable,IEfsAgent,Duration)
+    } // end of schedule(...)
 
     /**
      * Submits a periodic action that becomes enabled first after
@@ -598,9 +480,6 @@ public final class EfsScheduledExecutor
      *     The task's execution results in a thrown exception.
      *   </li>
      * </ul>
-     * Note that once a callback begins executing, it will
-     * <em>not</em> be stopped if returned future is canceled or
-     * the underlying executor service is shut down.
      * Once a timer is canceled, subsequent executions are
      * suppressed and {@link ScheduledFuture#isDone() isDone}
      * returns {@code true}.
@@ -706,7 +585,12 @@ public final class EfsScheduledExecutor
                 new RejectedExecutionException(NEGATIVE_PERIOD));
         }
 
-        validateAgent(agent);
+        if (!EfsDispatcher.isRegistered(agent))
+        {
+            throw (
+                new RejectedExecutionException(
+                    agent.name() + UNREGISTERED_AGENT));
+        }
 
         sLogger.debug(
             "scheduling fixed rate timer, initial delay: {}, period: {}, agent={}, timer={}.",
@@ -717,8 +601,7 @@ public final class EfsScheduledExecutor
 
         // Create timer task and store in timer priority queue.
         task =
-            new EfsTimerTask(
-                timerName, datum, callback, agent, this);
+            new EfsTimerTask(timerName, datum, callback, agent);
         retval =
             mExecutor.scheduleAtFixedRate(task,
                                           nanosInitDelay,
@@ -754,9 +637,6 @@ public final class EfsScheduledExecutor
      *     exception.
      *   </li>
      * </ul>
-     * Note that once a callback begins executing, it will
-     * <em>not</em> be stopped if returned future is canceled or
-     * the underlying executor service is shut down.
      * Once a timer is canceled, subsequent executions are
      * suppressed and {@link ScheduledFuture#isDone() isDone}
      * returns {@code true}.
@@ -858,7 +738,12 @@ public final class EfsScheduledExecutor
                     EXCESSIVE_DELAY, arthex));
         }
 
-        validateAgent(agent);
+        if (!EfsDispatcher.isRegistered(agent))
+        {
+            throw (
+                new RejectedExecutionException(
+                    agent.name() + UNREGISTERED_AGENT));
+        }
 
         sLogger.debug(
             "scheduling fixed delay timer, initial delay: {}, delay: {}, agent={}, timer={}.",
@@ -869,8 +754,7 @@ public final class EfsScheduledExecutor
 
         // Create timer task and store in timer priority queue.
         task =
-            new EfsTimerTask(
-                timerName, datum, callback, agent, this);
+            new EfsTimerTask(timerName, datum, callback, agent);
         retval =
             mExecutor.scheduleWithFixedDelay(
                 task,
@@ -884,31 +768,6 @@ public final class EfsScheduledExecutor
     //
     // end of Schedule Methods.
     //-----------------------------------------------------------
-
-    /**
-     * This method validates that given agent is registered with
-     * {@code EfsDispatcher} and underlying scheduled executor is
-     * not shut down. This method is called for effect only.
-     * @param agent check if this agent is registered.
-     * @throws RejectedExecutionException
-     * if {@code agent} is not registered or underlying scheduled
-     * executor is shut down.
-     */
-    private void validateAgent(final IEfsAgent agent)
-    {
-        if (!EfsDispatcher.isRegistered(agent))
-        {
-            throw (
-                new RejectedExecutionException(
-                    agent.name() + UNREGISTERED_AGENT));
-        }
-
-        if (mExecutor.isShutdown())
-        {
-            throw (
-                new RejectedExecutionException(EXEC_SHUT_DOWN));
-        }
-    } // end of validateAgent()
 
 //---------------------------------------------------------------
 // Inner classes.
@@ -956,11 +815,6 @@ public final class EfsScheduledExecutor
          */
         private final IEfsAgent mAgent;
 
-        /**
-         * This task is executed by {@link EfsScheduledExecutor}.
-         */
-        private final EfsScheduledExecutor mExecutor;
-
 //-----------------------------------------------------------
 // Member methods.
 //
@@ -981,15 +835,13 @@ public final class EfsScheduledExecutor
         private EfsTimerTask(@Nullable final String timerName,
                              @Nullable final Object datum,
                              final Consumer<EfsTimerEvent> callback,
-                             final IEfsAgent agent,
-                             final EfsScheduledExecutor executor)
+                             final IEfsAgent agent)
         {
             mTimerName = timerName;
             mDatum = datum;
             mCallback = callback;
             mAgent = agent;
-            mExecutor = executor;
-        } // end of EfsTimerTask(String, Consumer, IEfsAgent)
+        } // end of EfsTimerTask(...)
 
         //
         // end of Constructors.
@@ -1000,26 +852,17 @@ public final class EfsScheduledExecutor
         //
 
         /**
-         * Dispatches a timer event to agent and callback
-         * <em>if</em> this timer task is still active. Otherwise
-         * does nothing.
+         * Dispatches a timer event to agent and callback.
          */
         @Override
         public void run()
         {
-            // Is service still active?
-            if (!mExecutor.isShutdown())
-            {
-                // Yes. Create the timer event based on
-                // configured timer name and current nanosecond
-                // time.
-                final EfsTimerEvent timerEvent =
-                    new EfsTimerEvent(
-                        mTimerName, mDatum, System.nanoTime());
+            final EfsTimerEvent timerEvent =
+                new EfsTimerEvent(
+                    mTimerName, mDatum, System.nanoTime());
 
-                EfsDispatcher.dispatch(
-                    mCallback, timerEvent, mAgent);
-            }
+            EfsDispatcher.dispatch(
+                mCallback, timerEvent, mAgent);
         } // end of run()
 
         //

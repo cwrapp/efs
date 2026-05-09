@@ -32,6 +32,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.assertj.core.api.Assertions;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import org.efs.dispatcher.EfsDispatcher;
@@ -252,20 +253,7 @@ public final class ScheduledExecutorTest
         final EfsScheduledExecutor executor =
             new EfsScheduledExecutor(mService);
 
-        assertThat(executor.isRunning()).isTrue();
-        assertThat(executor.isShutdown()).isFalse();
-        assertThat(executor.isTerminated()).isFalse();
         assertThat(executor.service()).isSameAs(mService);
-
-        executor.shutdown();
-
-        assertThat(executor.isRunning()).isFalse();
-        assertThat(executor.isShutdown()).isTrue();
-        assertThat(executor.isTerminated()).isTrue();
-
-        final List<Runnable> tasks = executor.shutdownNow();
-
-        assertThat(tasks).isEmpty();
     } // end of createAndRetrieveScheduledExecutor()
 
     //
@@ -373,21 +361,15 @@ public final class ScheduledExecutorTest
         final Duration delay = Duration.ofSeconds(5L);
 
         EfsDispatcher.register(agent, TEST_AGENT_DISPATCHER);
-        executor.shutdown();
+        mService.shutdownNow();
 
-        try
-        {
-            executor.schedule(timerName,
-                              null,
-                              agent::onTimeout,
-                              agent,
-                              delay);
-        }
-        catch (RejectedExecutionException rejex)
-        {
-            assertThat(rejex)
-                .hasMessage(EfsScheduledExecutor.EXEC_SHUT_DOWN);
-        }
+        Assertions.assertThatThrownBy(
+            () -> executor.schedule(timerName,
+                                    null,
+                                    agent::onTimeout,
+                                    agent,
+                                    delay))
+            .isInstanceOf(RejectedExecutionException.class);
     } // end of singleTimerExecutorShutdown()
 
     @Test
@@ -565,22 +547,16 @@ public final class ScheduledExecutorTest
         final Duration period = Duration.ofSeconds(10L);
 
         EfsDispatcher.register(agent, TEST_AGENT_DISPATCHER);
-        executor.shutdown();
+        mService.shutdown();
 
-        try
-        {
-            executor.scheduleAtFixedRate(timerName,
-                                         null,
-                                         agent::onTimeout,
-                                         agent,
-                                         initialDelay,
-                                         period);
-        }
-        catch (RejectedExecutionException rejex)
-        {
-            assertThat(rejex)
-                .hasMessage(EfsScheduledExecutor.EXEC_SHUT_DOWN);
-        }
+        Assertions.assertThatThrownBy(
+            () -> executor.scheduleAtFixedRate(timerName,
+                                               null,
+                                               agent::onTimeout,
+                                               agent,
+                                               initialDelay,
+                                               period))
+            .isInstanceOf(RejectedExecutionException.class);
     } // end of fixedRateTimerExecutorShutdown()
 
     @Test
@@ -758,22 +734,16 @@ public final class ScheduledExecutorTest
         final Duration delay = Duration.ofSeconds(10L);
 
         EfsDispatcher.register(agent, TEST_AGENT_DISPATCHER);
-        executor.shutdown();
+        mService.shutdown();
 
-        try
-        {
-            executor.scheduleWithFixedDelay(timerName,
-                                            null,
-                                            agent::onTimeout,
-                                            agent,
-                                            initialDelay,
-                                            delay);
-        }
-        catch (RejectedExecutionException rejex)
-        {
-            assertThat(rejex)
-                .hasMessage(EfsScheduledExecutor.EXEC_SHUT_DOWN);
-        }
+        Assertions.assertThatThrownBy(
+            () -> executor.scheduleWithFixedDelay(timerName,
+                                                  null,
+                                                  agent::onTimeout,
+                                                  agent,
+                                                  initialDelay,
+                                                  delay))
+            .isInstanceOf(RejectedExecutionException.class);
     } // end of fixedDelayTimerExecutorShutdown()
 
     @Test
@@ -803,13 +773,13 @@ public final class ScheduledExecutorTest
                               delay);
         }
 
-        final List<Runnable> tasks =  executor.shutdownNow();
+        final List<Runnable> tasks =  mService.shutdownNow();
         boolean termFlag = false;
 
         try
         {
             termFlag =
-                executor.awaitTermination(1L, TimeUnit.SECONDS);
+                mService.awaitTermination(1L, TimeUnit.SECONDS);
         }
         catch (InterruptedException interrupt)
         {}

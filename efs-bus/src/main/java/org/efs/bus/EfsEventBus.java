@@ -368,6 +368,22 @@ import org.slf4j.Logger;
  *   </li>
  * </ul>
  *
+ * <p>
+ * <strong>Exhausting Events to Persistent Storage</strong>
+ * </p>
+ * <p>
+ * efs event bus does not persist events which pass through it
+ * but leaves that up to the application using the bus. Such
+ * persistence can be accomplished by creating an agent which
+ * subscribes to the type+topic keys targeted for persistence and
+ * then writes received events to the persistent store.
+ * </p>
+ * <p>
+ * Of course, an agent responsible for exhausting events to a
+ * persistent store should <em>not</em> use
+ * {@link #subscribeInbox(EfsTopicKey, Consumer, Consumer, IEfsAgent) inbox subscriptions}.
+ * </p>
+ *
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
 
