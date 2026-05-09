@@ -24,9 +24,9 @@ limitations under the License.
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId>com.github.cwrapp</groupId>
+    <groupId>io.github.cwrapp</groupId>
     <artifactId>efs-parent</artifactId>
-    <version>0.6.1</version>
+    <version>0.6.2</version>
   </parent>
 
   <artifactId>efs-bus</artifactId>
@@ -37,21 +37,13 @@ limitations under the License.
   <dependencies>
 
     <dependency>
-      <groupId>com.github.cwrapp</groupId>
+      <groupId>io.github.cwrapp</groupId>
       <artifactId>efs-event</artifactId>
-      <version>${project.version}</version>
     </dependency>
 
     <dependency>
-      <groupId>com.github.cwrapp</groupId>
+      <groupId>io.github.cwrapp</groupId>
       <artifactId>efs-dispatcher</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-
-    <dependency>
-      <groupId>com.github.cwrapp</groupId>
-      <artifactId>efs-util</artifactId>
-      <version>${project.version}</version>
     </dependency>
 
     <dependency>
@@ -102,9 +94,8 @@ limitations under the License.
     <!-- Test dependencies -->
 
     <dependency>
-      <groupId>com.github.cwrapp</groupId>
+      <groupId>io.github.cwrapp</groupId>
       <artifactId>efs-util</artifactId>
-      <version>${project.version}</version>
     </dependency>
 
     <dependency>

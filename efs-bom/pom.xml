@@ -7,12 +7,13 @@
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId>com.github.cwrapp</groupId>
+    <groupId>io.github.cwrapp</groupId>
     <artifactId>efs-parent</artifactId>
-    <version>0.6.1</version>
+    <version>0.6.2</version>
   </parent>
 
   <artifactId>efs-bom</artifactId>
+  <version>0.6.2</version>
   <packaging>pom</packaging>
 
   <name>efs-bom</name>
@@ -24,12 +25,16 @@
       <dependency>
         <groupId>${project.groupId}</groupId>
         <artifactId>efs-dispatcher</artifactId>
+        <version>${project.version}</version>
       </dependency>
 
       <dependency>
         <groupId>${project.groupId}</groupId>
         <artifactId>efs-activator</artifactId>
+        <version>${project.version}</version>
       </dependency>
+
+      <!-- Add external dependencies your project uses -->
 
     </dependencies>
   </dependencyManagement>

@@ -376,7 +376,7 @@ public final class EfsDispatcher
         "runQueueCapacity";
 
     //
-    // Error text.
+    // Exception messages.
     //
 
     /**
@@ -385,6 +385,13 @@ public final class EfsDispatcher
      */
     public static final String INVALID_NAME =
         "name is either null, empty, or blank string";
+
+    /**
+     * {@code IllegalArgumentException} for an invalid thread
+     * name has message {@value}.
+     */
+    public static final String INVALID_THREAD_NAME =
+        "threadName is either null, an empty string, or blank";
 
     /**
      * Missing agent name message is {@value}.
@@ -397,6 +404,13 @@ public final class EfsDispatcher
      * message is {@value}.
      */
     public static final String NULL_TYPE = "type is null";
+
+    /**
+     * {@code NullPointerException} for a null thread type has
+     * message {@value}.
+     */
+    public static final String NULL_THREAD_TYPE =
+        "threadType is null";
 
     /**
      * Invalid efs agent {@code NullPointerException} message
@@ -431,11 +445,79 @@ public final class EfsDispatcher
         "configFile is null";
 
     /**
-     * Invalid dispatch target {@code NullPointerException} is
-     * {@value}.
+     * Invalid dispatch target {@code NullPointerException}
+     * message is {@value}.
      */
     public static final String NULL_DISPATCH_TARGET =
         "target is null";
+
+    /**
+     * Null park time {@code NullPointerException} message is
+     * {@value}.
+     */
+    public static final String NULL_TIME = "time is null";
+
+    /**
+     * Null dispatcher {@code NullPointerException} message is
+     * {@value}.
+     */
+    public static final String NULL_DISPATCHER =
+        "dispatcher is null";
+
+    /**
+     * {@code NullPointerException} for a null run queue has
+     * message {@value}.
+     */
+    public static final String NULL_RUN_QUEUE = "queue is null";
+
+    /**
+     * Invalid thread count {@code IllegalArgumentException}
+     * message is {@value}.
+     */
+    public static final String INVALID_NUM_THREADS =
+        "numThreads <= zero";
+
+    /**
+     * Out-of-bounds thread priority
+     * {@code IllegalArgumentException} message is {@value}.
+     */
+    public static final String INVALID_PRIORITY =
+        "priority out of bounds";
+
+    /**
+     * Spin limit &le; zero
+     * {@code IllegalArgumentException} message is {@value}.
+     */
+    public static final String INVALID_SPIN_LIMIT =
+        "limit <= zero";
+
+    /**
+     * Park time &le; zero
+     * {@code IllegalArgumentException} message is {@value}.
+     */
+    public static final String INVALID_TIME =
+        "time <= zero";
+
+    /**
+     * Event queue capacity &lt; {@link #MIN_QUEUE_SIZE}
+     * {@code IllegalArgumentException} message is {@value}.
+     */
+    public static final String INVALID_EVENT_QUEUE_CAPACITY =
+        "capacity < " + MIN_QUEUE_SIZE;
+
+    /**
+     * Run queue capacity &le; zero
+     * {@code IllegalArgumentException} message is {@value}.
+     */
+    public static final String INVALID_RUN_QUEUE_CAPACITY =
+        "capacity <= zero";
+
+    /**
+     * Maximum allowed events &le; zero
+     * {@code IllegalArgumentException} message is {@value}.
+     */
+    public static final String INVALID_MAX_EVENTS =
+        "maxEvents <= zero";
 
     //-----------------------------------------------------------
     // Statics.
@@ -802,7 +884,7 @@ public final class EfsDispatcher
      */
     public static boolean isDispatcher(final String name)
     {
-        if (Strings.isNullOrEmpty(name))
+        if (Strings.isNullOrEmpty(name) || name.isBlank())
         {
             throw (new IllegalArgumentException(INVALID_NAME));
         }
@@ -829,7 +911,7 @@ public final class EfsDispatcher
      */
     public static @Nullable IEfsDispatcher getDispatcher(final String  name)
     {
-        if (Strings.isNullOrEmpty(name))
+        if (Strings.isNullOrEmpty(name) || name.isBlank())
         {
             throw (new IllegalArgumentException(INVALID_NAME));
         }
@@ -851,7 +933,7 @@ public final class EfsDispatcher
     {
         final EfsDispatcher dispatcher;
 
-        if (Strings.isNullOrEmpty(name))
+        if (Strings.isNullOrEmpty(name) || name.isBlank())
         {
             throw (
                 new IllegalArgumentException(INVALID_NAME));
@@ -985,13 +1067,11 @@ public final class EfsDispatcher
     public static <E extends IEfsEvent> void dispatch(final EfsDispatchTarget<E> target,
                                                       final E event)
     {
-        final EfsAgent efsAgent;
-
         Objects.requireNonNull(target, NULL_DISPATCH_TARGET);
         Objects.requireNonNull(event, NULL_EVENT);
-        efsAgent = validateAgentDispatch(target.agent());
+        validateAgentDispatch(target.agent());
 
-        efsAgent.dispatch(target.callback(), event);
+        target.dispatch(event);
     } // end of dispatch(EfsDispatchTarget)
 
     /**
@@ -1193,19 +1273,6 @@ public final class EfsDispatcher
             createDispatcher(c);
         }
     } // end of loadDispatchers(EfsDispatchersConfig)
-
-    /**
-     * Adds a mocked dispatcher with the given name to
-     * dispatchers map.
-     * @param dispatcherName dispatcher name.
-     * @param dispatcher dispatcher instance.
-     */
-    @VisibleForTesting
-    public static void addDispatcher(final String dispatcherName,
-                                     final IEfsDispatcher dispatcher)
-    {
-        sDispatchers.put(dispatcherName, dispatcher);
-    } // end of addDispatcher(String, IEfsDispatcher)
 
     /**
      * Cleans up all registered agents. Needed for testing only.
@@ -1887,7 +1954,7 @@ import org.efs.dispatcher.config.ThreadType;
             {
                 throw (
                     new IllegalArgumentException(
-                        "numThreads <= zero"));
+                        INVALID_NUM_THREADS));
             }
 
             mNumThreads = numThreads;
@@ -1914,7 +1981,7 @@ import org.efs.dispatcher.config.ThreadType;
             {
                 throw (
                     new IllegalArgumentException(
-                        "priority out of bounds"));
+                        INVALID_PRIORITY));
             }
 
             mPriority = priority;
@@ -1937,7 +2004,7 @@ import org.efs.dispatcher.config.ThreadType;
             {
                 throw (
                     new IllegalArgumentException(
-                        "limit <= zero"));
+                        INVALID_SPIN_LIMIT));
             }
 
             mSpinLimit = limit;
@@ -1958,13 +2025,13 @@ import org.efs.dispatcher.config.ThreadType;
          */
         public Builder parkTime(final Duration time)
         {
-            Objects.requireNonNull(time, "time is null");
+            Objects.requireNonNull(time, NULL_TIME);
 
             if (time.compareTo(Duration.ZERO) <= 0)
             {
                 throw (
                     new IllegalArgumentException(
-                        "time <= zero"));
+                        INVALID_TIME));
             }
 
             mParkTime = time;
@@ -2008,7 +2075,7 @@ import org.efs.dispatcher.config.ThreadType;
             {
                 throw (
                     new IllegalArgumentException(
-                        "capacity < " + MIN_QUEUE_SIZE));
+                        INVALID_EVENT_QUEUE_CAPACITY));
             }
 
             mEventQueueCapacity =
@@ -2044,7 +2111,7 @@ import org.efs.dispatcher.config.ThreadType;
             {
                 throw (
                     new IllegalArgumentException(
-                        "capacity <= zero"));
+                        INVALID_RUN_QUEUE_CAPACITY));
             }
 
             mRunQueueCapacity =
@@ -2067,7 +2134,7 @@ import org.efs.dispatcher.config.ThreadType;
             {
                 throw (
                     new IllegalArgumentException(
-                        "maxEvents <= zero"));
+                        INVALID_MAX_EVENTS));
             }
 
             mMaxEvents = maxEvents;
@@ -2092,7 +2159,7 @@ import org.efs.dispatcher.config.ThreadType;
         {
             mSpecialDispatcher =
                 Objects.requireNonNull(
-                    dispatcher, "dispatcher is null");
+                    dispatcher, NULL_DISPATCHER);
 
             return (this);
         } // end of dispatcher(Consumer<>)

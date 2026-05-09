@@ -28,14 +28,12 @@ import jakarta.annotation.Nullable;
 import java.io.File;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import javax.annotation.concurrent.ThreadSafe;
@@ -162,16 +160,10 @@ public final class EfsActivator
     private final Map<String, AgentInfo> mAgents;
 
     /**
-     * Registered agents listening for activator events.
+     * Registered agents listening for activator events. Maps
+     * agent name to its activator listener instance.
      */
-    private final List<ActivatorListener> mListeners;
-
-    /**
-     * Set to {@code true} if {@link #mListeners} has changes
-     * which need to be applied to {@code AgentInfo} listener
-     * list copy.
-     */
-    private final AtomicBoolean mDirtyListenersList;
+    private final Map<String, ActivatorListener> mListeners;
 
     /**
      * Currently executing this workflow.
@@ -193,8 +185,7 @@ public final class EfsActivator
     {
         mWorkflows = createWorkflowMap(builder.mWorkflows);
         mAgents = new ConcurrentHashMap<>();
-        mListeners = new ArrayList<>();
-        mDirtyListenersList = new AtomicBoolean();
+        mListeners = new ConcurrentHashMap<>();
         mCurrentWorkflow = new AtomicReference<>();
     } // end of EfsActivator(Builder)
 
@@ -258,22 +249,9 @@ public final class EfsActivator
      */
     public boolean isRegisteredListener(final IEfsAgent agent)
     {
-        boolean retcode = false;
-
         Objects.requireNonNull(agent, NULL_AGENT);
 
-        synchronized (mListeners)
-        {
-            final Iterator<ActivatorListener> lIt =
-                mListeners.iterator();
-
-            while (!retcode && lIt.hasNext())
-            {
-                retcode = ((lIt.next()).mAgent == agent);
-            }
-        }
-
-        return (retcode);
+        return (mListeners.containsKey(agent.name()));
     } // end of isRegisteredListener(IEfsAgent)
 
     //
@@ -360,6 +338,12 @@ public final class EfsActivator
 
     /**
      * Sets workflow position to given stage and step index.
+     * <p style="background-color:#ffcccc;padding:5px;border: 2px solid darkred;">
+     * This method forcibly sets workflow to a particular stage,
+     * step pair independently of workflow's current position.
+     * As such, this method should be used with caution since
+     * workflow may be set to an invalid state.
+     * </p>
      * @param stageIndex set current stage to this index.
      * @param stepIndex set current step within stage to this
      * index.
@@ -440,22 +424,21 @@ public final class EfsActivator
      * given callback.
      * <p>
      * Please note that an agent may only have one current
-     * registration. If the agent is
-     * {@link #deregisterListener(IEfsAgent) de-registered},
-     * then it may register again. If you wish to change the
-     * activation event callback for a currently registered
-     * listener, then you must first de-register that listener
-     * agent and then re-register with a new callback.
+     * registration. If you wish to change the activation event
+     * callback for a currently registered listener, then you may
+     * register again with a new callback and the previous
+     * callback will be quietly replaced. It is not necessary to
+     * {@link #deregisterListener(IEfsAgent) de-register} prior
+     * to registering the new callback.
      * </p>
      * @param callback agent callback lambda.
      * @param agent agent listening to activator changes.
      * @throws NullPointerException
-     * if either {@code calback} or {@code agent} is
+     * if either {@code callback} or {@code agent} is
      * {@code null}.
      * @throws IllegalStateException
      * if {@code agent} is not registered with an
-     * {@code EfsDispatcher} or is already registered as an
-     * activator listener.
+     * {@code EfsDispatcher}.
      *
      * @see #deregisterListener(IEfsAgent)
      */
@@ -472,23 +455,10 @@ public final class EfsActivator
                 new IllegalStateException(UNREGISTERED_AGENT));
         }
 
-        synchronized (mListeners)
-        {
-            final ActivatorListener l =
-                new ActivatorListener(callback, agent);
+        mListeners.put(agent.name(),
+                       new ActivatorListener(callback, agent));
 
-            if (mListeners.contains(l))
-            {
-                throw (
-                    new IllegalStateException(
-                        "agent " +
-                        agent.name() +
-                        " is already registered"));
-            }
-
-            mListeners.add(l);
-            mDirtyListenersList.set(true);
-        }
+        sLogger.info("{} registered.", agent.name());
     } // end of registerListener(Consumer<>, IEfsAgent)
 
     /**
@@ -504,12 +474,9 @@ public final class EfsActivator
     {
         Objects.requireNonNull(agent, NULL_AGENT);
 
-        synchronized (mListeners)
-        {
-            mListeners.remove(
-                new ActivatorListener(null, agent));
-            mDirtyListenersList.set(true);
-        }
+        mListeners.remove(agent.name());
+
+        sLogger.info("{} de-registered.", agent.name());
     } // end of deregisterListener(Consumer<>, IEfsAgent)
 
     //
@@ -523,10 +490,26 @@ public final class EfsActivator
      * @throws IllegalStateException
      * if there is no activation in progress or the activation
      * fails. <strong>Note:</strong> if activation step fails,
-     * workflow remains in place but in an unknown state. User
-     * should either recover the workflow by judiciously calling
-     * {@link #execute(String, EfsAgentState, EfsAgentState, Duration)}
-     * or {@link #terminateWorkflow() terminating} workflow.
+     * agent remains in its initial state and the step is marked
+     * as {@link StepState#COMPLETED_FAILED}. User may recover
+     * the workflow by either:
+     * <ul>
+     *   <li>
+     *     judiciously calling
+     *     {@link #execute(String, EfsAgentState, EfsAgentState, Duration)}
+     *     to put the agent into the proper state,
+     *   </li>
+     *   <li>
+     *     calling
+     *     {@link #setWorkflowStage(int, int)} to put the
+     *     workflow back on track, or
+     *   </li>
+     *   <li>
+     *     {@link #terminateWorkflow() terminating} workflow
+     *     with the understanding that the agent is left in an
+     *     invalid state.
+     *   </li>
+     * </ul>
      */
     public synchronized boolean executeNextStep()
     {
@@ -558,10 +541,26 @@ public final class EfsActivator
      * @throws IllegalStateException
      * if there is no activation in progress or the activation
      * fails. <strong>Note:</strong> if activation step fails,
-     * workflow remains in place but in an unknown state. User
-     * should either recover the workflow by judiciously calling
-     * {@link #execute(String, EfsAgentState, EfsAgentState, Duration)}
-     * or {@link #terminateWorkflow() terminating} workflow.
+     * agent remains in its initial state and the step is marked
+     * as {@link StepState#COMPLETED_FAILED}. User may recover
+     * the workflow by either:
+     * <ul>
+     *   <li>
+     *     judiciously calling
+     *     {@link #execute(String, EfsAgentState, EfsAgentState, Duration)}
+     *     to put the agent into the proper state,
+     *   </li>
+     *   <li>
+     *     calling
+     *     {@link #setWorkflowStage(int, int)} to put the
+     *     workflow back on track, or
+     *   </li>
+     *   <li>
+     *     {@link #terminateWorkflow() terminating} workflow
+     *     with the understanding that the agent is left in an
+     *     invalid state.
+     *   </li>
+     * </ul>
      */
     public synchronized boolean executeNextStage()
     {
@@ -592,10 +591,26 @@ public final class EfsActivator
      * @throws IllegalStateException
      * if there is no activation in progress or the activation
      * fails. <strong>Note:</strong> if activation step fails,
-     * workflow remains in place but in an unknown state. User
-     * should either recover the workflow by judiciously calling
-     * {@link #execute(String, EfsAgentState, EfsAgentState, Duration)}
-     * or {@link #terminateWorkflow() terminating} workflow.
+     * agent remains in its initial state and the step is marked
+     * as {@link StepState#COMPLETED_FAILED}. User may recover
+     * the workflow by either:
+     * <ul>
+     *   <li>
+     *     judiciously calling
+     *     {@link #execute(String, EfsAgentState, EfsAgentState, Duration)}
+     *     to put the agent into the proper state,
+     *   </li>
+     *   <li>
+     *     calling
+     *     {@link #setWorkflowStage(int, int)} to put the
+     *     workflow back on track, or
+     *   </li>
+     *   <li>
+     *     {@link #terminateWorkflow() terminating} workflow
+     *     with the understanding that the agent is left in an
+     *     invalid state.
+     *   </li>
+     * </ul>
      */
     public synchronized boolean executeWorkflow()
     {
@@ -702,7 +717,7 @@ public final class EfsActivator
      * Returns agent information associated with given agent
      * name.
      * @param agentName unique agent name.
-     * @return {@code AgentIfno} associated with agent name.
+     * @return {@code AgentInfo} associated with agent name.
      * @throws IllegalStateException
      * if there is not agent with {@code agentName} registered or
      * agent is not an {@code IEfsActivateAgent} instance.
@@ -718,7 +733,7 @@ public final class EfsActivator
      * Returns a new {@link AgentInfo} encapsulating an agent
      * with given unique agent name.
      * @param agentName agent name.
-     * @return {@code AgentIfno} associated with agent name.
+     * @return {@code AgentInfo} associated with agent name.
      * @throws IllegalStateException
      * if there is not agent with {@code agentName} registered or
      * agent is not an {@code IEfsActivateAgent} instance.
@@ -989,18 +1004,6 @@ public final class EfsActivator
     //
 
         //-------------------------------------------------------
-        // Statics.
-        //
-
-        /**
-         * Immutable copy of {@link #mListeners} used for
-         * post {@link ActivatorEvent}s to listeners. Initialized
-         * to an empty, immutable list.
-         */
-        private static List<ActivatorListener> sListenerCopy =
-            ImmutableList.of();
-
-        //-------------------------------------------------------
         // Locals.
         //
 
@@ -1095,34 +1098,19 @@ public final class EfsActivator
                 mAgent.name(),
                 initialState,
                 finalState,
-                duration,
-                tex);
+                duration);
 
             mState.set(finalState);
 
-            // Does the listener list copy need to be updated?
-            if (mDirtyListenersList.get())
-            {
-                // Make an immutable copy of listeners list and
-                // iterate over copy.
-                // Why? Do not wish to iterate while inside
-                // synchronized block.
-                synchronized (mListeners)
-                {
-                    // Did another thread update the list?
-                    // Need to check again after grabbing
-                    // synchronizer.
-                    if (mDirtyListenersList.compareAndSet(true, false))
-                    {
-                        // No. Make the copy.
-                        sListenerCopy =
-                            ImmutableList.copyOf(mListeners);
-                    }
-                }
-            }
+            sLogger.debug(
+                "Forwarding {} {} -> {} activator event to {} listeners.",
+                mAgent.name(),
+                initialState,
+                finalState,
+                mListeners.size());
 
             // Inform listeners about this activator change.
-            sListenerCopy.forEach(l -> l.dispatch(event));
+            (mListeners.values()).forEach(l -> l.dispatch(event));
         } // end of state(...)
 
         /**
@@ -1179,48 +1167,6 @@ public final class EfsActivator
             mCallback = callback;
             mAgent = agent;
         } // end of ActivatorListener(Consumer<>, IEfsAgent)
-
-        //
-        // end of Constructors.
-        //-------------------------------------------------------
-
-        //-------------------------------------------------------
-        // Object Method Overrides.
-        //
-
-        /**
-         * Returns {@code true} if {@code o} is a
-         * non-{@code null ActivatorListener} with the same
-         * underlying agent; otherwise returns {@code false}.
-         * @param o comparison object.
-         * @return {@code true} if {@code o} equals
-         * {@code this ActivatorListener}.
-         */
-        @Override
-        public boolean equals(final Object o)
-        {
-            boolean retcode = (this == o);
-
-            if (!retcode && o instanceof ActivatorListener)
-            {
-                final ActivatorListener l =
-                    (ActivatorListener) o;
-
-                retcode = (mAgent == l.mAgent);
-            }
-
-            return (retcode);
-        } // end of equals(Object)
-
-        /**
-         * Returns encapsulated agent's hash code.
-         * @return agent hash code.
-         */
-        @Override
-        public int hashCode()
-        {
-            return (System.identityHashCode(mAgent));
-        } // end of hashCode()
 
         //
         // end of Constructors.

@@ -18,6 +18,7 @@ package org.efs.util;
 
 import java.time.Instant;
 import net.sf.eBus.util.ValidationException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Java6Assertions.assertThat;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -194,6 +195,8 @@ public class LatencyTrackerTest
         final int deltaCount = 1_000_000;
         final long size = 1_000L;
         final long max = 10_000L;
+        final long negativeDelta = -1L;
+        final long positiveDelta = 1_000L;
         final LatencyTracker.Builder builder =
             LatencyTracker.builder();
         final LatencyTracker tracker =
@@ -210,13 +213,30 @@ public class LatencyTrackerTest
             .isEqualTo(Long.MAX_VALUE);
         assertThat(tracker.maximumDelta()).isEqualTo(-1L);
         assertThat(tracker.averageDelta()).isZero();
+
+        assertThatThrownBy(() -> tracker.startTime(null))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(LatencyTracker.NULL_TIMESTAMP);
+        assertThatThrownBy(() -> tracker.stopTime(null))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(LatencyTracker.NULL_TIMESTAMP);
+        assertThatThrownBy(() -> tracker.addDelta(negativeDelta))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(LatencyTracker.NEGATIVE_DELTA);
+
+        assertThat(tracker.toString())
+            .isEqualTo("no latency deltas collected");
+
+        tracker.addDelta(positiveDelta);
+
+        assertThat(tracker.toString()).isNotEmpty();
     } // end of builderSucess()
 
     @Test
     public void trackerTest()
     {
         final Instant startTime = Instant.now();
-        final Instant stopTime = startTime.plusSeconds(5L);
+        final Instant stopTime = startTime.plusSeconds(3_600L);
         final int deltaCount = 1_000_000;
         final long size = 1_000L;
         final long max = 10_000L;
@@ -231,7 +251,7 @@ public class LatencyTrackerTest
                    .build();
         final String text =
             """
-            Run time: 5.0
+            Run time: 1:00:00.000
 
             Latency:
               minimum =           1 nanoseconds
@@ -284,6 +304,37 @@ public class LatencyTrackerTest
         assertThat(tracker.maximumDelta()).isEqualTo(maxDelta);
         assertThat(tracker.averageDelta()).isEqualTo(avgDelta);
         assertThat(tracker.toString()).isEqualTo(text);
+
+        final int bucketCount = tracker.bucketCount();
+        final int negativeIndex = -1;
+
+        assertThatThrownBy(() -> tracker.bucket(negativeIndex))
+            .isInstanceOf(ArrayIndexOutOfBoundsException.class)
+            .hasMessage(
+                String.format(
+                    LatencyTracker.BUCKET_INDEX_OUT_OF_BOUNDS,
+                    negativeIndex,
+                    bucketCount));
+
+        final int tooBigIndex = 11;
+
+        assertThatThrownBy(() -> tracker.bucket(tooBigIndex))
+            .isInstanceOf(ArrayIndexOutOfBoundsException.class)
+            .hasMessage(
+                String.format(
+                    LatencyTracker.BUCKET_INDEX_OUT_OF_BOUNDS,
+                    tooBigIndex,
+                    bucketCount));
+
+        final int bucketIndex = (bucketCount / 2);
+        final LatencyTracker.Bucket bucket =
+            tracker.bucket(bucketIndex);
+        final long beginTime = bucket.beginTime();
+
+        assertThat(beginTime).isGreaterThan(0L);
+        assertThat(bucket.endTime())
+            .isGreaterThanOrEqualTo(beginTime);
+        assertThat(bucket.deltaCount()).isGreaterThan(0);
     } // end of trackerTest;
 
     //

@@ -52,7 +52,7 @@ public final class PerformanceEvent
     /**
      * Post reply to this object.
      */
-    @Nullable public final ReplyTo<ReplyEvent> replyTo;
+    @Nullable public final EfsDispatchTarget<ReplyEvent> replyTo;
 
 //---------------------------------------------------------------
 // Member methods.
@@ -64,12 +64,12 @@ public final class PerformanceEvent
 
     public PerformanceEvent(final int index,
                             final long nanotime,
-                            @Nullable final ReplyTo<ReplyEvent> replyTo)
+                            @Nullable final EfsDispatchTarget<ReplyEvent> replyTo)
     {
         this.index = index;
         this.nanotime = nanotime;
         this.replyTo = replyTo;
-    } // end of PerformanceEvent(int, long, ReplyTo<>)
+    } // end of PerformanceEvent(int, long, EfsDispatchTarget<>)
 
     //
     // end of Constructors.

@@ -16,14 +16,14 @@
 
 package org.efs.bus;
 
-import org.efs.event.EfsTopicKey;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import org.efs.dispatcher.ReplyTo;
+import org.efs.dispatcher.EfsDispatchTarget;
+import org.efs.event.EfsTopicKey;
 import org.efs.logging.AsyncLoggerFactory;
 import org.slf4j.Logger;
 
@@ -107,7 +107,7 @@ public final class PingAgent
      * when pinger is started due to it containing a reference
      * back to this pinger instance.
      */
-    private ReplyTo<PerformanceEvent> mReply;
+    private EfsDispatchTarget<PerformanceEvent> mReply;
 
     /**
      * When this timer expires, publish on pinger topic.
@@ -188,7 +188,7 @@ public final class PingAgent
     {
         super.start();
 
-        mReply = new ReplyTo<>(this::onEvent, this);
+        mReply = new EfsDispatchTarget<>(this::onEvent, this);
 
         mAdvertisement = mBus.advertise(mPingKey,
                                         this::onSubscribeStatus,

@@ -18,7 +18,7 @@ package org.efs.bus;
 
 import jakarta.annotation.Nullable;
 import javax.annotation.concurrent.Immutable;
-import org.efs.dispatcher.ReplyTo;
+import org.efs.dispatcher.EfsDispatchTarget;
 import org.efs.event.IEfsEvent;
 
 /**
@@ -53,7 +53,7 @@ public final class PerformanceEvent
     /**
      * Used by reply ponger.
      */
-    @Nullable public final ReplyTo<PerformanceEvent> reply;
+    @Nullable public final EfsDispatchTarget<PerformanceEvent> reply;
 
 //---------------------------------------------------------------
 // Member methods.
@@ -65,12 +65,12 @@ public final class PerformanceEvent
 
     public PerformanceEvent(final int index,
                             final long nanotime,
-                            @Nullable final ReplyTo<PerformanceEvent> reply)
+                            @Nullable final EfsDispatchTarget<PerformanceEvent> reply)
     {
         this.index = index;
         this.nanotime = nanotime;
         this.reply = reply;
-    } // end of PerformanceEvent(int, long, ReplyTo)
+    } // end of PerformanceEvent(int, long, EfsDispatchTarget<>)
 
     //
     // end of Constructors.

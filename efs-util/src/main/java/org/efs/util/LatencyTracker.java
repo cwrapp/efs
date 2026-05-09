@@ -176,10 +176,24 @@ public final class LatencyTracker
         "bucketMaximum <= 0";
 
     /**
+     * A {@code null} timestamp results in a
+     * {@code NullPointerException} with message {@value}.
+     */
+    public static final String NULL_TIMESTAMP = "timestamp is null";
+
+    /**
      * Invalid nanosecond latency delta results in an
      * {@code IllegalArgumentException} with message {@value}.
      */
     public static final String NEGATIVE_DELTA = "delta < zero";
+
+    /**
+     * Invalid bucket index results in an
+     * {@code ArrayIndexOutOfBounds} with message formatted as
+     * {@value}.
+     */
+    public static final String BUCKET_INDEX_OUT_OF_BOUNDS =
+        "bucket index out-of-bounds, index=%,d, bounds=[0, %,d)";
 
     //-----------------------------------------------------------
     // Locals.
@@ -397,6 +411,37 @@ public final class LatencyTracker
         return (mAverageDelta);
     } // end of averageDelta()
 
+    /**
+     * Returns number of collected latency buckets.
+     * @return collected bucket count.
+     */
+    public int bucketCount()
+    {
+        return (mBuckets.length);
+    } // end of bucketCount()
+
+    /**
+     * Returns bucket for the given index. Bucket index must be
+     * &ge; zero and &lt; {@link #bucketCount() bucket count}.
+     * @param index bucket index.
+     * @return bucket a given index.
+     * @throws ArrayIndexOutOfBoundsException
+     * if {@code index} &lt; zero or &ge; bucket count.
+     */
+    public Bucket bucket(final int index)
+    {
+        if (index < 0 || index >= mBuckets.length)
+        {
+            throw (
+                new ArrayIndexOutOfBoundsException(
+                    String.format(BUCKET_INDEX_OUT_OF_BOUNDS,
+                                  index,
+                                  mBuckets.length)));
+        }
+
+        return (mBuckets[index]);
+    } // end of bucket(int)
+
     //
     // end of Get Methods.
     //-----------------------------------------------------------
@@ -412,8 +457,7 @@ public final class LatencyTracker
     public void startTime(@Nonnull final Instant timestamp)
     {
         mStartTime =
-            Objects.requireNonNull(
-                timestamp, "timestamp is null");
+            Objects.requireNonNull(timestamp, NULL_TIMESTAMP);
     } // end of startTime(Instant)
 
     /**
@@ -423,8 +467,7 @@ public final class LatencyTracker
     public void stopTime(@Nonnull final Instant timestamp)
     {
         mStopTime =
-            Objects.requireNonNull(
-                timestamp, "timestamp is null");
+            Objects.requireNonNull(timestamp, NULL_TIMESTAMP);
     } // end of stopTime(Instant)
 
     /**
@@ -565,18 +608,20 @@ public final class LatencyTracker
         final int seconds = d.toSecondsPart();
         final int millisecs = d.toMillisPart();
 
-        if (hours > 0)
+        try (final Formatter output = new Formatter(retval))
         {
-            retval.append(hours).append(':');
-        }
+            if (hours > 0)
+            {
+                output.format("%d:", hours);
+            }
 
-        if (hours > 0 || minutes > 0)
-        {
-            retval.append(minutes).append(':');
-        }
+            if (hours > 0 || minutes > 0)
+            {
+                output.format("%02d:", minutes);
+            }
 
-        retval.append(seconds).append('.')
-              .append(millisecs);
+            output.format("%02d.%03d", seconds, millisecs);
+        }
 
         return (retval.toString());
     } // end of formatDuration(Duration)

@@ -25,6 +25,7 @@ import org.efs.activator.event.ActivatorEvent;
 import org.efs.activator.event.ActivatorEvent.StepState;
 import org.efs.dispatcher.EfsDispatcher;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -74,11 +75,16 @@ public final class ActivatorSingleStepTest
     // Statics.
     //
 
-    private static EfsActivator sActivator;
     private static MarketDataAgent sMDAgent;
     private static MakeMoneyAlgoAgent sAlgoAgent;
     private static TestAgent sTestAgent;
-    private static ActivatorListener sListener;
+
+    //-----------------------------------------------------------
+    // Locals.
+    //
+
+    private EfsActivator mActivator;
+    private ActivatorListener mListener;
 
 //---------------------------------------------------------------
 // Member methods.
@@ -91,20 +97,13 @@ public final class ActivatorSingleStepTest
     @BeforeAll
     public static void setUpClass()
     {
-        sActivator =
-            EfsActivator.loadActivator(ACTIVATOR_FILE_NAME);
-
         sMDAgent = new MarketDataAgent();
         sAlgoAgent = new MakeMoneyAlgoAgent();
         sTestAgent = new TestAgent();
-        sListener = new ActivatorListener(LISTENER_NAME);
 
         EfsDispatcher.register(sMDAgent, MD_DISPATCHER);
         EfsDispatcher.register(sAlgoAgent, ALGO_DISPATCHER);
         EfsDispatcher.register(sTestAgent, ALGO_DISPATCHER);
-        EfsDispatcher.register(sListener, UTILITY_DISPATCHER);
-
-        sListener.register(sActivator);
     } // end of setUpClass()
 
     @AfterAll
@@ -113,14 +112,28 @@ public final class ActivatorSingleStepTest
         EfsDispatcher.deregister(sMDAgent);
         EfsDispatcher.deregister(sAlgoAgent);
         EfsDispatcher.deregister(sTestAgent);
-        sListener.deregister(sActivator);
     } // end of tearDownClass()
 
     @BeforeEach
     public void setUp()
     {
-        sListener.clearEvents();
+        mListener = new ActivatorListener(LISTENER_NAME);
+        EfsDispatcher.register(mListener, UTILITY_DISPATCHER);
+
+        mActivator =
+            EfsActivator.loadActivator(ACTIVATOR_FILE_NAME);
+
+        mListener.register(mActivator);
     } // end of setUp()
+
+    @AfterEach
+    public void tearDown()
+    {
+        mListener.deregister(mActivator);
+        EfsDispatcher.deregister(mListener);
+
+        mActivator.terminateWorkflow();
+    } // end of tearDown()
 
     //
     // end of JUnit Initialization.
@@ -140,7 +153,7 @@ public final class ActivatorSingleStepTest
 
         try
         {
-            sActivator.execute(agentName,
+            mActivator.execute(agentName,
                                beginState,
                                endState,
                                transitionTime);
@@ -166,7 +179,7 @@ public final class ActivatorSingleStepTest
 
         try
         {
-            sActivator.execute(agentName,
+            mActivator.execute(agentName,
                                beginState,
                                endState,
                                transitionTime);
@@ -192,7 +205,7 @@ public final class ActivatorSingleStepTest
 
         try
         {
-            sActivator.execute(agentName,
+            mActivator.execute(agentName,
                                beginState,
                                endState,
                                transitionTime);
@@ -239,9 +252,9 @@ public final class ActivatorSingleStepTest
         CountDownLatch doneSignal =
             new CountDownLatch(expected.size());
 
-        sListener.doneSignal(doneSignal);
+        mListener.doneSignal(doneSignal);
 
-        sActivator.execute(agentName,
+        mActivator.execute(agentName,
                            beginState,
                            endState,
                            transitionTime);
@@ -256,14 +269,14 @@ public final class ActivatorSingleStepTest
         catch (InterruptedException interrupt)
         {}
 
-        assertThat(sActivator.agentState(agentName))
+        assertThat(mActivator.agentState(agentName))
             .isEqualTo(endState);
-        assertThat(sListener.events()).containsAll(expected);
+        assertThat(mListener.events()).containsAll(expected);
 
         beginState = EfsAgentState.STAND_BY;
         endState = EfsAgentState.STOPPED;
 
-        sListener.clearEvents();
+        mListener.clearEvents();
         expected =
             ImmutableList.of(
                 (ActivatorEvent.builder())
@@ -284,9 +297,9 @@ public final class ActivatorSingleStepTest
                     .build());
         doneSignal = new CountDownLatch(expected.size());
 
-        sListener.doneSignal(doneSignal);
+        mListener.doneSignal(doneSignal);
 
-        sActivator.execute(agentName,
+        mActivator.execute(agentName,
                            beginState,
                            endState,
                            transitionTime);
@@ -299,13 +312,13 @@ public final class ActivatorSingleStepTest
         catch (InterruptedException interrupt)
         {}
 
-        assertThat(sActivator.agentState(agentName))
+        assertThat(mActivator.agentState(agentName))
             .isEqualTo(endState);
-        assertThat(sListener.events()).containsAll(expected);
+        assertThat(mListener.events()).containsAll(expected);
 
         // Perform the last transition again. Nothing should
         // happen since the agent is already stopped.
-        sListener.clearEvents();
+        mListener.clearEvents();
         expected =
             ImmutableList.of(
                 (ActivatorEvent.builder())
@@ -318,9 +331,9 @@ public final class ActivatorSingleStepTest
                     .build());
         doneSignal = new CountDownLatch(expected.size());
 
-        sListener.doneSignal(doneSignal);
+        mListener.doneSignal(doneSignal);
 
-        sActivator.execute(agentName,
+        mActivator.execute(agentName,
                            beginState,
                            endState,
                            transitionTime);
@@ -333,9 +346,9 @@ public final class ActivatorSingleStepTest
         catch (InterruptedException interrupt)
         {}
 
-        assertThat(sActivator.agentState(agentName))
+        assertThat(mActivator.agentState(agentName))
             .isEqualTo(endState);
-        assertThat(sListener.events()).containsAll(expected);
+        assertThat(mListener.events()).containsAll(expected);
     } // end of singleStepExecutionSuccess()
 
     //

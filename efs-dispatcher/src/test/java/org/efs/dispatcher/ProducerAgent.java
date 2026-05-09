@@ -101,7 +101,7 @@ public final class ProducerAgent
      * {@code PerformanceAgent} should post a
      * {@code PerformanceEvent} via this
      */
-    private ReplyTo<ReplyEvent> mReplyTo;
+    private EfsDispatchTarget<ReplyEvent> mReplyTo;
 
     /**
      * Timer used to transmit
@@ -162,7 +162,7 @@ public final class ProducerAgent
     {
         super.start();
 
-        mReplyTo = new ReplyTo<>(this::onReply, this);
+        mReplyTo = new EfsDispatchTarget<>(this::onReply, this);
 
         // Schedule publishing.
         final Runnable publishTask = (mRandomFlag ?

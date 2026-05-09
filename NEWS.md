@@ -1,3 +1,13 @@
+# 0.6.2: May 9, 2026
+
+  - org.efs.activator changed activator listener list to
+    java.util.concurrent.ConcurrentHashMap.
+  - Deleted org.efs.event.EfsEventWrapper because unuseful.
+  - Deleted org.efs.dispatcher.ReplyTo as duplicate of
+    org.efs.dispatcher.EfsDispatchTarget.
+  - Improved unit test coverage.
+  - Deployed efs to Maven Central as io.github.cwrapp:efs-parent.
+
 # 0.6.1: April 24,2026
 
   - Improved org.efs.bus documentation.

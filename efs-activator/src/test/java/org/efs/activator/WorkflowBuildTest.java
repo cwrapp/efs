@@ -23,6 +23,7 @@ import net.sf.eBus.util.MultiKey2;
 import net.sf.eBus.util.ValidationException;
 import net.sf.eBus.util.Validator;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -484,6 +485,19 @@ public class WorkflowBuildTest
                 "stages is either null or an empty list");
         }
     } // end of buildWorkflowEmptyStages()
+
+    @Test
+    public void buildWorkFlowStagesContainsNull()
+    {
+        final List<WorkflowStage> stages = new ArrayList<>();
+        final Workflow.Builder builder = Workflow.builder();
+
+        stages.add(null);
+
+        assertThatThrownBy(() -> builder.stages(stages))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("stages contains a null element");
+    } // end of buildWorkFlowStagesContainsNull()
 
     @Test
     public void buildWorkflowInvalidSettings()

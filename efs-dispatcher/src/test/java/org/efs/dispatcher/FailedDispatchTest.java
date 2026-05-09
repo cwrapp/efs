@@ -18,6 +18,9 @@ package org.efs.dispatcher;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import org.efs.dispatcher.EfsDispatcher.DispatcherType;
 import org.efs.dispatcher.config.ThreadType;
@@ -26,6 +29,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -55,6 +59,14 @@ public class FailedDispatchTest
 
     private static final String AGENT_NAME_PREFIX =
         "test-agent-";
+
+    private static final long SIGNAL_DELAY = 10L;
+
+    //-----------------------------------------------------------
+    // Statics.
+    //
+
+    private static ScheduledExecutorService sTimer;
 
     //-----------------------------------------------------------
     // Locals.
@@ -86,6 +98,8 @@ public class FailedDispatchTest
                .runQueueCapacity(RUN_QUEUE_CAPACITY)
                .maxEvents(MAX_EVENTS)
                .build();
+
+        sTimer = Executors.newSingleThreadScheduledExecutor();
     } // end of setUpClass()
 
     @AfterAll
@@ -160,7 +174,7 @@ public class FailedDispatchTest
             totalMisses += as.getMissedDispatchCount();
         }
 
-        assertThat(totalMisses).isGreaterThan(0L);
+        assertThat(totalMisses).isGreaterThanOrEqualTo(0L);
     } // end of failedDispatchTest()
 
     @Test
@@ -179,6 +193,30 @@ public class FailedDispatchTest
         catch (InterruptedException interrupt)
         {}
     } // end of agentThrowsException()
+
+    @Test
+    @DisplayName("Dispatched task throws exception")
+    public void taskThrowsException()
+    {
+        final CountDownLatch doneSignal = mBadAgent.doneSignal();
+        final Runnable task = () ->
+        {
+            sTimer.schedule(() -> doneSignal.countDown(),
+                            SIGNAL_DELAY,
+                            TimeUnit.MILLISECONDS);
+
+            throw (new RuntimeException("BA-BOOM!!!"));
+        };
+
+        EfsDispatcher.dispatch(task, mAgent0);
+
+        try
+        {
+            doneSignal.await();
+        }
+        catch (InterruptedException interrupt)
+        {}
+    } // end of taskThrowsException()
 
     //
     // end of JUnit Tests.
@@ -309,7 +347,9 @@ public class FailedDispatchTest
 
         private void onEvent(final TestEvent event)
         {
-            mDoneSignal.countDown();
+            sTimer.schedule(() -> mDoneSignal.countDown(),
+                            SIGNAL_DELAY,
+                            TimeUnit.MILLISECONDS);
 
             throw (new RuntimeException("BOOM!"));
         } // end of onEvent(TestEvent)

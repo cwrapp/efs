@@ -20,6 +20,7 @@ import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.efs.dispatcher.EfsDispatcher.DispatcherStats;
 import org.efs.dispatcher.EfsDispatcher.DispatcherType;
 import org.efs.dispatcher.EfsDispatcherThread.DispatcherThreadStats;
@@ -28,6 +29,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -48,10 +50,13 @@ public final class DispatchTest
 
     private static final String DISPATCHER_NAME =
         "test-dispatcher-101";
+    private static final String SPECIAL_DISPATCHER_NAME =
+        "test-dispatcher-special";
     private static final ThreadType THREAD_TYPE =
         ThreadType.BLOCKING;
     private static final int THREAD_COUNT = 2;
     private static final int THREAD_PRIORITY = 3;
+    private static final int EVENT_QUEUE_CAPACITY = 8;
     private static final int MAX_EVENTS = 4;
 
     private static final String AGENT_NAME = "test-agent-101";
@@ -85,15 +90,23 @@ public final class DispatchTest
     @BeforeAll
     public static void setUpClass()
     {
-        final EfsDispatcher.Builder builder =
+        EfsDispatcher.Builder builder =
             EfsDispatcher.builder(DISPATCHER_NAME);
 
         builder.threadType(THREAD_TYPE)
                .numThreads(THREAD_COUNT)
                .priority(THREAD_PRIORITY)
                .dispatcherType(DispatcherType.EFS)
-               .eventQueueCapacity(8)
+               .eventQueueCapacity(EVENT_QUEUE_CAPACITY)
                .runQueueCapacity(1)
+               .maxEvents(MAX_EVENTS)
+               .build();
+
+        builder = EfsDispatcher.builder(SPECIAL_DISPATCHER_NAME);
+        builder.dispatcherType(DispatcherType.SPECIAL)
+               .dispatcher(
+                   javax.swing.SwingUtilities::invokeLater)
+               .eventQueueCapacity(EVENT_QUEUE_CAPACITY)
                .maxEvents(MAX_EVENTS)
                .build();
     } // end of setUpClass()
@@ -143,15 +156,10 @@ public final class DispatchTest
     {
         final String dispatcherName = null;
 
-        try
-        {
-            EfsDispatcher.performanceStats(dispatcherName);
-        }
-        catch (IllegalArgumentException argex)
-        {
-            assertThat(argex)
-                .hasMessage(EfsDispatcher.INVALID_NAME);
-        }
+        assertThatThrownBy(
+            () -> EfsDispatcher.performanceStats(dispatcherName))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_NAME);
     } // end of dispatcherStatsNullName()
 
     @Test
@@ -159,31 +167,30 @@ public final class DispatchTest
     {
         final String dispatcherName = "";
 
-        try
-        {
-            EfsDispatcher.performanceStats(dispatcherName);
-        }
-        catch (IllegalArgumentException argex)
-        {
-            assertThat(argex)
-                .hasMessage(EfsDispatcher.INVALID_NAME);
-        }
+        assertThatThrownBy(
+            () -> EfsDispatcher.performanceStats(dispatcherName))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_NAME);
     } // end of dispatcherStatsEmptyName()
+
+    @Test
+    public void dispatcherStatsBlankName()
+    {
+        final String dispatcherName = "\t";
+
+        assertThatThrownBy(
+            () -> EfsDispatcher.performanceStats(dispatcherName))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsDispatcher.INVALID_NAME);
+    } // end of dispatcherStatsBlankName()
 
     @Test
     public void dispatcherStatsUnknownDispatcher()
     {
         final String dispatcherName = "snafu";
 
-        try
-        {
-            EfsDispatcher.performanceStats(dispatcherName);
-        }
-        catch (IllegalArgumentException argex)
-        {
-            assertThat(argex)
-                .hasMessage("name is null or an empty string");
-        }
+        assertThat(EfsDispatcher.performanceStats(dispatcherName))
+            .isNull();
     } // end of dispatcherStatsUnknownDispatcher()
 
     @Test
@@ -267,6 +274,35 @@ public final class DispatchTest
             .isGreaterThan(0L);
         assertThat(agentStats.toString()).isNotEmpty();
     } // end of dispatchTest()
+
+    @Test
+    @DisplayName("JavaFX special dispatch test")
+    public void specialDispatchTest()
+    {
+        final CountDownLatch doneSignal = mAgent.doneSignal();
+
+        // Associate performance agent with JavaFX dispatcher.
+        EfsDispatcher.deregister(mAgent);
+        EfsDispatcher.register(mAgent, SPECIAL_DISPATCHER_NAME);
+
+        mAgent.start();
+        mProducer.start();
+
+        try
+        {
+            doneSignal.await();
+        }
+        catch (InterruptedException interrupt)
+        {}
+
+        mAgent.stop();
+        mProducer.stop();
+
+        assertThat(doneSignal.getCount()).isZero();
+        assertThat(mAgent.eventCount()).isEqualTo(EVENT_COUNT);
+        assertThat(mProducer.eventCount())
+            .isBetween((EVENT_COUNT - 2), EVENT_COUNT);
+    } // end of specialDispatchTest()
 
     //
     // end of JUnit Tests.

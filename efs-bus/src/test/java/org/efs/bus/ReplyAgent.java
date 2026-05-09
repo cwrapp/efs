@@ -16,14 +16,14 @@
 
 package org.efs.bus;
 
+import org.efs.dispatcher.EfsDispatchTarget;
 import org.efs.event.EfsTopicKey;
-import org.efs.dispatcher.ReplyTo;
 import org.efs.logging.AsyncLoggerFactory;
 import org.slf4j.Logger;
 
 /**
  * This pong agent replies to ping agent events using a
- * {@code ReplyTo}.
+ * {@code EfsDispatchTarget}.
  *
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
@@ -76,7 +76,8 @@ public final class ReplyAgent
     {
         final long timestamp = System.nanoTime();
         final int eventIndex = event.index;
-        final ReplyTo<PerformanceEvent> reply = event.reply;
+        final EfsDispatchTarget<PerformanceEvent> reply =
+            event.reply;
         final int deltaCount =
             mLatencyTracker.addDelta(timestamp - event.nanotime);
 

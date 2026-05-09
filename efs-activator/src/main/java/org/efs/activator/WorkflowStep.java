@@ -363,6 +363,12 @@ public final class WorkflowStep
         {
             // Yes. Nothing to do but do report that the
             // agent is in the target end state and return.
+            sLogger.info(
+                "{}: agent {} already in {} state, nothing to do.",
+                stepName,
+                mAgentName,
+                mEndState);
+
             agentInfo.state(stepName,
                             StepState.COMPLETED_SUCCESS,
                             mEndState,
@@ -393,6 +399,9 @@ public final class WorkflowStep
 
         // Post transition to agent via dispatcher, timing its
         // completion.
+        // NOTE: agent state change is performed using agent
+        // dispatcher. This maintains agent being virtually
+        // single-threaded.
         agentInfo.state(stepName,
                         StepState.IN_PROGRESS,
                         mIntermediateState,
