@@ -18,7 +18,7 @@
   This overview is used to generate the efs javadocs.
  -->
 
-<html>
+<html lang="en">
   <head>
     <title>efs Overview</title>
     <meta charset="UTF-8">
@@ -48,7 +48,7 @@
               <li><a href="#Dispatchers">Dispatchers</a></li>
             </ol>
           </li>
-          <li><a href="EventForwarding" tabindex="0">Getting Events to Agents</a>
+          <li><a href="#EventForwarding" tabindex="0">Getting Events to Agents</a>
             <ol>
               <li><a href="#DirectForwarding">Direct Forwarding</a></li>
               <li><a href='#EventBusForwarding'>Event Bus Forwarding</a></li>
@@ -76,7 +76,7 @@
     <div style="color: #ffff00; font-size: 50px; text-align: center;">Event File System</div>
     <div style="color: #f2f2f2; font-size: 10px; text-align: right;">
       <!-- UPDATE FOR RELEASE -->
-      Updated: May 9, 2026<br/>Version: 0.6.2
+      Updated: June 6, 2026<br/>Version: 0.7.0
     </div>
   </div>
 
@@ -100,7 +100,7 @@
       Simple event bus based on type+topic event routing.
     </li>
     <li>
-      Persistant event store and forward.
+      Persistent event store and forward.
     </li>
   </ol>
   <h2><a id="Components">Events, Agents, and Dispatchers</a></h2>
@@ -153,7 +153,7 @@
     to other agents or calling passive object methods.
     An agent must be
     {@link org.efs.dispatcher.EfsDispatcher#register(org.efs.dispatcher.IEfsAgent, java.lang.String) registered}
-    with a <a href="#Dispatcher">Dispatcher</a> after
+    with a <a href="#Dispatchers">Dispatcher</a> after
     instantiation and before it may send or receive events.
   </p>
   <p>
@@ -220,7 +220,7 @@
   </ol>
   <h3><a id="DirectForwarding"></a>Direct Event Forwarding</h3>
   <p>
-    The simplest and fastest was to foward an event between
+    The simplest and fastest way to foward an event between
     agents is the producing agent to directly dispatch the
     event to the consuming agent. This requires the
     producing agent to know the consuming agent's unique
@@ -309,19 +309,20 @@ public void onAppEvent(final AppEvent event) {
   <h2><a id="AgentActivation">Agent Activation</a></h2>
   <p>
     An agent is more than a Java object. An agent is active, it
-    is registered with an efs dispatcher, advertise or subscribe
-    with an event bus, initiating asynchronous communication with
-    other agents. Java object initiation is done within the class
-    constructor. The constructor is meant for object data member
-    initialization but not for connect an agent with an event
-    bus. {@link org.efs.activator} solves that problem.
+    is registered with an efs dispatcher, advertises or
+    subscribes with an event bus, initiating asynchronous
+    communication with other agents. Java object initiation is
+    done within the class constructor. The constructor is meant
+    for object data member initialization but not for connecting
+    an agent with an event bus. {@link org.efs.activator} solves
+    that problem.
   </p>
   <p>
-    When an efs implements
+    When an efs agent implements
     {@link org.efs.activator.IEfsActivateAgent activate agents}
     (an extension to
     {@link org.efs.dispatcher.IEfsAgent IEfsAgent}), that agent
-    can be referened in an
+    can be referenced in an
     {@link org.efs.activator.EfsActivator activator}
     {@link org.efs.activator.Workflow workflow}. A workflow takes
     one or more agents from a stopped state to stand-by, then to
@@ -343,7 +344,7 @@ public void onAppEvent(final AppEvent event) {
   </p>
   <p>
     efs package javadocs explain how to use the package
-    together with example code. You are encourged to explore
+    together with example code. You are encouraged to explore
     the javadoc packages in the following order:
   </p>
   <ol>
@@ -351,7 +352,7 @@ public void onAppEvent(final AppEvent event) {
       {@link org.efs.dispatcher dispatcher}: explains
       dispatcher architecture and how to use. Compares efs
       dispatcher with LMAX Disruptor and SEDA (staged event
-      driven architecture).
+      driven architecture), and Actor model/AKKA.
     </li>
     <li>
       {@link org.efs.dispatcher.config dispatcher configuration}:
@@ -365,7 +366,7 @@ public void onAppEvent(final AppEvent event) {
     </li>
     <li>
       {@link org.efs.timer timer}: contains the
-      {link org.efs.timer.EfsScheduledExecutor} which
+      {@link org.efs.timer.EfsScheduledExecutor} which
       <em>somewhat</em> follows the
       {@link java.util.concurrent.ScheduledExecutorService ScheduledExecutorService}
       interface but does not implement that interface because
@@ -409,7 +410,7 @@ public void onAppEvent(final AppEvent event) {
     project. The goal here is to tease out the best of that
     work, forming a better API using Java 21 features. This
     work is <em>not</em> a re-implementation of eBus but a step
-    beyond. efs is based on the oberservation that applications
+    beyond. efs is based on the observation that applications
     require:
   </p>
   <ul>
@@ -428,15 +429,8 @@ public void onAppEvent(final AppEvent event) {
     attempt to add historic events to eBus designed to fit into
     the eBus framework was less than satisfactory. Hence,
     a need for a new framework supporting both historic and
-    live event distribution from the start.
-  </p>
-  <p>
-    Designing a new efs event persistence and distribution
-    API is on-going. This initial release 0.1.0 provides the
-    event delivery and processing API known as Dispatcher. It
-    is similar to Disruptor and SEDA (staged event-driven
-    architecture) but simpler. Dispatcher is designed to be a
-    stand-alone API and useful in its own right.
+    live event distribution from the start. Designing a new efs
+    event persistence and distribution API is on-going.
   </p>
   <h2><a id="FrameworkCompare"></a>Comparing efs with Existing Concurrency Frameworks</h2>
   <p>
@@ -460,13 +454,13 @@ public void onAppEvent(final AppEvent event) {
     project was created on October, 2025 and is being
     actively improved and extended since then. efs' goal
     is to bring the power of distributed, reactive events
-    in a simple API, so simple that you don't notice efs
-    when you transmit events within your JVM or around
-    the world.
+    together with agentic programming in a simple API, so simple
+    that you don't notice efs when you transmit events within
+    your JVM or around the world.
   </p>
   <p>
     <!-- UPDATE FOR RELEASE -->
-    Updated: May 9, 2026<br>Version. 0.6.2
+    Updated: June 6, 2026<br>Version: 0.7.0
   </p>
 
     @author <a href="mailto:rapp@acm.org">Charles Rapp</a>

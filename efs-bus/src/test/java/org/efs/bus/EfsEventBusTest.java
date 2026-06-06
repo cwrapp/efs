@@ -1218,6 +1218,33 @@ public class EfsEventBusTest
         } // end of routerSubscriptionNullAgentTest()
 
         @Test
+        @DisplayName("Should throw IllegalStateException when creating router subscription with unregistered agent")
+        public void routerSubscriptionUnregisteredAgentTest()
+        {
+            final String agentName = UNREGISTERED_NAME;
+            final EfsTopicKey<TestEvent> topicKey =
+                mTestTopicKey;
+            final Consumer<EfsPublishStatus<TestEvent>> pscb =
+                status -> {};
+            final IEventRouter<TestEvent> router =
+                mock(IEventRouter.class);
+            final IEfsAgent subscriber = mock(IEfsAgent.class);
+            final String message =
+                String.format(EfsEventBus.UNREGISTERED_AGENT,
+                              agentName);
+
+            when(subscriber.name()).thenReturn(agentName);
+
+            assertThatThrownBy(
+                () -> mEventBus.subscribeRouter(topicKey,
+                                                pscb,
+                                                router,
+                                                subscriber))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(message);
+        } // end of routerSubscriptionUnregisteredAgentTest()
+
+        @Test
         @DisplayName("Publish event, router returns null target")
         public void routerSubscriptionNoTargetAgent()
             throws Exception
@@ -1276,10 +1303,10 @@ public class EfsEventBusTest
             final IEfsAgent publisher = sMockPublisher;
             final IEfsAgent subscriber = sMockSubscriber;
             final TestEvent event = mock(TestEvent.class);
+            final EfsDispatchTarget<TestEvent> targetCB =
+                new EfsDispatchTarget<>(ecb, subscriber);
 
-            when(router.routeTo(event))
-                .thenReturn(
-                    new EfsDispatchTarget<>(ecb, subscriber));
+            when(router.routeTo(event)).thenReturn(targetCB);
 
             try (Advertisement<TestEvent> ad =
                      mEventBus.advertise(topicKey,
@@ -1331,7 +1358,6 @@ public class EfsEventBusTest
             final WildcardSubscription<TestEvent> wildSub =
                 mEventBus.subscribeAll(eventClass,
                                        regexTopic,
-                                       inboxFlag,
                                        pscb,
                                        ecb,
                                        topicUpdate,
@@ -1360,13 +1386,12 @@ public class EfsEventBusTest
                 k -> {};
             final IEfsAgent subscriber = sMockSubscriber;
             final WildcardSubscription<TestEvent> wildSub =
-                mEventBus.subscribeAll(eventClass,
-                                       regexTopic,
-                                       inboxFlag,
-                                       pscb,
-                                       ecb,
-                                       topicUpdate,
-                                       subscriber);
+                mEventBus.subscribeAllInbox(eventClass,
+                                           regexTopic,
+                                           pscb,
+                                           ecb,
+                                           topicUpdate,
+                                           subscriber);
 
 
             assertThat(wildSub).isNotNull();
@@ -1380,7 +1405,6 @@ public class EfsEventBusTest
         {
             final Class<TestEvent> eventClass = null;
             final String regexTopic = REGEX_TOPIC;
-            final boolean inboxFlag = false;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
             final Consumer<TestEvent> ecb = event -> {};
@@ -1391,7 +1415,6 @@ public class EfsEventBusTest
             assertThatThrownBy(
                 () -> mEventBus.subscribeAll(eventClass,
                                              regexTopic,
-                                             inboxFlag,
                                              pscb,
                                              ecb,
                                              topicUpdate,
@@ -1406,7 +1429,6 @@ public class EfsEventBusTest
         {
             final Class<TestEvent> eventClass = TestEvent.class;
             final String regexTopic = null;
-            final boolean inboxFlag = false;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
             final Consumer<TestEvent> ecb = event -> {};
@@ -1417,7 +1439,6 @@ public class EfsEventBusTest
             assertThatThrownBy(
                 () -> mEventBus.subscribeAll(eventClass,
                                              regexTopic,
-                                             inboxFlag,
                                              pscb,
                                              ecb,
                                              topicUpdate,
@@ -1432,7 +1453,6 @@ public class EfsEventBusTest
         {
             final Class<TestEvent> eventClass = TestEvent.class;
             final String regexTopic = "";
-            final boolean inboxFlag = false;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
             final Consumer<TestEvent> ecb = event -> {};
@@ -1443,7 +1463,6 @@ public class EfsEventBusTest
             assertThatThrownBy(
                 () -> mEventBus.subscribeAll(eventClass,
                                              regexTopic,
-                                             inboxFlag,
                                              pscb,
                                              ecb,
                                              topicUpdate,
@@ -1458,7 +1477,6 @@ public class EfsEventBusTest
         {
             final Class<TestEvent> eventClass = TestEvent.class;
             final String regexTopic = "\t";
-            final boolean inboxFlag = false;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
             final Consumer<TestEvent> ecb = event -> {};
@@ -1469,7 +1487,6 @@ public class EfsEventBusTest
             assertThatThrownBy(
                 () -> mEventBus.subscribeAll(eventClass,
                                              regexTopic,
-                                             inboxFlag,
                                              pscb,
                                              ecb,
                                              topicUpdate,
@@ -1485,7 +1502,6 @@ public class EfsEventBusTest
             final Class<TestEvent> eventClass = TestEvent.class;
             final String regexTopic =
                 "a".repeat(EfsEventBus.MAX_REGEX_SIZE + 1);
-            final boolean inboxFlag = false;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
             final Consumer<TestEvent> ecb = event -> {};
@@ -1496,7 +1512,6 @@ public class EfsEventBusTest
             assertThatThrownBy(
                 () -> mEventBus.subscribeAll(eventClass,
                                              regexTopic,
-                                             inboxFlag,
                                              pscb,
                                              ecb,
                                              topicUpdate,
@@ -1511,7 +1526,6 @@ public class EfsEventBusTest
         {
             final Class<TestEvent> eventClass = TestEvent.class;
             final String regexTopic = "[invalid(regex";
-            final boolean inboxFlag = false;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
             final Consumer<TestEvent> ecb = event -> {};
@@ -1522,7 +1536,6 @@ public class EfsEventBusTest
             assertThatThrownBy(
                 () -> mEventBus.subscribeAll(eventClass,
                                              regexTopic,
-                                             inboxFlag,
                                              pscb,
                                              ecb,
                                              topicUpdate,
@@ -1539,7 +1552,6 @@ public class EfsEventBusTest
         {
             final Class<TestEvent> eventClass = TestEvent.class;
             final String regexTopic = REGEX_TOPIC;
-            final boolean inboxFlag = false;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 null;
             final Consumer<TestEvent> ecb = event -> {};
@@ -1550,7 +1562,6 @@ public class EfsEventBusTest
             assertThatThrownBy(
                 () -> mEventBus.subscribeAll(eventClass,
                                              regexTopic,
-                                             inboxFlag,
                                              pscb,
                                              ecb,
                                              topicUpdate,
@@ -1565,7 +1576,6 @@ public class EfsEventBusTest
         {
             final Class<TestEvent> eventClass = TestEvent.class;
             final String regexTopic = REGEX_TOPIC;
-            final boolean inboxFlag = false;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
             final Consumer<TestEvent> ecb = null;
@@ -1576,7 +1586,6 @@ public class EfsEventBusTest
             assertThatThrownBy(
                 () -> mEventBus.subscribeAll(eventClass,
                                              regexTopic,
-                                             inboxFlag,
                                              pscb,
                                              ecb,
                                              topicUpdate,
@@ -1591,7 +1600,6 @@ public class EfsEventBusTest
         {
             final Class<TestEvent> eventClass = TestEvent.class;
             final String regexTopic = REGEX_TOPIC;
-            final boolean inboxFlag = true;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
             final Consumer<TestEvent> ecb = event -> {};
@@ -1602,7 +1610,6 @@ public class EfsEventBusTest
             assertThatThrownBy(
                 () -> mEventBus.subscribeAll(eventClass,
                                              regexTopic,
-                                             inboxFlag,
                                              pscb,
                                              ecb,
                                              topicUpdate,
@@ -1617,7 +1624,6 @@ public class EfsEventBusTest
         {
             final Class<TestEvent> eventClass = TestEvent.class;
             final String regexTopic = REGEX_TOPIC;
-            final boolean inboxFlag = false;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
             final Consumer<TestEvent> ecb = event -> {};
@@ -1628,7 +1634,6 @@ public class EfsEventBusTest
             assertThatThrownBy(
                 () -> mEventBus.subscribeAll(eventClass,
                                              regexTopic,
-                                             inboxFlag,
                                              pscb,
                                              ecb,
                                              topicUpdate,
@@ -1643,7 +1648,6 @@ public class EfsEventBusTest
         {
             final Class<TestEvent> eventClass = TestEvent.class;
             final String regexTopic = REGEX_TOPIC;
-            final boolean inboxFlag = false;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
             final Consumer<TestEvent> ecb = event -> {};
@@ -1657,7 +1661,6 @@ public class EfsEventBusTest
             assertThatThrownBy(
                 () -> mEventBus.subscribeAll(eventClass,
                                              regexTopic,
-                                             inboxFlag,
                                              pscb,
                                              ecb,
                                              topicUpdate,
@@ -1675,7 +1678,6 @@ public class EfsEventBusTest
         {
             final Class<TestEvent> eventClass = TestEvent.class;
             final String regexTopic = REGEX_TOPIC;
-            final boolean inboxFlag = false;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
             final Consumer<TestEvent> ecb = event -> {};
@@ -1685,7 +1687,6 @@ public class EfsEventBusTest
             final WildcardSubscription<TestEvent> wildSub =
                 mEventBus.subscribeAll(eventClass,
                                        regexTopic,
-                                       inboxFlag,
                                        pscb,
                                        ecb,
                                        topicUpdate,
@@ -1708,7 +1709,6 @@ public class EfsEventBusTest
             final CountDownLatch signal = new CountDownLatch(2);
             final Class<TestEvent> eventClass = TestEvent.class;
             final String regexTopic = "product-.*";
-            final boolean inboxFlag = false;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
             final Consumer<TestEvent> ecb = event -> {};
@@ -1740,7 +1740,6 @@ public class EfsEventBusTest
 
             wildSub = mEventBus.subscribeAll(eventClass,
                                              regexTopic,
-                                             inboxFlag,
                                              pscb,
                                              ecb,
                                              topicUpdate,
@@ -1780,7 +1779,6 @@ public class EfsEventBusTest
             final CountDownLatch signal = new CountDownLatch(2);
             final Class<TestEvent> eventClass = TestEvent.class;
             final String regexTopic = "product-.*";
-            final boolean inboxFlag = false;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
             final Consumer<TestEvent> ecb = event -> {};
@@ -1803,7 +1801,6 @@ public class EfsEventBusTest
             final WildcardSubscription<TestEvent> wildSub =
                 mEventBus.subscribeAll(eventClass,
                                        regexTopic,
-                                       inboxFlag,
                                        pscb,
                                        ecb,
                                        topicUpdate,
@@ -2384,7 +2381,6 @@ public class EfsEventBusTest
             final Class<TestEvent> eventClass = TestEvent.class;
             final String regexTopic =
                 "^(service|event|message)-(prod|staging|dev)-\\d+$";
-            final boolean inboxFlag = false;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
             final Consumer<TestEvent> ecb = event -> {};
@@ -2394,7 +2390,6 @@ public class EfsEventBusTest
             final WildcardSubscription<TestEvent> wildsub =
                 mEventBus.subscribeAll(eventClass,
                                        regexTopic,
-                                       inboxFlag,
                                        pscb,
                                        ecb,
                                        topicUpdate,

@@ -27,7 +27,9 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
@@ -561,19 +563,19 @@ public class EfsEventBus
      * Tracks number of advertisements successfully created.
      * This includes both concrete and wildcard advertisements.
      */
-    private int mAdCreationCount;
+    private final LongAdder mAdCreationCount;
 
     /**
      * Tracks number of subscriptions successfully created.
      * This includes all subscription types (concrete, inbox,
      * router, and wildcard).
      */
-    private int mSubCreationCount;
+    private final LongAdder mSubCreationCount;
 
     /**
      * Tracks number of successful wildcard matches.
      */
-    private int mWildcardMatchCount;
+    private final LongAdder mWildcardMatchCount;
 
 //---------------------------------------------------------------
 // Member methods.
@@ -594,6 +596,10 @@ public class EfsEventBus
         mTopicMap = new ConcurrentHashMap<>();
         mTopicLock = new ReentrantLock(true);
         mWildcards = new ArrayList<>();
+
+        mAdCreationCount = new LongAdder();
+        mSubCreationCount = new LongAdder();
+        mWildcardMatchCount = new LongAdder();
     } // end of EfsEventBus(String, Set<>)
 
     //
@@ -619,9 +625,9 @@ public class EfsEventBus
      * number of advertisements currently open.
      * @return number of advertisements successfully created.
      */
-    public int advertisementCreationCount()
+    public long advertisementCreationCount()
     {
-        return (mAdCreationCount);
+        return (mAdCreationCount.sum());
     } // end of advertisementCreationCount()
 
     /**
@@ -630,9 +636,9 @@ public class EfsEventBus
      * number of subscriptions currently open.
      * @return number of subscriptions successfully created.
      */
-    public int subscriptionCreationCount()
+    public long subscriptionCreationCount()
     {
-        return (mSubCreationCount);
+        return (mSubCreationCount.sum());
     } // end of subscriptionCreationCount()
 
     /**
@@ -640,9 +646,9 @@ public class EfsEventBus
      * against all advertisement/subscription wildcards.
      * @return current number of successful wildcard matches.
      */
-    public int wildcardMatchCount()
+    public long wildcardMatchCount()
     {
-        return (mWildcardMatchCount);
+        return (mWildcardMatchCount.sum());
     } // end of wildcardMatchCount()
 
     //
@@ -814,7 +820,7 @@ public class EfsEventBus
                           topicKey);
 
             retval = topic.advertise(sscb, publisher);
-            ++mAdCreationCount;
+            mAdCreationCount.increment();
         }
         finally
         {
@@ -898,6 +904,9 @@ public class EfsEventBus
      * @see #advertise(EfsTopicKey, Consumer, IEfsAgent)
      * @see #subscribeAll(Class, String, boolean, Consumer, Consumer, Consumer, IEfsAgent)
      */
+    // Return value is AutoCloseable but is closed asynchronously
+    // by caller - therefore try-with-resources is not
+    // appropriate here.
     @SuppressWarnings ({"java:S2093"})
     public <E extends IEfsEvent> WildcardAdvertisement<E> advertiseAll(final Class<E> eventClass,
                                                                        final String regexTopic,
@@ -963,7 +972,7 @@ public class EfsEventBus
                                                  sscb);
 
             mWildcards.add(retval);
-            ++mAdCreationCount;
+            mAdCreationCount.increment();
 
             // Are there any concrete topics in place?
             if (!mTopicMap.isEmpty())
@@ -1066,7 +1075,7 @@ public class EfsEventBus
     /**
      * Subscribes to a concrete event class and topic, returning
      * a closeable subscription instance. This subscription uses
-     * event conflation (inbox  delivery), where only the latest
+     * event conflation (inbox delivery) where only the latest
      * published event is delivered to the subscriber, not every
      * intermediate event.
      * <p>
@@ -1177,24 +1186,6 @@ public class EfsEventBus
      * are dynamically created for those topics.
      * </p>
      * <p>
-     * The method supports two delivery modes controlled by the
-     * {@code isInBox} flag:
-     * </p>
-     * <ul>
-     *   <li>
-     *     <strong>Concrete (isInBox=false):</strong> All
-     *     published events on matching topics are delivered to
-     *     the subscriber callback as they occur.
-     *   </li>
-     *   <li>
-     *     <strong>Inbox (isInBox=true):</strong> Only the latest
-     *     (conflated) event on each matching topic is delivered,
-     *     useful when the subscriber is interested only in the
-     *     most recent state rather than every intermediate
-     *     event.
-     *   </li>
-     * </ul>
-     * <p>
      * When the subscription is created, the subscriber receives
      * the current publisher status via the {@code pscb} callback
      * for each matching topic, informing them of how many
@@ -1226,8 +1217,6 @@ public class EfsEventBus
      * @param eventClass subscribing to this event class.
      * @param regexTopic regular expression matched against event
      * topics within event class.
-     * @param isInBox {@code true} if this is an inbox
-     * subscription.
      * @param pscb forward publisher status events to this
      * callback.
      * @param ecb forward events to this callback.
@@ -1273,97 +1262,140 @@ public class EfsEventBus
      * {@code EfsDispatcher}.
      *
      * @see WildcardSubscription
+     * @see #subscribeAllInbox(Class, String, Consumer, Consumer, Consumer, IEfsAgent)
      * @see #subscribe(EfsTopicKey, Consumer, Consumer, IEfsAgent)
      * @see #subscribeInbox(EfsTopicKey, Consumer, Consumer, IEfsAgent)
      * @see #advertiseAll(Class, String, Consumer, Consumer, IEfsAgent)
      */
-    @SuppressWarnings({"java:S2093"})
     public <E extends IEfsEvent> WildcardSubscription<E> subscribeAll(final Class<E> eventClass,
                                                                       final String regexTopic,
-                                                                      final boolean isInBox,
                                                                       final Consumer<EfsPublishStatus<E>> pscb,
                                                                       final Consumer<E> ecb,
                                                                       final Consumer<EfsTopicKey<E>> topicUpdate,
                                                                       final IEfsAgent subscriber)
     {
-        final Pattern pattern;
-        final WildcardSubscription<E> retval;
-
-        Objects.requireNonNull(eventClass, NULL_EVENT_CLASS);
-        Objects.requireNonNull(pscb, NULL_CALLBACK);
-        Objects.requireNonNull(ecb, NULL_CALLBACK);
-        Objects.requireNonNull(topicUpdate, NULL_CALLBACK);
-        Objects.requireNonNull(subscriber, NULL_AGENT);
-
-        if (Strings.isNullOrEmpty(regexTopic) ||
-            regexTopic.isBlank())
-        {
-            throw (new IllegalArgumentException(INVALID_TOPIC));
-        }
-
-        if (regexTopic.length() > MAX_REGEX_SIZE)
-        {
-            throw (
-                new IllegalArgumentException(TOPIC_COMPLEXITY));
-        }
-
-        try
-        {
-            pattern = Pattern.compile(regexTopic);
-        }
-        catch (Exception jex)
-        {
-            throw (
-                new IllegalArgumentException(
-                    String.format(INVALID_REGEX, regexTopic),
-                    jex));
-        }
-
-        // Is subscriber a registered agent?
-        if (!EfsDispatcher.isRegistered(subscriber))
-        {
-            throw (
-                new IllegalStateException(
-                    String.format(UNREGISTERED_AGENT,
-                                  subscriber.name())));
-        }
-
-        sLogger.info("{} {} wildcard {} subscription to {}.",
-                     subscriber.name(),
-                     regexTopic,
-                     (isInBox ? "inbox" : "concrete"),
-                     eventClass.getSimpleName());
-
-        mTopicLock.lock();
-        try
-        {
-            retval = new WildcardSubscription<>(eventClass,
-                                                regexTopic,
-                                                pattern,
-                                                topicUpdate,
-                                                subscriber,
-                                                isInBox,
-                                                pscb,
-                                                ecb);
-
-            mWildcards.add(retval);
-            ++mSubCreationCount;
-
-            // Are there any concrete topics in place?
-            if (!mTopicMap.isEmpty())
-            {
-                // Yes. Find those topics matching this regular
-                // expression subscription.
-                findMatchingTopics(retval);
-            }
-        }
-        finally
-        {
-            mTopicLock.unlock();
-        }
-
-        return (retval);
+        return (subscribeAll(eventClass,
+                             regexTopic,
+                             false,
+                             pscb,
+                             ecb,
+                             topicUpdate,
+                             subscriber));
     } // end of subscribeAll(...)
+
+    /**
+     * Subscribes to an event class with a wildcard topic
+     * pattern, returns a closeable wildcard subscription
+     * instance. This subscription uses event conflation
+     * (index delivery) where only the latest published event
+     * is delivered to the subscriber, not every intermediate
+     * event.
+     * <p>
+     * This method enables an agent to subscribe to multiple
+     * topics across an event  class using a single regular
+     * expression pattern. As new concrete topics are  added to
+     * the event bus that match the wildcard pattern, the
+     * subscriber is  automatically notified via
+     * {@code topicUpdate} callback, and concrete  subscriptions
+     * are dynamically created for those topics.
+     * </p>
+     * <p>
+     * When the subscription is created, the subscriber receives
+     * the current publisher status via the {@code pscb} callback
+     * for each matching topic, informing them of how many
+     * publishers are currently advertising on that topic.
+     * Whenever the publisher status changes (publishers join or
+     * leave), the subscriber is notified via this callback.
+     * </p>
+     * <p>
+     * The method validates event class, callbacks, and
+     * subscriber, and that the regular expression pattern is
+     * compilable. The subscriber agent must be registered with
+     * {@code EfsDispatcher}. Exceptions are thrown before any
+     * modifications to internal state occur.
+     * </p>
+     * <p>
+     * Upon creation, the returned wildcard subscription finds
+     * all existing concrete topics in the event bus that match
+     * the regular expression pattern and creates subscriptions
+     * for each matching topic.
+     * </p>
+     * <p>
+     * Once a wildcard subscription is
+     * {@link WildcardSubscription#close() closed}, all
+     * dynamically created concrete subscriptions are
+     * automatically closed as well, and the wildcard
+     * subscription cannot be re-opened.
+     * </p>
+     * @param <E> event class
+     * @param eventClass subscribing to this event class.
+     * @param regexTopic regular expression matched against event
+     * topics within event class.
+     * @param pscb forward publisher status events to this
+     * callback.
+     * @param ecb forward events to this callback.
+     * @param topicUpdate inform agent of newly discovered topic
+     * keys via this callback.
+     * @param subscriber agent subscriber.
+     * @return a {@code WildcardSubscription} instance which can
+     * be used to:
+     * <ul>
+     *   <li>
+     *     Check if this is an inbox subscription via
+     *     {@link WildcardSubscription#isInbox()}.
+     *   </li>
+     *   <li>
+     *     Query all concrete topic keys and topics currently
+     *     subscribed via
+     *     {@link WildcardSubscription#subscriptionKeys()} and
+     *     {@link WildcardSubscription#subscriptionTopics()}.
+     *   </li>
+     *   <li>
+     *     Check if the subscription is open via
+     *     {@link WildcardSubscription#isOpen()}
+     *   </li>
+     *   <li>
+     *     Query wildcard pattern via
+     *     {@link WildcardSubscription#wildcardTopic()}
+     *   </li>
+     *   <li>
+     *     Retract wildcard subscription via
+     *     {@link WildcardSubscription#close()}.
+     *   </li>
+     * </ul>
+     * @throws NullPointerException
+     * if {@code eventClass}, {@code pscb}, {@code ecb},
+     * {@code topicNupdate}, or {@code subscriber} is
+     * {@code null}.
+     * @throws IllegalArgumentException
+     * if {@code regexTopic} is {@code null}, empty, or blank, or
+     * if {@code regexTopic} is not a valid regular expression
+     * pattern.
+     * @throws IllegalStateException
+     * if {@code subscriber} is not registered with
+     * {@code EfsDispatcher}.
+     *
+     * @see WildcardSubscription
+     * @see #subscribeAll(Class, String, Consumer, Consumer, Consumer, IEfsAgent)
+     * @see #subscribe(EfsTopicKey, Consumer, Consumer, IEfsAgent)
+     * @see #subscribeInbox(EfsTopicKey, Consumer, Consumer, IEfsAgent)
+     * @see #advertiseAll(Class, String, Consumer, Consumer, IEfsAgent)
+     */
+    public <E extends IEfsEvent> WildcardSubscription<E> subscribeAllInbox(final Class<E> eventClass,
+                                                                           final String regexTopic,
+                                                                           final Consumer<EfsPublishStatus<E>> pscb,
+                                                                           final Consumer<E> ecb,
+                                                                           final Consumer<EfsTopicKey<E>> topicUpdate,
+                                                                           final IEfsAgent subscriber)
+    {
+        return (subscribeAll(eventClass,
+                             regexTopic,
+                             true,
+                             pscb,
+                             ecb,
+                             topicUpdate,
+                             subscriber));
+    } // end of subscribeAllInbox(...)
 
     /**
      * Subscribes to a concrete event class and topic using a
@@ -1476,6 +1508,15 @@ public class EfsEventBus
         Objects.requireNonNull(router, NULL_ROUTER);
         Objects.requireNonNull(subscriber, NULL_AGENT);
 
+        // Is subscriber a registered agent?
+        if (!EfsDispatcher.isRegistered(subscriber))
+        {
+            throw (
+                new IllegalStateException(
+                    String.format(UNREGISTERED_AGENT,
+                                  subscriber.name())));
+        }
+
         sLogger.info("Router subscription to {}.", topicKey);
 
         mTopicLock.lock();
@@ -1486,7 +1527,7 @@ public class EfsEventBus
             retval = topicInfo.subscribe(pscb,
                                          subscriber,
                                          router);
-            ++mSubCreationCount;
+            mSubCreationCount.increment();
         }
         finally
         {
@@ -1573,6 +1614,9 @@ public class EfsEventBus
      * if {@code subscriber} is not registered with
      * {@code EfsDispatcher}.
      */
+    // Return value is AutoCloseable but is closed asynchronously
+    // by caller - therefore try-with-resources is not
+    // appropriate here.
     @SuppressWarnings({"java:S2093"})
     private <E extends IEfsEvent> Subscription<E> subscribe(final boolean isInBox,
                                                             final EfsTopicKey<E> topicKey,
@@ -1610,7 +1654,7 @@ public class EfsEventBus
                                          pscb,
                                          ecb,
                                          subscriber);
-            ++mSubCreationCount;
+            mSubCreationCount.increment();
         }
         finally
         {
@@ -1619,6 +1663,126 @@ public class EfsEventBus
 
         return (retval);
     } // end of subscribe(...)
+
+    /**
+     * Returns a new wildcard subscription based on
+     * {@code isInBox} flag.
+     * @param <E> event class
+     * @param eventClass subscribing to this event class.
+     * @param regexTopic regular expression matched against event
+     * topics within event class.
+     * @param isInBox {@code true} if this is an inbox
+     * subscription.
+     * @param pscb forward publisher status events to this
+     * callback.
+     * @param ecb forward events to this callback.
+     * @param topicUpdate inform agent of newly discovered topic
+     * keys via this callback.
+     * @param subscriber subscribing agent.
+     * @return a {@code WildcardSubscription} based on given
+     * given parameters.
+     * @throws NullPointerException
+     * if {@code eventClass}, {@code pscb}, {@code ecb},
+     * {@code topicNupdate}, or {@code subscriber} is
+     * {@code null}.
+     * @throws IllegalArgumentException
+     * if {@code regexTopic} is {@code null}, empty, or blank, or
+     * if {@code regexTopic} is not a valid regular expression
+     * pattern.
+     * @throws IllegalStateException
+     * if {@code subscriber} is not registered with
+     * {@code EfsDispatcher}.
+     */
+    // Return value is AutoCloseable but is closed asynchronously
+    // by caller - therefore try-with-resources is not
+    // appropriate here.
+    @SuppressWarnings({"java:S2093"})
+    private <E extends IEfsEvent> WildcardSubscription<E> subscribeAll(final Class<E> eventClass,
+                                                                       final String regexTopic,
+                                                                       final boolean isInBox,
+                                                                       final Consumer<EfsPublishStatus<E>> pscb,
+                                                                       final Consumer<E> ecb,
+                                                                       final Consumer<EfsTopicKey<E>> topicUpdate,
+                                                                       final IEfsAgent subscriber)
+    {
+        final Pattern pattern;
+        final WildcardSubscription<E> retval;
+
+        Objects.requireNonNull(eventClass, NULL_EVENT_CLASS);
+        Objects.requireNonNull(pscb, NULL_CALLBACK);
+        Objects.requireNonNull(ecb, NULL_CALLBACK);
+        Objects.requireNonNull(topicUpdate, NULL_CALLBACK);
+        Objects.requireNonNull(subscriber, NULL_AGENT);
+
+        if (Strings.isNullOrEmpty(regexTopic) ||
+            regexTopic.isBlank())
+        {
+            throw (new IllegalArgumentException(INVALID_TOPIC));
+        }
+
+        if (regexTopic.length() > MAX_REGEX_SIZE)
+        {
+            throw (
+                new IllegalArgumentException(TOPIC_COMPLEXITY));
+        }
+
+        try
+        {
+            pattern = Pattern.compile(regexTopic);
+        }
+        catch (Exception jex)
+        {
+            throw (
+                new IllegalArgumentException(
+                    String.format(INVALID_REGEX, regexTopic),
+                    jex));
+        }
+
+        // Is subscriber a registered agent?
+        if (!EfsDispatcher.isRegistered(subscriber))
+        {
+            throw (
+                new IllegalStateException(
+                    String.format(UNREGISTERED_AGENT,
+                                  subscriber.name())));
+        }
+
+        sLogger.info("{} {} wildcard {} subscription to {}.",
+                     subscriber.name(),
+                     regexTopic,
+                     (isInBox ? "inbox" : "concrete"),
+                     eventClass.getSimpleName());
+
+        mTopicLock.lock();
+        try
+        {
+            retval = new WildcardSubscription<>(eventClass,
+                                                regexTopic,
+                                                pattern,
+                                                topicUpdate,
+                                                subscriber,
+                                                isInBox,
+                                                pscb,
+                                                ecb);
+
+            mWildcards.add(retval);
+            mSubCreationCount.increment();
+
+            // Are there any concrete topics in place?
+            if (!mTopicMap.isEmpty())
+            {
+                // Yes. Find those topics matching this regular
+                // expression subscription.
+                findMatchingTopics(retval);
+            }
+        }
+        finally
+        {
+            mTopicLock.unlock();
+        }
+
+        return (retval);
+    } // end of subscribeAll(...)
 
     /**
      * Finds those topics which match the given wildcard
@@ -1637,7 +1801,7 @@ public class EfsEventBus
             if (wca.matches(topicKey))
             {
                 wca.addAccess(topicKey);
-                ++mWildcardMatchCount;
+                mWildcardMatchCount.increment();
             }
         }
     } // end of findMatchingTopics(Pattern)
@@ -1657,7 +1821,7 @@ public class EfsEventBus
             if (wca.matches(topicKey))
             {
                 wca.addAccess(topicKey);
-                ++mWildcardMatchCount;
+                mWildcardMatchCount.increment();
             }
         }
     } // end of findMatchingWildcardAccess(EfsTopicKey)
@@ -1814,7 +1978,7 @@ public class EfsEventBus
          * Removes publisher agent from publishers map and
          * updates advertised and active publisher counts.
          * Dispatches publish status event to all subscribers.
-         * @param pubName unadvertised publisher name.
+         * @param publisher unadvertised publisher.
          */
         private void unadvertise(final IEfsAgent publisher)
         {
@@ -1831,9 +1995,12 @@ public class EfsEventBus
                 // If publisher is active at time of
                 // unadvertisement, then decrement active
                 // publisher count.
-                if (ad.isPublished())
+                if (ad.markUnpublished())
                 {
-                    mActivePublishers.decrementAndGet();
+                    // Make sure active publisher count is not
+                    // decremented more ofter than incremented.
+                    mActivePublishers.updateAndGet(
+                        n -> (n > 0 ? (n - 1) : n));
                 }
 
                 forwardPublishStatus();
@@ -1912,22 +2079,29 @@ public class EfsEventBus
          */
         private void subscribe(final Subscription<E> sub)
         {
-            final List<Subscription<E>> subs =
-                mSubscribers.get();
-            final int numSubs = subs.size();
-            final ImmutableList.Builder<Subscription<E>> builder =
-                ImmutableList.builder();
+            final int beforeSubCount =
+                (mSubscribers.get()).size();
+            final int afterSubCount;
 
-            builder.addAll(subs);
-            builder.add(sub);
-            mSubscribers.set(builder.build());
+            mSubscribers.updateAndGet(
+                current ->
+                {
+                    final ImmutableList.Builder<Subscription<E>> builder =
+                        ImmutableList.builder();
+
+                    builder.addAll(current);
+                    builder.add(sub);
+
+                    return (builder.build());
+                });
+            afterSubCount = (mSubscribers.get()).size();
 
             // Forward current publish status to new subscriber.
             forwardPublishStatus(sub);
 
             // Forward current subscribe status to existing
             // publishers.
-            forwardSubscribeStatus(numSubs, (numSubs + 1));
+            forwardSubscribeStatus(beforeSubCount, afterSubCount);
         } // end of subscribe(Subscription)
 
         /**
@@ -1939,18 +2113,41 @@ public class EfsEventBus
          */
         private void unsubscribe(final Subscription<E> sub)
         {
-            final List<Subscription<E>> subs =
-                new ArrayList<>(mSubscribers.get());
-            final int numSubs = subs.size();
+            final int beforeSubCount =
+                (mSubscribers.get()).size();
+            final int afterSubCount;
+
+            mSubscribers.updateAndGet(
+                current ->
+                {
+                    final List<Subscription<E>> subs =
+                        new ArrayList<>(current);
+                    final List<Subscription<E>> retval;
+
+                    // Is subscription in the list?
+                    if (subs.remove(sub))
+                    {
+                        // Yes. Create a new immutable list from
+                        // updated list.
+                        retval = ImmutableList.copyOf(subs);
+                    }
+                    // No. Keep the current list in place.
+                    else
+                    {
+                        retval = current;
+                    }
+
+                    return (retval);
+                });
+            afterSubCount = (mSubscribers.get()).size();
 
             // Was this subscription in the list?
-            if (subs.remove(sub))
+            if (beforeSubCount > afterSubCount)
             {
-                mSubscribers.set(ImmutableList.copyOf(subs));
-
                 // Yes. Dispatch subscriber count update to
                 // publishers.
-                forwardSubscribeStatus(numSubs, (numSubs - 1));
+                forwardSubscribeStatus(
+                    beforeSubCount, afterSubCount);
             }
         } // end of unsubscribe(AbstractSubscription<>)
 
@@ -1978,7 +2175,8 @@ public class EfsEventBus
             else
             {
                 // Down. Decrement active count.
-                mActivePublishers.decrementAndGet();
+                mActivePublishers.updateAndGet(
+                    n -> (n > 0 ? (n - 1) : n));
             }
 
             // Send updated feed status to subscribers.
@@ -1999,15 +2197,8 @@ public class EfsEventBus
             {
                 // Yes. Post a new publish status event to each
                 // subscriber.
-                final EfsPublishStatus.Builder<E> builder =
-                    EfsPublishStatus.builder();
                 final EfsPublishStatus<E> pse =
-                    builder.topicKey(mTopicKey)
-                           .advertisedPublishers(
-                               mAdvertisedPublishers.get())
-                           .activePublishers(
-                               mActivePublishers.get())
-                           .build();
+                    generatePublishStatus();
 
                 for (Subscription<E> sub : subs)
                 {
@@ -2025,17 +2216,7 @@ public class EfsEventBus
          */
         private void forwardPublishStatus(final Subscription<E> sub)
         {
-            final EfsPublishStatus.Builder<E> builder =
-                EfsPublishStatus.builder();
-            final EfsPublishStatus<E> pse =
-                builder.topicKey(mTopicKey)
-                       .advertisedPublishers(
-                           mAdvertisedPublishers.get())
-                       .activePublishers(
-                           mActivePublishers.get())
-                       .build();
-
-            sub.forwardPublishStatus(pse);
+            sub.forwardPublishStatus(generatePublishStatus());
         } // end of forwardPublishStatus(Consumer, IEfsAgent)
 
         private void forwardSubscribeStatus(final int previousSubscribers,
@@ -2088,6 +2269,32 @@ public class EfsEventBus
             (mSubscribers.get()).forEach(
                 s -> s.forwardEvent(event));
         } // end of forwardEvent(E)
+
+        /**
+         * Returns a new {@link EfsPublishStatus} event based on
+         * current feed settings. Makes sure that active
+         * publisher count &le; advertised publisher count. These
+         * counts may not be in agreement is simultaneous
+         * advertisement retractions are happening.
+         * @return efs publish status event.
+         */
+        private EfsPublishStatus<E> generatePublishStatus()
+        {
+            final int advertisedPubs =
+                mAdvertisedPublishers.get();
+            final int activePubs = mActivePublishers.get();
+            final EfsPublishStatus.Builder<E> builder =
+                EfsPublishStatus.builder();
+
+            return (
+                builder.topicKey(mTopicKey)
+                       .advertisedPublishers(advertisedPubs)
+                       .activePublishers(
+                           (activePubs > advertisedPubs) ?
+                           advertisedPubs :
+                           activePubs)
+                       .build());
+        } // end of generatePublishStatus()
     } // end of class TopicFeed
 
     /**
@@ -2142,13 +2349,13 @@ public class EfsEventBus
          * Total number of events posted/received on this
          * advertisement/subscription.
          */
-        protected long mEventCount;
+        protected LongAdder mEventCount;
 
         /**
          * Timestamp of latest event posted/received on this
          * topic. Initialized to zero.
          */
-        protected long mLatestEvent;
+        protected AtomicLong mLatestEvent;
 
     //-----------------------------------------------------------
     // Member methods.
@@ -2172,8 +2379,8 @@ public class EfsEventBus
 
             mActive = new AtomicBoolean(true);
             mPubStatus = new AtomicBoolean();
-            mEventCount = 0L;
-            mLatestEvent = 0L;
+            mEventCount = new LongAdder();
+            mLatestEvent = new AtomicLong();
         } // end of AbstractFeed<>(TopicFeed, IEfsAgent)
 
         //
@@ -2243,7 +2450,7 @@ public class EfsEventBus
          */
         public final long eventCount()
         {
-            return (mEventCount);
+            return (mEventCount.sum());
         } // end of eventCount()
 
         /**
@@ -2255,7 +2462,7 @@ public class EfsEventBus
          */
         public final long latestEventTimestamp()
         {
-            return (mLatestEvent);
+            return (mLatestEvent.get());
         } // end of latestEventTimestamp()
 
         //
@@ -2360,7 +2567,7 @@ public class EfsEventBus
             throws Exception
         {
             // Is this advertisement currently open?
-            if (mActive.compareAndExchange(true, false))
+            if (mActive.compareAndSet(true, false))
             {
                 // Yes. Retract this advertisement from the
                 // topic.
@@ -2479,15 +2686,28 @@ public class EfsEventBus
             // Everything checks out. Cleared to send event to
             // subscribers - even if there are no subscribers.
             mTopic.forwardEvent(event);
-            mLatestEvent = System.currentTimeMillis();
-            ++mEventCount;
+            mLatestEvent.set(System.currentTimeMillis());
+            mEventCount.increment();
 
             sLogger.trace("{} published {} event {} at {}.",
                           mAgent.name(),
                           mTopic.mTopicKey,
                           mEventCount,
-                          Instant.ofEpochMilli(mLatestEvent));
+                          Instant.ofEpochMilli(
+                              mLatestEvent.get()));
         } // end of publish(E)
+
+        /**
+         * Marks this advertisement as unpublished on account of
+         * advertisement being closed. Returns {@code true} if
+         * advertisement was being published and {@code false}
+         * if not.
+         * @return {@code true} if advertisement was published.
+         */
+        private final boolean markUnpublished()
+        {
+            return (mPubStatus.compareAndSet(true, false));
+        } // end of markUnpublished()
 
         //
         // end of Set Methods.
@@ -2761,7 +2981,17 @@ public class EfsEventBus
             {
                 // No. Dispatch inbox event to agent.
                 EfsDispatcher.dispatch(
-                    () -> mCallback.accept(mInbox.poll()),
+                    () ->
+                    {
+                        final E latestEvent = mInbox.poll();
+
+                        // Make sure there is an event to
+                        // deliver.
+                        if (latestEvent != null)
+                        {
+                            mCallback.accept(latestEvent);
+                        }
+                    },
                     mAgent);
             }
         } // end of pubish(E)
@@ -2857,19 +3087,29 @@ router targets.
         @Override
         protected void forwardEvent(E event)
         {
-            final EfsDispatchTarget<E> target =
-                mRouter.routeTo(event);
+            // Protect against router throwning an exception.
+            try
+            {
+                final EfsDispatchTarget<E> target =
+                    mRouter.routeTo(event);
 
-            if (target != null)
-            {
-                EfsDispatcher.dispatch(target, event);
+                if (target != null)
+                {
+                    EfsDispatcher.dispatch(target, event);
+                }
+                else
+                {
+                    sLogger.trace(
+                        "{} event not routed to any agent, {}.",
+                        mTopic.mTopicKey,
+                        event);
+                }
             }
-            else
+            catch (Exception jex)
             {
-                sLogger.trace(
-                    "{} event not routed to any agent, {}.",
-                    mTopic.mTopicKey,
-                    event);
+                sLogger.warn("Exception routing {} event.",
+                             mTopic.mTopicKey,
+                             jex);
             }
         } // end of forwardEvent(E)
 
@@ -2977,7 +3217,16 @@ router targets.
                 // Yes. Close the access point now and remove
                 // from wildcard list.
                 doClose();
-                mWildcards.remove(this);
+
+                mTopicLock.lock();
+                try
+                {
+                    mWildcards.remove(this);
+                }
+                finally
+                {
+                    mTopicLock.unlock();
+                }
             }
         } // end of close()
 
@@ -3192,7 +3441,11 @@ router targets.
                 }
                 catch (Exception jex)
                 {
-                    // Ignore.
+                    sLogger.warn(
+                        "exception closing wildcard advertisement, agent {}, pattern {}.",
+                        mAgent.name(),
+                        mPattern.pattern(),
+                        jex);
                 }
             }
         } // end of doClose()
@@ -3418,7 +3671,11 @@ router targets.
                 }
                 catch (Exception jex)
                 {
-                    // Ignore.
+                    sLogger.warn(
+                        "exception closing wildcard subscription, agent {}, pattern {}.",
+                        mAgent.name(),
+                        mPattern.pattern(),
+                        jex);
                 }
             }
         } // end of doClose()

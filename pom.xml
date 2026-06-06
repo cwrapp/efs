@@ -24,7 +24,7 @@ limitations under the License.
 
   <groupId>io.github.cwrapp</groupId>
   <artifactId>efs-parent</artifactId>
-  <version>0.6.2</version>
+  <version>0.7.0</version>
 
   <packaging>pom</packaging>
 
@@ -70,9 +70,9 @@ limitations under the License.
     <module>efs-bus</module>
     <module>efs-dispatcher</module>
     <module>efs-event</module>
-    <module>efs-feed</module>
     <module>efs-timer</module>
     <module>efs-util</module>
+    <module>efs-io</module>
   </modules>
 
 <!-- Delete?
@@ -99,22 +99,21 @@ limitations under the License.
     <source-version>3.4.0</source-version>
 
     <ebus.version>7.6.2</ebus.version>
-    <guava.version>33.5.0-jre</guava.version>
+    <guava.version>33.6.0-jre</guava.version>
     <decimal4j.version>1.0.3</decimal4j.version>
     <openhft.version>2026.2</openhft.version>
-    <typesafe.version>1.4.6</typesafe.version>
+    <typesafe.version>1.4.8</typesafe.version>
     <jctools.version>4.0.6</jctools.version>
-    <javassist.version>3.30.2-GA</javassist.version>
     <reflections.version>0.10.2</reflections.version>
     <jakarta.version>3.0.0</jakarta.version>
+    <cqengine.version>3.6.0</cqengine.version>
 
-    <slf4j.version>2.0.17</slf4j.version>
+    <slf4j.version>2.0.18</slf4j.version>
     <logback.version>1.5.32</logback.version>
 
     <junit.version>6.0.3</junit.version>
     <assertj.version>3.27.7</assertj.version>
     <mockito.version>5.23.0</mockito.version>
-    <bytebuddy.version>1.18.8</bytebuddy.version>
     <awaitility.version>4.3.0</awaitility.version>
     <jacoco.version>0.8.14</jacoco.version>
 
@@ -178,6 +177,12 @@ limitations under the License.
 
       <!-- google dependencies -->
 
+     <dependency>
+       <groupId>com.googlecode.cqengine</groupId>
+       <artifactId>cqengine</artifactId>
+       <version>${cqengine.version}</version>
+     </dependency>
+
       <dependency>
         <groupId>com.google.code.findbugs</groupId>
         <artifactId>jsr305</artifactId>
@@ -239,12 +244,6 @@ limitations under the License.
       </dependency>
 
       <dependency>
-        <groupId>org.javassist</groupId>
-        <artifactId>javassist</artifactId>
-        <version>${javassist.version}</version>
-      </dependency>
-
-      <dependency>
         <groupId>org.reflections</groupId>
         <artifactId>reflections</artifactId>
         <version>${reflections.version}</version>
@@ -282,13 +281,6 @@ limitations under the License.
         <groupId>org.mockito</groupId>
         <artifactId>mockito-junit-jupiter</artifactId>
         <version>${mockito.version}</version>
-        <scope>test</scope>
-      </dependency>
-
-      <dependency>
-        <groupId>net.bytebuddy</groupId>
-        <artifactId>byte-buddy-agent</artifactId>
-        <version>${bytebuddy.version}</version>
         <scope>test</scope>
       </dependency>
 

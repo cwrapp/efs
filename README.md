@@ -40,59 +40,52 @@ activating are delivered _after_ activation is completed.
 
 ## Features
 
-- **Virtual Single-Threaded Execution**: Agents are accessed by only one thread at any given moment, eliminating synchronization overhead
-- **Low-Latency Event Delivery**: Optimized for high-performance event processing
-- **Event Persistence**: Support for historic, live, and combined event streams
-- **Java 21 Native**: Built for modern Java with support for the latest language features
-- **Async Logging**: Integrated async logging via `EfsDispatcher` for non-blocking log operations
-- **Flexible Configuration**: JSON-based configuration using Typesafe Config
-- **Activation Management**: Thread-safe agent lifecycle management (stopped, standby, active states)
+- **Virtual Single-Threaded Execution**: Agents are accessed by
+  only one thread at any given moment, eliminating
+  synchronization overhead
+- **Low-Latency Event Delivery**: Optimized for high-performance
+  event processing
+- **Event Persistence**: Support for historic, live, and combined
+  event streams
+- **Java 21 Native**: Built for modern Java with support for the
+  latest language features
+- **Async Logging**: Integrated async logging via `EfsDispatcher`
+  for non-blocking log operations
+- **Flexible Configuration**: JSON-based configuration using
+  Typesafe Config
+- **Activation Management**: Thread-safe agent lifecycle
+  management (stopped, standby, active states)
 
 ## Quick Start
 
 ### Installation
 
-efs is built for Java 21. Binary releases are available from GitHub Package Registry.
+efs is built for Java 21. Binary releases are available from
+[Maven Central Repository](https://mvnrepository.com/repos/central).
 
 **Maven:**
 
+The project uses a BOM (Bill of Materials) for dependency
+management, making it easy to include all necessary components:
+
 ```xml
 <dependency>
-    <groupId>com.github.cwrapp</groupId>
+    <groupId>io.github.cwrapp</groupId>
     <artifactId>efs-bom</artifactId>
-    <version>0.6.2</version>
+    <version>0.7.0</version>
     <type>pom</type>
     <scope>import</scope>
 </dependency>
 ```
-
-For more installation details, see the [Binary Releases](#binary-releases) section.
 
 ### Basic Example
 
 For a comprehensive example, explore the javadoc packages in the order listed in the [Learning efs](#learning-efs) section, starting with `org.efs.dispatcher`.
 
-## Essential Information
-
-### Binary Releases
-
-efs is built for Java 21. Published releases are available from [GitHub Package Registry](https://github.com/cwrapp/efs/packages).
-
-The project uses a BOM (Bill of Materials) for dependency management, making it easy to include all necessary components:
-
-```xml
-<dependency>
-    <groupId>com.github.cwrapp</groupId>
-    <artifactId>efs-bom</artifactId>
-    <version>0.6.2</version>
-    <type>pom</type>
-    <scope>import</scope>
-</dependency>
-```
-
 ### Release Notes
 
-Please see [NEWS.md](https://github.com/cwrapp/efs/blob/main/NEWS.md) in this directory for detailed release notes and changelog.
+Please see [NEWS.md](https://github.com/cwrapp/efs/blob/main/NEWS.md)
+in this directory for detailed release notes and changelog.
 
 ### API Documentation
 
@@ -151,6 +144,15 @@ Implements `org.slf4j.Logger` and `org.slf4j.LoggerFactory` with `org.efs.loggin
 - Async logging performance
 - Integration with SLF4J
 - Non-blocking log operations
+
+### 7. `org.efs.io`
+Provides `org.efs.io.EfsFile` which provides access to past and
+future events using [CQEngine](https://github.com/npgall/cqengine?tab=readme-ov-file) for event querying over a specified `EfsInterval`. `EfsFile` associates a publish timestamp and a monotonic, continuous index to each event posted to the event file.
+
+**Key Topics:**
+- Stores events for a given event class and topic.
+- Uses CQEngine `Query` class to retrieve events over a given interval (based on event row index or publish timestamp) and matching given query.
+- Currently does not persist events but goal is to do so in future releases. Consider `EfsFile` a work-in-progress.
 
 ### efs Background
 

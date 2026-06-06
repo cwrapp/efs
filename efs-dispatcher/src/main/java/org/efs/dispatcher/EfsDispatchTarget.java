@@ -116,6 +116,8 @@ public final class EfsDispatchTarget<E extends IEfsEvent>
      * @throws NullPointerException
      * if either {@code callback} or {@code agent} is
      * {@code null}.
+     * @throws IllegalStateException
+     * if {@code agent} is not registered with an efs dispatcher.
      */
     public EfsDispatchTarget(@Nonnull final Consumer<E> callback,
                              @Nonnull final IEfsAgent agent)
@@ -126,6 +128,15 @@ public final class EfsDispatchTarget<E extends IEfsEvent>
         mAgent =
             Objects.requireNonNull(
                 agent, EfsDispatcher.NULL_AGENT);
+
+        if (!EfsDispatcher.isRegistered(agent))
+        {
+            throw (
+                new IllegalStateException(
+                    String.format(
+                        EfsDispatcher.UNREGISTERED_AGENT,
+                        agent.name())));
+        }
     } // end of EfsDispatchTarget(Consumer, IEfsAgent)
 
     //

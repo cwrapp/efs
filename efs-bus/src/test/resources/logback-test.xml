@@ -9,6 +9,7 @@
     </layout>
   </appender>
 
+  <!-- Set to INFO when profiling test. -->
   <root level="TRACE">
     <appender-ref ref="CONSOLE"/>
   </root>

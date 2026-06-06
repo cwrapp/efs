@@ -519,6 +519,14 @@ public final class EfsDispatcher
     public static final String INVALID_MAX_EVENTS =
         "maxEvents <= zero";
 
+    /**
+     * An agent not registered with a dispatcher
+     * results in an {@code IllegalStateException} with message
+     * {@value} containing agent name.
+     */
+    public static final String UNREGISTERED_AGENT =
+        "%s is not registered with a dispatcher";
+
     //-----------------------------------------------------------
     // Statics.
     //
@@ -1059,9 +1067,7 @@ public final class EfsDispatcher
      * @throws NullPointerException
      * if either {@code target} or {@code event} is {@code null}.
      * @throws IllegalStateException
-     * if {@code agent} is not
-     * {@link #register(IEfsAgent, String) registered} or if
-     * {@code agent}'s event queue is full preventing
+     * if {@code agent}'s event queue is full preventing
      * {@code event} from being enqueued.
      */
     public static <E extends IEfsEvent> void dispatch(final EfsDispatchTarget<E> target,
@@ -1069,7 +1075,10 @@ public final class EfsDispatcher
     {
         Objects.requireNonNull(target, NULL_DISPATCH_TARGET);
         Objects.requireNonNull(event, NULL_EVENT);
-        validateAgentDispatch(target.agent());
+
+        // Note: no need to validate that target agent is
+        // registered with a dispatcher because EfsDispatchTarget
+        // constructor made that check.
 
         target.dispatch(event);
     } // end of dispatch(EfsDispatchTarget)

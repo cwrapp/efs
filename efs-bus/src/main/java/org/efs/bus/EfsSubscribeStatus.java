@@ -120,7 +120,6 @@ public final class EfsSubscribeStatus<E extends IEfsEvent>
                 mActiveSubscribers));
     } // end of toString()
 
-    @SuppressWarnings ("unchecked")
     @Override
     public boolean equals(final Object o)
     {
@@ -128,8 +127,8 @@ public final class EfsSubscribeStatus<E extends IEfsEvent>
 
         if (!retcode && o instanceof EfsSubscribeStatus)
         {
-            final EfsSubscribeStatus<E> ess =
-                (EfsSubscribeStatus<E>) o;
+            final EfsSubscribeStatus<?> ess =
+                (EfsSubscribeStatus<?>) o;
 
             retcode = (mTopicKey.equals(ess.mTopicKey) &&
                        mPreviousSubscribers ==
