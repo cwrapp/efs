@@ -16,11 +16,11 @@
 
 package org.efs.bus;
 
-import org.efs.event.EfsTopicKey;
 import jakarta.annotation.Nonnull;
 import java.util.Objects;
 import net.sf.eBus.util.ValidationException;
 import net.sf.eBus.util.Validator;
+import org.efs.event.EfsTopicKey;
 import org.efs.event.IEfsEvent;
 import org.efs.event.IEfsEventBuilder;
 
@@ -140,7 +140,6 @@ public final class EfsPublishStatus<E extends IEfsEvent>
                 mActivePublishers));
     } // end of toString()
 
-    @SuppressWarnings ("unchecked")
     @Override
     public boolean equals(final Object o)
     {
@@ -148,8 +147,8 @@ public final class EfsPublishStatus<E extends IEfsEvent>
 
         if (!retcode && o instanceof EfsPublishStatus)
         {
-            final EfsPublishStatus<E> ps =
-                (EfsPublishStatus<E>) o;
+            final EfsPublishStatus<?> ps =
+                (EfsPublishStatus<?>) o;
 
             retcode = (mTopicKey.equals(ps.mTopicKey) &&
                        mAdvertisedPublishers ==

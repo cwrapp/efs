@@ -167,15 +167,6 @@ public final class EfsScheduledExecutor
     // Constants.
     //
 
-    /**
-     * Use command line option {@code -D}{@value}{@code=<file>}
-     * to specify file containing a typesafe HOCON {a form of
-     * JSON} configuration for one or more's
-     * {@code EfsScheduledExecutor}s.
-     */
-    public static final String SCHEDULER_CONFIG_OPTION =
-        "org.efs.timer.configFile";
-
     //
     // Default values.
     //

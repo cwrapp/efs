@@ -81,7 +81,7 @@ public class DispatchTargetTest
     //
 
     @BeforeAll
-    private static void testClassSetUp()
+    public static void testClassSetUp()
     {
         final EfsDispatcher.Builder builder =
             EfsDispatcher.builder(DISPATCHER_NAME);
@@ -146,6 +146,25 @@ public class DispatchTargetTest
     } // end of ctorNullAgent()
 
     @Test
+    @DisplayName("Target constructor, unregistered agent")
+    public void ctorUnregisteredAgent()
+    {
+        final String agentName = "test-unregistered";
+        final Consumer<TestEvent> callback = e -> {};
+        final IEfsAgent agent = mock(IEfsAgent.class);
+        final String message =
+        String.format(EfsDispatcher.UNREGISTERED_AGENT,
+                      agentName);
+
+        when(agent.name()).thenReturn(agentName);
+
+        assertThatThrownBy(
+            () -> new EfsDispatchTarget<>(callback, agent))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage(message);
+    } // end of ctorUnregisteredAgent()
+
+    @Test
     @DisplayName("Target constructor success")
     public void ctorSuccess()
     {
@@ -187,26 +206,6 @@ public class DispatchTargetTest
             .isInstanceOf(NullPointerException.class)
             .hasMessage(EfsDispatcher.NULL_EVENT);
     } // end of dispatchTargetNullEvent()
-
-    @Test
-    @DisplayName("Dispatch unregistered agent")
-    public void dispatchUnregisteredAgent()
-    {
-        final String agentName = "unregistered";
-        final Consumer<TestEvent> callback = e -> {};
-        final IEfsAgent agent = mock(IEfsAgent.class);
-        final EfsDispatchTarget<TestEvent> target =
-            new EfsDispatchTarget<>(callback, agent);
-        final TestEvent event = mock(TestEvent.class);
-
-        when(agent.name()).thenReturn(agentName);
-
-        assertThatThrownBy(
-            () -> EfsDispatcher.dispatch(target, event))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessage(
-                "efs agent " + agentName + " not registered");
-    } // end of dispatchUnregisteredAgent()
 
     @Test
     @DisplayName("Dispatch target success")

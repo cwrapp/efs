@@ -384,8 +384,11 @@ public final class AlgoApplication {
  *         agent and know (and have access to) the callback
  *         method. There is no built-in location transparency or
  *         actor-reference abstraction. The
- *         {link org.efs.dispatcher.ReplyTo class provides a
- *         reply-address pattern but must be manually set.
+ *         {link org.efs.dispatcher.EfsDispatchTarget} class
+ *         provides a reply-address pattern and must be manually
+ *         created by the requesting agent and provided to the
+ *         replying agent - usually placed into the request event
+ *         itself.
  *         </p>
  *         <p>
  *         Indirect, loosely-coupled dispatch is provded in

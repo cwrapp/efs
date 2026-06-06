@@ -1,3 +1,12 @@
+# 0.7.0: June 6, 2026
+
+  - Renamed `org.efs.feed` to `org.efs.io` and added `EfsFile`.
+    This module is _a work in progress_ and changes which are
+    incompatible with this current version will likely occur.
+  - Corrected thread safety issues in `org.efs.bus`.
+  - Continue to improve unit test coverage and javadoc
+    documentation.
+
 # 0.6.2: May 9, 2026
 
   - org.efs.activator changed activator listener list to
