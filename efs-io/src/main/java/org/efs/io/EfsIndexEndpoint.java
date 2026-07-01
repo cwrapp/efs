@@ -16,6 +16,7 @@
 
 package org.efs.io;
 
+import java.time.Instant;
 import java.util.Objects;
 import javax.annotation.concurrent.Immutable;
 import net.sf.eBus.util.Validator;
@@ -67,6 +68,20 @@ public final class EfsIndexEndpoint
 
     //
     // end of Constructors.
+    //-----------------------------------------------------------
+
+    //-----------------------------------------------------------
+    // Abstract Method Implementations.
+    //
+
+    @Override
+    public boolean isFuture(final Instant now)
+    {
+        return (mIndexOffset >= 0);
+    } // end of isFuture(Instant)
+
+    //
+    // end of Abstract Method Implementations.
     //-----------------------------------------------------------
 
     //-----------------------------------------------------------

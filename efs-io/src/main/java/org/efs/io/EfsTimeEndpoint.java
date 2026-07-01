@@ -69,6 +69,20 @@ public final class EfsTimeEndpoint
     //-----------------------------------------------------------
 
     //-----------------------------------------------------------
+    // Abstract Method Implementations.
+    //
+
+    @Override
+    public boolean isFuture(final Instant now)
+    {
+        return (mTime.compareTo(now) >= 0);
+    } // end of isFuture(Instant)
+
+    //
+    // end of Abstract Method Implementations.
+    //-----------------------------------------------------------
+
+    //-----------------------------------------------------------
     // Comparable Interface Implementation.
     //
 

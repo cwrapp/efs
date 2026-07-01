@@ -16,7 +16,6 @@
 
 package org.efs.io;
 
-import org.efs.io.EfsDurationEndpoint;
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
@@ -25,11 +24,12 @@ import org.efs.io.EfsIntervalEndpoint.IntervalLocation;
 import org.junit.jupiter.api.Test;
 
 /**
+ * Tests time duration endpoint.
  *
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
 
-public class EfsDurationEndpointTest
+public final class EfsDurationEndpointTest
 {
 //---------------------------------------------------------------
 // Member data.

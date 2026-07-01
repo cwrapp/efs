@@ -29,11 +29,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
+ * Tests fixed time endpoint class.
  *
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
 
-public class EfsTimeEndpointTest
+public final class EfsTimeEndpointTest
 {
 //---------------------------------------------------------------
 // Member data.

@@ -18,7 +18,7 @@ package org.efs.io;
 
 import com.google.errorprone.annotations.Immutable;
 import org.efs.event.IEfsEvent;
-import org.efs.io.EfsFile.Retrieval;
+import org.efs.io.EfsFileConnection.Retrieval;
 
 /**
  * Internal event used to pass a retrieval request to
@@ -64,23 +64,6 @@ import org.efs.io.EfsFile.Retrieval;
 
     //
     // end of Constructors.
-    //-----------------------------------------------------------
-
-    //-----------------------------------------------------------
-    // Object Method Overrides.
-    //
-
-    /**
-     * @InheritDoc
-     */
-    @Override
-    public String toString()
-    {
-        return (mRequest.toString());
-    } // end of toString()
-
-    //
-    // end of Object Method Overrides.
     //-----------------------------------------------------------
 
     //-----------------------------------------------------------

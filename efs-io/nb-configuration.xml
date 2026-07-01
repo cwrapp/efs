@@ -19,9 +19,11 @@ Without this configuration present, some functionality in the IDE may be limited
     <spellchecker-wordlist xmlns="http://www.netbeans.org/ns/spellchecker-wordlist/1">
         <word>algos</word>
         <word>async</word>
+        <word>bytecode</word>
         <word>callout</word>
         <word>clusivities</word>
         <word>clusivity</word>
+        <word>cqengine</word>
         <word>Disruptor's</word>
         <word>efs</word>
         <word>Enqueue</word>
@@ -30,7 +32,9 @@ Without this configuration present, some functionality in the IDE may be limited
         <word>expirations</word>
         <word>heterogenous</word>
         <word>homogenous</word>
+        <word>iterable</word>
         <word>javadoc</word>
+        <word>nullable</word>
         <word>programmatically</word>
         <word>typesafe</word>
     </spellchecker-wordlist>

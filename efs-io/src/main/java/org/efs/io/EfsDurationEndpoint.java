@@ -17,13 +17,14 @@
 package org.efs.io;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 import net.sf.eBus.util.Validator;
 
 /**
  * An interval endpoint based on event time offset. This offset
- * is applied when {@code EfsFeed} processes the associated
+ * is applied when {@code EfsFile} processes associated
  * subscription.
  *
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
@@ -66,6 +67,20 @@ public final class EfsDurationEndpoint
 
     //
     // end of Constructors.
+    //-----------------------------------------------------------
+
+    //-----------------------------------------------------------
+    // Abstract Method Implementations.
+    //
+
+    @Override
+    public boolean isFuture(final Instant now)
+    {
+        return (mTimeOffset.compareTo(Duration.ZERO) >= 0);
+    } // end of isFuture(Instant)
+
+    //
+    // end of Abstract Method Implementations.
     //-----------------------------------------------------------
 
     //-----------------------------------------------------------

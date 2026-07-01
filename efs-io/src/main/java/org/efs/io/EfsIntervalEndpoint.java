@@ -16,6 +16,7 @@
 
 package org.efs.io;
 
+import java.time.Instant;
 import java.util.Objects;
 import javax.annotation.Nonnull;
 import javax.annotation.concurrent.Immutable;
@@ -357,6 +358,22 @@ public abstract class EfsIntervalEndpoint
 
     //
     // end of Constructors.
+    //-----------------------------------------------------------
+
+    //-----------------------------------------------------------
+    // Abstract Method Declarations.
+    //
+
+    /**
+     * Returns {@code true} if this endpoint references future
+     * events and {@code false} if past events only.
+     * @param now current timestamp.
+     * @return {@code true} if endpoint is for future events.
+     */
+    public abstract boolean isFuture(final Instant now);
+
+    //
+    // end of Abstract Method Declarations.
     //-----------------------------------------------------------
 
     //-----------------------------------------------------------

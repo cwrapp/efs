@@ -30,6 +30,7 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import org.assertj.core.api.Assertions;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import org.efs.activator.event.ActivatorEvent;
@@ -151,6 +152,49 @@ public final class WorkflowFailureTest
     //-----------------------------------------------------------
     // JUnit Tests.
     //
+
+    @Test
+    public void agentStateNullName()
+    {
+        final String agentName = null;
+
+        Assertions.assertThatThrownBy(
+            () -> mActivator.agentState(agentName))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsActivator.INVALID_AGENT_NAME);
+    } // end of agentStateNullName()
+
+    @Test
+    public void agentStateEmptyName()
+    {
+        final String agentName = "";
+
+        Assertions.assertThatThrownBy(
+            () -> mActivator.agentState(agentName))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsActivator.INVALID_AGENT_NAME);
+    } // end of agentStateEmptyName()
+
+    @Test
+    public void agentStateBlankName()
+    {
+        final String agentName = "\t";
+
+        Assertions.assertThatThrownBy(
+            () -> mActivator.agentState(agentName))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(EfsActivator.INVALID_AGENT_NAME);
+    } // end of agentStateBlankName()
+
+    @Test
+    public void agentStateUnknownAgent()
+    {
+        final String agentName = "unknown-agent";
+        final EfsAgentState agentState =
+            mActivator.agentState(agentName);
+
+        assertThat(agentState).isNull();
+    } // end of agentStateUnknownAgent()
 
     @Test
     public void noWorkFlow()

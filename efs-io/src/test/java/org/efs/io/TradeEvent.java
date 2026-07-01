@@ -21,7 +21,9 @@ import com.google.errorprone.annotations.Immutable;
 import jakarta.annotation.Nonnull;
 import java.util.Objects;
 import net.sf.eBus.util.Validator;
+import org.decimal4j.api.Decimal;
 import org.decimal4j.immutable.Decimal2f;
+import org.decimal4j.scale.Scale2f;
 import org.efs.event.IEfsEvent;
 import org.efs.event.IEfsEventBuilder;
 
@@ -56,7 +58,7 @@ public final class TradeEvent
     //
 
     private final String mSymbol;
-    private final Decimal2f mPrice;
+    private final Decimal<Scale2f> mPrice;
     private final int mSize;
     private final PriceTrend mPriceTrend;
     private final int mVolume;
@@ -106,37 +108,39 @@ public final class TradeEvent
     //
 
     @Nonnull
-    @CQAttribute(attribute = CQAttributeType.SIMPLE,
-                 index = CQIndexType.RADIX_TREE_INDEX)
+    @CQAttribute (attribute = CQAttributeType.SIMPLE,
+                  index = CQIndexType.RADIX_TREE_INDEX)
     public String getSymbol()
     {
         return (mSymbol);
     } // end of getSymbol()
 
     @Nonnull
-    @CQAttribute(attribute = CQAttributeType.SIMPLE,
-                 index = CQIndexType.NAVIGABLE_INDEX)
-    public Decimal2f getPrice()
+    @CQAttribute (attribute = CQAttributeType.SIMPLE,
+                  index = CQIndexType.NAVIGABLE_INDEX)
+    public Decimal<Scale2f> getPrice()
     {
         return (mPrice);
     } // end of getPrice()
 
-    @CQAttribute(attribute = CQAttributeType.SIMPLE,
-                 index = CQIndexType.NAVIGABLE_INDEX)
+    @CQAttribute (attribute = CQAttributeType.SIMPLE,
+                  index = CQIndexType.NAVIGABLE_INDEX)
     public int getSize()
     {
         return (mSize);
     } // end of getSize()
 
     @Nonnull
-    @CQAttribute(attribute = CQAttributeType.SIMPLE,
-                 index = CQIndexType.HASH_INDEX)
+    @CQAttribute (attribute = CQAttributeType.SIMPLE,
+                  index = CQIndexType.HASH_INDEX)
     public PriceTrend getPriceTrend()
     {
         return (mPriceTrend);
     } // end of getPriceTrend()
 
-    // No CQEngine attribute for this getter.
+    // This field has not cqengine index.
+    @Nonnull
+    @CQAttribute (attribute = CQAttributeType.SIMPLE)
     public int getVolume()
     {
         return (mVolume);
@@ -167,7 +171,7 @@ public final class TradeEvent
         //
 
         private String mSymbol;
-        private Decimal2f mPrice;
+        private Decimal<Scale2f> mPrice;
         private int mSize;
         private PriceTrend mPriceTrend;
         private int mVolume;
@@ -222,8 +226,7 @@ public final class TradeEvent
             return (this);
         } // end of symbol(String)
 
-
-        public Builder price(final Decimal2f price)
+        public Builder price(final Decimal<Scale2f> price)
         {
             Objects.requireNonNull(price, "price is null");
 
@@ -237,7 +240,7 @@ public final class TradeEvent
             mPrice = price;
 
             return (this);
-        } // end of price(Decimal2f)
+        } // end of price(Decimal<>)
 
         public Builder size(final int size)
         {

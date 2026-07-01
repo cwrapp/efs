@@ -16,7 +16,9 @@
 
 package org.efs.io;
 
+import org.efs.dispatcher.EfsDispatcher;
 import org.efs.dispatcher.IEfsAgent;
+import org.efs.io.EfsFile.AccessMode;
 
 /**
  * Base class for publisher and retriever agents.
@@ -41,9 +43,19 @@ public abstract class AbstractTestAgent
     protected final String mAgentName;
 
     /**
+     * Access trade file using this mode.
+     */
+    protected final AccessMode mAccessMode;
+
+    /**
      * Market data event file.
      */
     protected final EfsFile<TradeEvent> mTradeFile;
+
+    /**
+     * Agent connect to trade file.
+     */
+    protected EfsFileConnection<TradeEvent> mTradeConnection;
 
 //---------------------------------------------------------------
 // Member methods.
@@ -54,11 +66,13 @@ public abstract class AbstractTestAgent
     //
 
     protected AbstractTestAgent(final String agentName,
+                                final AccessMode accessMode,
                                 final EfsFile<TradeEvent> tradeFile)
     {
         mAgentName = agentName;
+        mAccessMode = accessMode;
         mTradeFile = tradeFile;
-    } // end of AbstractTestAgent(STring, EfsFile)
+    } // end of AbstractTestAgent(STring, AccessMode, EfsFile)
 
     //
     // end of Constructors.
@@ -77,4 +91,39 @@ public abstract class AbstractTestAgent
     //
     // end of IEfsAgent Interface Implementation.
     //-----------------------------------------------------------
+
+    //-----------------------------------------------------------
+    // Get Methods.
+    //
+
+    public final AccessMode accessMode()
+    {
+        return (mAccessMode);
+    } // end of accessMode()
+
+    public final EfsFileConnection<TradeEvent> connection()
+    {
+        return (mTradeConnection);
+    } // end of connection()
+
+    //
+    // end of Get Methods.
+    //-----------------------------------------------------------
+
+    /**
+     * Opens connect to trade file.
+     */
+    public void open()
+    {
+        mTradeConnection = mTradeFile.connect(mAccessMode, this);
+    } // end of open()
+
+    /**
+     * Closes connect to trade file.
+     */
+    public void close()
+    {
+        mTradeConnection.close();
+        EfsDispatcher.deregister(this);
+    } // end of close()
 } // end of class AbstractTestAgent

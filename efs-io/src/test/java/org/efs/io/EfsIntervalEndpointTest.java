@@ -27,7 +27,7 @@ import org.junit.jupiter.api.Test;
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
 
-public class EfsIntervalEndpointTest
+public final class EfsIntervalEndpointTest
 {
 //---------------------------------------------------------------
 // Member data.

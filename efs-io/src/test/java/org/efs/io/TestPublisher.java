@@ -16,6 +16,7 @@
 
 package org.efs.io;
 
+import com.googlecode.cqengine.query.Query;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -24,8 +25,10 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
+import java.util.function.Consumer;
 import org.decimal4j.immutable.Decimal2f;
 import org.efs.dispatcher.EfsDispatcher;
+import org.efs.io.EfsFile.AccessMode;
 import static org.efs.io.EfsFileTest.GMT;
 import static org.efs.io.EfsFileTest.SYMBOL;
 import org.efs.io.TradeEvent.PriceTrend;
@@ -109,7 +112,7 @@ public final class TestPublisher
                          final EfsFile<TradeEvent> tradeFile,
                          final Clock testClock)
     {
-        super (agentName, tradeFile);
+        super (agentName, AccessMode.WRITE_ONLY, tradeFile);
 
         mPrice = INITIAL_PRICE;
         mPriceDelta = INITIAL_PRICE_DELTA;
@@ -123,14 +126,6 @@ public final class TestPublisher
 
     //
     // end of Constructors.
-    //-----------------------------------------------------------
-
-    //-----------------------------------------------------------
-    // Object Method Overrides.
-    //
-
-    //
-    // end of Object Method Overrides.
     //-----------------------------------------------------------
 
     //-----------------------------------------------------------
@@ -244,7 +239,7 @@ public final class TestPublisher
             {
                 try
                 {
-                    mTradeFile.add(trade);
+                    mTradeConnection.add(trade);
                     ++mTradeCount;
                 }
                 catch (IllegalStateException statex)
@@ -281,6 +276,20 @@ public final class TestPublisher
     //
     // end of Event Handlers.
     //-----------------------------------------------------------
+
+    public void add(final TradeEvent event)
+    {
+        mTradeConnection.add(event);
+    } // end of add(TradeEvent)
+
+    public void retrieve(final EfsInterval interval,
+                         final Query<EfsRow<TradeEvent>> query,
+                         final Consumer<EfsRow<TradeEvent>> eventCB,
+                         final Consumer<RetrievalCompleteEvent<TradeEvent>> completionCB)
+    {
+        mTradeConnection.retrieve(
+            interval, query, eventCB, completionCB);
+    } // end of retrieve(...)
 
     public void postTrades(final Duration runTime,
                            final AtomicBoolean continueFlag,

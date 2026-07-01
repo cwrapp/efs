@@ -16,6 +16,12 @@
 
 package org.efs.io;
 
+import com.googlecode.cqengine.attribute.Attribute;
+import com.googlecode.cqengine.attribute.MultiValueAttribute;
+import com.googlecode.cqengine.attribute.MultiValueNullableAttribute;
+import com.googlecode.cqengine.attribute.SimpleAttribute;
+import com.googlecode.cqengine.attribute.SimpleNullableAttribute;
+
 /**
  * Defines CQEngine
  * {@link com.googlecode.cqengine.attribute.Attribute attributes}
@@ -43,28 +49,115 @@ public enum CQAttributeType
     /**
      * Create a
      * {@link com.googlecode.cqengine.attribute.SimpleAttribute SimpleAttribute}
-     * for event field.
+     * for event field. This attribute type means that event
+     * field is <em>not</em> {@code null}. If the field may be
+     * {@code null}, then use {@link #SIMPLE_NULLABLE} attribute
+     * type.
+     *
+     * @see #SIMPLE_NULLABLE
      */
-    SIMPLE,
+    SIMPLE (false, SimpleAttribute.class),
 
     /**
      * Create a
      * {@link com.googlecode.cqengine.attribute.SimpleNullableAttribute SimpleNullableAttribute}
-     * for event field.
+     * for event field. This attribute type means that event
+     * field may be set to {@code null}.
+     *
+     * @see #SIMPLE
      */
-    SIMPLE_NULLABLE,
+    SIMPLE_NULLABLE (false, SimpleNullableAttribute.class),
 
     /**
      * Create a
      * {@link com.googlecode.cqengine.attribute.MultiValueAttribute MultiValueAttribute}
-     * for event field.
+     * for event field. This attribute type means that event
+     * field returns a non-{@code null Iterable} value. If field
+     * may be {@code null}, then use {@link #MULTIVALUE_NULLABLE}
+     * attribute type.
+     *
+     * @see #MULTIVALUE_NULLABLE
      */
-    MULTIVALUE,
+    MULTIVALUE (true, MultiValueAttribute.class),
 
     /**
      * Create a
      * {@link com.googlecode.cqengine.attribute.MultiValueNullableAttribute MultiValueNullableAttribute}
-     * for event field.
+     * for event field. This attribute type means that event
+     * field returns a possibly {@code null Iterable} value. If
+     * that iterable collection may contain {@code null} values,
+     * then set {@link CQAttribute#nullValues()} to {@code true}.
+     *
+     * @see #MULTIVALUE
      */
-    MULTIVALUE_NULLABLE
+    MULTIVALUE_NULLABLE (true, MultiValueNullableAttribute.class);
+
+//---------------------------------------------------------------
+// Member data.
+//
+
+    //-----------------------------------------------------------
+    // Locals.
+    //
+
+    /**
+     * Set to {@code true} if this is a multi-value attribute.
+     */
+    private final boolean mMultivalueFlag;
+
+    /**
+     * Associated cqengine attribute class.
+     */
+    private final Class<? extends Attribute> mAttributeClass;
+
+//---------------------------------------------------------------
+// Member methods.
+//
+
+    //-----------------------------------------------------------
+    // Constructors.
+    //
+
+    /**
+     * Sets attribute type values.
+     * @param multivalueFlag {@code true} if this is a
+     * multi-value attribute type.
+     * @param attributeClass associated cqengine type.
+     */
+    private CQAttributeType(final boolean multivalueFlag,
+                            final Class<? extends Attribute> attributeClass)
+    {
+        mMultivalueFlag = multivalueFlag;
+        mAttributeClass = attributeClass;
+    } // end of CQAttributeType(boolean, Class)
+
+    //
+    // end of Object Method Overrides.
+    //-----------------------------------------------------------
+
+    //-----------------------------------------------------------
+    // Get Methods.
+    //
+
+    /**
+     * Returns {@code true} if this is a multi-value attribute.
+     * @return {@code true} if this is a multi-value attribute.
+     */
+    public boolean isMultiValue()
+    {
+        return (mMultivalueFlag);
+    } // end of isMultiValue()
+
+    /**
+     * Returns cqengine attribute class.
+     * @return cqengine attribute class.
+     */
+    public Class<? extends Attribute> attributeClass()
+    {
+        return (mAttributeClass);
+    } // end of attributeClass()
+
+    //
+    // end of Get Methods.
+    //-----------------------------------------------------------
 } // end of enum CQAttributeType

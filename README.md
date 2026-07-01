@@ -72,7 +72,7 @@ management, making it easy to include all necessary components:
 <dependency>
     <groupId>io.github.cwrapp</groupId>
     <artifactId>efs-bom</artifactId>
-    <version>0.7.0</version>
+    <version>0.7.1</version>
     <type>pom</type>
     <scope>import</scope>
 </dependency>

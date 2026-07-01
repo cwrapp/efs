@@ -51,7 +51,8 @@ package org.efs.io;
 public enum CQIndexType
 {
     /**
-     * Do not create an index for attribute.
+     * Do not create an index for attribute. This is the default
+     * settings for {@link CQAttribute#index()}.
      */
     NO_INDEX,
 
