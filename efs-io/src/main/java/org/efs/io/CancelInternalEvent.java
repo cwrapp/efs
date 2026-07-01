@@ -19,7 +19,8 @@ package org.efs.io;
 import com.google.errorprone.annotations.Immutable;
 import java.time.Instant;
 import org.efs.event.IEfsEvent;
-import org.efs.io.EfsFile.Retrieval;
+import org.efs.io.EfsFileConnection.Retrieval;
+import org.efs.io.RetrievalCompleteEvent.CompletionType;
 
 /**
  * Internal retrieval cancellation event.
@@ -47,6 +48,11 @@ import org.efs.io.EfsFile.Retrieval;
     private final Instant mCancelTimestamp;
 
     /**
+     * Reason for retrieval completion.
+     */
+    private final CompletionType mCompletionType;
+
+    /**
      * Canceled event retrieval request.
      */
     private final Retrieval<E> mRequest;
@@ -62,14 +68,17 @@ import org.efs.io.EfsFile.Retrieval;
     /**
      * Creates a new retrieval cancellation event
      * @param timestamp cancellation timestamp.
+     * @param completionType reason for retrieval completion.
      * @param request canceled event retrieval request.
      */
     /* package */ CancelInternalEvent(final Instant timestamp,
+                                      final CompletionType completionType,
                                       final Retrieval<E> request)
     {
         mCancelTimestamp = timestamp;
+        mCompletionType = completionType;
         mRequest = request;
-    } // end of CancelInternalEvent(Instant, Retrieval)
+    } // end of CancelInternalEvent(...)
 
     //
     // end of Constructors.
@@ -85,9 +94,12 @@ import org.efs.io.EfsFile.Retrieval;
     @Override
     public String toString()
     {
-        return (String.format("[timestamp=%s, request=%s]",
-                              mCancelTimestamp,
-                              mRequest));
+        return (
+            String.format(
+                "[timestamp=%s, reason=%s, request=%s]",
+                mCancelTimestamp,
+                mCompletionType,
+                mRequest));
     } // end of toString()
 
     //
@@ -106,6 +118,15 @@ import org.efs.io.EfsFile.Retrieval;
     {
         return (mCancelTimestamp);
     } // end of cancelTimestamp()
+
+    /**
+     * Returns reason for retrieval completion.
+     * @return retrieval completion reason.
+     */
+    /* package */ CompletionType completionType()
+    {
+        return (mCompletionType);
+    } // end of completionType()
 
     /**
      * Returns canceled retrieval request.

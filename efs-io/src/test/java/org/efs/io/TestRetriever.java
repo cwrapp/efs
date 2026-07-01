@@ -16,18 +16,19 @@
 
 package org.efs.io;
 
-import com.google.common.collect.ImmutableMap;
 import com.googlecode.cqengine.attribute.Attribute;
-import com.googlecode.cqengine.attribute.SimpleAttribute;
 import com.googlecode.cqengine.query.Query;
 import static com.googlecode.cqengine.query.QueryFactory.greaterThanOrEqualTo;
 import static com.googlecode.cqengine.query.QueryFactory.lessThanOrEqualTo;
 import static com.googlecode.cqengine.query.QueryFactory.or;
-import com.googlecode.cqengine.query.option.QueryOptions;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
-import org.decimal4j.immutable.Decimal2f;
-import org.efs.io.TradeEvent.PriceTrend;
+import java.util.function.Consumer;
+import static org.assertj.core.api.Assertions.assertThat;
+import org.decimal4j.api.Decimal;
+import org.decimal4j.scale.Scale2f;
+import org.efs.io.EfsFile.AccessMode;
+import org.efs.io.EfsFileConnection.Retrieval;
+import org.efs.io.RetrievalCompleteEvent.CompletionType;
 import org.efs.logging.AsyncLoggerFactory;
 import org.slf4j.Logger;
 
@@ -46,95 +47,11 @@ public final class TestRetriever
 //
 
     //-----------------------------------------------------------
-    // Constants.
-    //
-
-    //-----------------------------------------------------------
     // Statics.
     //
 
-    /**
-     * Market data event attributes.
-     */
-    private static final Map<String, Attribute<TradeEvent, ?>> sAttributes;
-
     private static final Logger sLogger =
         AsyncLoggerFactory.getLogger(TestRetriever.class);
-
-    // Class static initialization.
-    static
-    {
-        final ImmutableMap.Builder<String, Attribute<TradeEvent, ?>> builder =
-            ImmutableMap.builder();
-        String attributeName;
-
-        attributeName = "symbol";
-        builder.put(
-            attributeName,
-            new SimpleAttribute<TradeEvent, String>(attributeName)
-            {
-                @Override
-                public String getValue(final TradeEvent row,
-                                       final QueryOptions qOptions)
-                {
-                    return (row.getSymbol());
-                }
-            });
-
-        attributeName = "price";
-        builder.put(
-            attributeName,
-            new SimpleAttribute<TradeEvent, Double>(attributeName)
-            {
-                @Override
-                public Double getValue(final TradeEvent row,
-                                       final QueryOptions qo)
-                {
-                    return ((row.getPrice()).doubleValue());
-                }
-            });
-
-        attributeName = "size";
-        builder.put(
-            attributeName,
-            new SimpleAttribute<TradeEvent, Integer>(attributeName)
-            {
-                @Override
-                public Integer getValue(final TradeEvent row,
-                                        final QueryOptions qo)
-                {
-                    return (row.getSize());
-                }
-            });
-
-        attributeName = "priceTrend";
-        builder.put(
-            attributeName,
-            new SimpleAttribute<TradeEvent, PriceTrend>(attributeName)
-            {
-                @Override
-                public PriceTrend getValue(final TradeEvent row,
-                                           final QueryOptions qo)
-                {
-                    return (row.getPriceTrend());
-                }
-            });
-
-        attributeName = "volume";
-        builder.put(
-            attributeName,
-            new SimpleAttribute<TradeEvent, Integer>(attributeName)
-            {
-                @Override
-                public Integer getValue(final TradeEvent row,
-                                        final QueryOptions qo)
-                {
-                    return (row.getVolume());
-                }
-            });
-
-        sAttributes = builder.build();
-    } // end of class static initialization.
 
     //-----------------------------------------------------------
     // Locals.
@@ -149,6 +66,21 @@ public final class TestRetriever
      * Track number of trades received.
      */
     private int mTradesReceived;
+
+    /**
+     * Verify that received trade price is &le; to this price.
+     */
+    private Decimal<Scale2f> mMaxPrice;
+
+    /**
+     * Verify that received trade size is &ge; to this size.
+     */
+    private int mMinSize;
+
+    /**
+     * Retrieval completion reason.
+     */
+    private CompletionType mReason;
 
 //---------------------------------------------------------------
 // Member methods.
@@ -165,9 +97,9 @@ public final class TestRetriever
      * @param tradeFile efs file containing trades.
      */
     public TestRetriever(final String agentName,
-                     final EfsFile<TradeEvent> tradeFile)
+                         final EfsFile<TradeEvent> tradeFile)
     {
-        super (agentName, tradeFile);
+        super (agentName, AccessMode.READ_ONLY, tradeFile);
     } // end of TestRetriever(String, EfsFile<>)
 
     //
@@ -183,6 +115,11 @@ public final class TestRetriever
         return (mTradesReceived);
     } // end of tradesReceived()
 
+    public CompletionType completionReason()
+    {
+        return (mReason);
+    } // end of completionReason()
+
     //
     // end of Get Methods.
     //-----------------------------------------------------------
@@ -191,18 +128,38 @@ public final class TestRetriever
     // Event Handlers.
     //
 
-    private void onEvent(final EfsRow<TradeEvent> event)
+    public void onEvent(final EfsRow<TradeEvent> row)
     {
+        final TradeEvent trade = row.getEvent();
+        final int priceCompare =
+            (trade.getPrice()).compareTo(mMaxPrice);
+
         ++mTradesReceived;
 
-        sLogger.debug("{}: received {}.", mAgentName, event);
+        sLogger.debug("{}: received {}.", mAgentName, row);
+
+        if (priceCompare > 0)
+        {
+            assertThat(trade.getSize())
+                .isGreaterThanOrEqualTo(mMinSize);
+        }
+        else
+        {
+            assertThat(trade.getPrice())
+                .isLessThanOrEqualTo(mMaxPrice);
+        }
     } // end of onEvent(DeliveryEvent<>)
 
-    private void onDone(final RetrievalCompleteEvent<TradeEvent> event)
+    public void onDone(final RetrievalCompleteEvent<TradeEvent> event)
     {
-        sLogger.info("{}: retrieval completed, {} trades.",
-                     mAgentName,
-                     mTradesReceived);
+        mReason = event.completionType();
+
+        sLogger.info(
+            "{}: retrieval {} completed, reason {}, {} trades.",
+            mAgentName,
+            (event.retrieval()).id(),
+            mReason,
+            mTradesReceived);
 
         mRetrieveSignal.countDown();
     } // end of onDone(RetrievalCompleteEvent)
@@ -211,24 +168,29 @@ public final class TestRetriever
     // end of Event Handlers.
     //-----------------------------------------------------------
 
-    // TODO: add retrieveal bad argument tests.
+    public void add(final TradeEvent trade)
+    {
+        mTradeConnection.add(trade);
+    } // end of add(final TradeEvent trade)
+
+    public void retrieve(final EfsInterval interval,
+                         final Query<EfsRow<TradeEvent>> query,
+                         final Consumer<EfsRow<TradeEvent>> eventCB,
+                         final Consumer<RetrievalCompleteEvent<TradeEvent>> completionCB)
+    {
+        mTradeConnection.retrieve(
+            interval, query, eventCB, completionCB);
+    } // end of retrieve(...)
 
     @SuppressWarnings ("unchecked")
     public void retrieveTrades(final EfsInterval interval,
-                               final Decimal2f maxPrice,
+                               final Decimal<Scale2f> maxPrice,
                                final int minSize,
                                final CountDownLatch doneSignal)
     {
-        final Attribute<TradeEvent, Double> priceAttribute =
-            (Attribute<TradeEvent, Double>)
-                sAttributes.get("price");
-        final Attribute<TradeEvent, Integer> sizeAttribute =
-            (Attribute<TradeEvent, Integer>)
-                sAttributes.get("size");
-        final Query<TradeEvent> query =
-            or(lessThanOrEqualTo(
-                   priceAttribute, maxPrice.doubleValue()),
-               greaterThanOrEqualTo(sizeAttribute, minSize));
+        final Query<EfsRow<TradeEvent>> query =
+            generateQuery(maxPrice, minSize);
+        final Retrieval<TradeEvent> request;
 
         sLogger.info(
             "{}: retrieving trades over interval {}, max price {}, min size {}.",
@@ -238,14 +200,35 @@ public final class TestRetriever
             minSize);
 
         mRetrieveSignal = doneSignal;
+        mMaxPrice = maxPrice;
+        mMinSize = minSize;
 
         // Reset trades received count to zero.
         mTradesReceived = 0;
 
-        mTradeFile.retrieve(interval,
-                            query,
-                            this::onEvent,
-                            this::onDone,
-                            this);
+        request =
+            mTradeConnection.retrieve(interval,
+                                      query,
+                                      this::onEvent,
+                                      this::onDone);
+
+        sLogger.info("{}: retrieval request {} in place.",
+                     mAgentName,
+                     request.id());
     } // end of retrieveTrades(...)
+
+    @SuppressWarnings ("unchecked")
+    private Query<EfsRow<TradeEvent>> generateQuery(final Decimal<Scale2f> maxPrice,
+                                                    final int minSize)
+    {
+        final Attribute<EfsRow<TradeEvent>, Decimal<Scale2f>> pxAttr =
+            (Attribute<EfsRow<TradeEvent>, Decimal<Scale2f>>)
+                mTradeFile.attribute("price");
+        final Attribute<EfsRow<TradeEvent>, Integer> szAttr =
+            (Attribute<EfsRow<TradeEvent>, Integer>)
+                mTradeFile.attribute("size");
+
+        return (or(lessThanOrEqualTo(pxAttr, maxPrice),
+                   greaterThanOrEqualTo(szAttr, minSize)));
+    } // end of generateQuery(Decimal<>, int)
 } // end of class TestRetriever

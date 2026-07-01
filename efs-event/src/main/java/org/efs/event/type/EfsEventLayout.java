@@ -833,28 +833,6 @@ public final class EfsEventLayout<E extends IEfsEvent>
         //-------------------------------------------------------
 
         //-------------------------------------------------------
-        // Object Method Overrides.
-        //
-
-        /**
-         * Returns text containing field name, getter method
-         * signature, and data type name.
-         * @return textual representation of this object.
-         */
-        @Override
-        public String toString()
-        {
-            return (String.format("%s: %s, %s",
-                                  mFieldName,
-                                  mGetter,
-                                  mDataType.getName()));
-        } // end of toString()
-
-        //
-        // end of Object Method Overrides.
-        //-------------------------------------------------------
-
-        //-------------------------------------------------------
         // Get Methods.
         //
 

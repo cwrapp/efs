@@ -26,7 +26,6 @@ import com.googlecode.cqengine.attribute.SimpleAttribute;
 import com.googlecode.cqengine.index.hash.HashIndex;
 import com.googlecode.cqengine.index.unique.UniqueIndex;
 import com.googlecode.cqengine.query.Query;
-import static com.googlecode.cqengine.query.QueryFactory.and;
 import static com.googlecode.cqengine.query.QueryFactory.ascending;
 import static com.googlecode.cqengine.query.QueryFactory.greaterThan;
 import static com.googlecode.cqengine.query.QueryFactory.greaterThanOrEqualTo;
@@ -36,7 +35,8 @@ import static com.googlecode.cqengine.query.QueryFactory.orderBy;
 import static com.googlecode.cqengine.query.QueryFactory.queryOptions;
 import com.googlecode.cqengine.query.option.QueryOptions;
 import com.googlecode.cqengine.resultset.ResultSet;
-import jakarta.annotation.Nonnull;
+import jakarta.annotation.Nullable;
+import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -44,14 +44,15 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.SortedSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Consumer;
 import org.efs.dispatcher.EfsDispatcher;
 import org.efs.dispatcher.IEfsAgent;
 import org.efs.event.EfsTopicKey;
 import org.efs.event.IEfsEvent;
+import org.efs.io.EfsFileConnection.Retrieval;
 import org.efs.io.EfsIntervalEndpoint.Clusivity;
 import static org.efs.io.EfsIntervalEndpoint.Clusivity.INCLUSIVE;
 import static org.efs.io.EfsIntervalEndpoint.EndpointType.TIME_OFFSET;
@@ -77,6 +78,106 @@ public final class EfsFile<E extends IEfsEvent>
     implements IEfsAgent
 {
 //---------------------------------------------------------------
+// Member enums.
+//
+
+    /**
+     * Defines how an agent may connect an {@link EfsFile}:
+     * read-only, write-only, or read+write.
+     */
+    public enum AccessMode
+    {
+        /**
+         * Used to access efs event file in read-only mode.
+         * When used only row retrieval is supported.
+         */
+        READ_ONLY (0x1),
+
+        /**
+         * Used to access efs event file in write-only mode.
+         * When used only row addition is supported.
+         */
+        WRITE_ONLY (0x2),
+
+        /**
+         * Used to access efs event file in both read and write
+         * modes. When used rows may be both added and retrieved.
+         */
+        READ_WRITE (0x3);
+
+    //-----------------------------------------------------------
+    // Member data.
+    //
+
+        //-------------------------------------------------------
+        // Locals.
+        //
+
+        /**
+         * Defines what actions agent may perform on this file.
+         */
+        private final int mAccessMask;
+
+    //-----------------------------------------------------------
+    // Member methods.
+    //
+
+        //-------------------------------------------------------
+        // Constructors.
+        //
+
+        /**
+         * Creates an efs event file connect mode for given mask.
+         * @param mask connect mode mask.
+         */
+        private AccessMode(final int mask)
+        {
+            mAccessMask = mask;
+        } // end of AccessMode(int)
+
+        //
+        // end of Constructors.
+        //-------------------------------------------------------
+
+        //-------------------------------------------------------
+        // Get Methods.
+        //
+
+        /**
+         * Returns connect mode mask.
+         * @return connect mode mask.
+         */
+        public int accessMask()
+        {
+            return (mAccessMask);
+        } // end of accessMask()
+
+        /**
+         * Returns {@code true} if given connect mode is
+compatible with this connect mode and {@code false}
+         * otherwise.
+         * <p>
+         * For example, if {@code this} mode is
+         * {@code READ_WRITE} and argument is {@code READ}, then
+         * {@code true} is returned. If {@code this} mode is
+         * {@code READ} and argument is {@code WRITE}, then
+         * {@code false} is returned.
+         * </p>
+         * @param mode compared with {@code this} connect mode.
+         * @return {@code true} if {@code mode} is compatible
+         * with {@code this AccessMode}.
+         */
+        public boolean isCompatible(final AccessMode mode)
+        {
+            return ((mAccessMask & mode.mAccessMask) != 0);
+        } // end of isCompatible(AccessMode)
+
+        //
+        // end of Get Methods.
+        //-------------------------------------------------------
+    } // end of enum AccessMode
+
+//---------------------------------------------------------------
 // Member data.
 //
 
@@ -98,13 +199,6 @@ public final class EfsFile<E extends IEfsEvent>
      */
     public static final String PUBLISH_TIMESTAMP_ATTRIBUTE =
         "publishTimestamp";
-
-    /**
-     * When testing user-provided query use an empty query
-     * options instance.
-     */
-    private static final QueryOptions NO_OPTS =
-        new QueryOptions();
 
     // Exception messages.
 
@@ -138,32 +232,11 @@ public final class EfsFile<E extends IEfsEvent>
         "\"%s\" is not registered with a dispatcher";
 
     /**
-     * A {@code null} interval results in a
+     * A {@code null} connect mode results in a
      * {@code NullPointerException} with message {@value}.
      */
-    public static final String NULL_INTERVAL =
-        "interval is null";
-
-    /**
-     * A {@code null} retrieval condition results in a
-     * {@code NullPointerException} with message {@value}.
-     */
-    public static final String NULL_CONDITION =
-        "condition is null";
-
-    /**
-     * A {@code null} event retrieval callback results in a
-     * {@code NullPointerException} with message {@value}.
-     */
-    public static final String NULL_EVENT_CALLBACK =
-        "event callback is null";
-
-    /**
-     * A {@code null} retrieval complete callback results in a
-     * {@code NullPointerException} with message {@value}.
-     */
-    public static final String NULL_DONE_CALLBACK =
-        "completion callback is null";
+    public static final String NULL_ACCESS_MODE =
+        "accessMode is null";
 
     /**
      * A {@code null} agent results in a
@@ -172,16 +245,47 @@ public final class EfsFile<E extends IEfsEvent>
     public static final String NULL_AGENT = "agent is null";
 
     /**
-     * A {@code null} event results in a
-     * {@code NullPointerException} with message {@value}.
-     */
-    public static final String NULL_EVENT = "event is null";
-
-    /**
      * A {@code null} clock results in a
      * {@code NullPointerException} with message {@value}.
      */
     public static final String NULL_CLOCK = "clock is null";
+
+    /**
+     * A field name which is either {@code null}, an empty
+     * string, or blanks only results in
+     * an {@code IllegalArgumentException} with message {@value}.
+     */
+    public static final String INVALID_FIELD =
+        "field is either null, an empty string, or blanks";
+
+    /**
+     * A field name which is not in the event layout results in
+     * an {@code IllegalArgumentException} with message {@value}.
+     */
+    public static final String UNKNOWN_FIELD =
+        "\"%s\" is an unknown event field";
+
+    /**
+     * Attempt to create an already existing efs event file
+     * results in an {@code IllegalStateException} with message
+     * {@value}.
+     */
+    public static final String FILE_PREVIOUSLY_CREATED =
+        "\"%s\" previously created";
+
+    /**
+     * Attempt to obtain an efs event file that does not exist
+     * results in an {@code IllegalStateException} with message
+     * {@value}.
+     */
+    public static final String NO_SUCH_FILE =
+        "\"%s\" does not exist";
+
+    /**
+     * Attempting to connect to event file when closed results in
+     * an {@code IllegalArgumentException} with message {@value}.
+     */
+    public static final String CLOSED_FILE = "\"%s\" is closed";
 
     //-----------------------------------------------------------
     // Statics.
@@ -218,10 +322,26 @@ public final class EfsFile<E extends IEfsEvent>
     private final EfsTopicKey<E> mTopicKey;
 
     /**
+     * Event field names in sorted order.
+     */
+    private final SortedSet<String> mFields;
+
+    /**
+     * Maps event field name to its {@code EfsRow} attribute.
+     */
+    private final Map<String, Attribute<EfsRow<E>, ?>> mAttributes;
+
+    /**
      * Unique file name identifying this efs event file.
      * Generated from {@link EfsTopicKey#toString()}.
      */
     private final String mFileName;
+
+    /**
+     * Set to {@code true} if this event file is open and
+     * {@code false} if not. Initialized to {@code true}
+     */
+    private final AtomicBoolean mOpenFlag;
 
     /**
      * Table indexed by row index.
@@ -245,17 +365,22 @@ public final class EfsFile<E extends IEfsEvent>
     private final QueryOptions mOrderByOpts;
 
     /**
+     * When adding an event to file, use this value as row index
+     * and then increment.
+     */
+    private final AtomicLong mNextRowIndex;
+
+    /**
+     * Currently open file connections.
+     */
+    private final List<EfsFileConnection<E>> mConnections;
+
+    /**
      * Active retrieval requests looking to match future events.
      * This data member is only accessed within the dispatcher
      * thread, so it does not need to be a concurrent list.
      */
     private final List<Retrieval<E>> mActiveRequests;
-
-    /**
-     * When adding an event to file, use this value as row index
-     * and then increment.
-     */
-    private final AtomicLong mNextRowIndex;
 
     /**
      * Latest row to be added to table. On start-up initialized
@@ -272,13 +397,22 @@ public final class EfsFile<E extends IEfsEvent>
     //
 
     /**
-     * Creates a new instance of EfsFile.
+     * Creates a new efs file instance for the given event type
+     * and topic key and attributes map.
+     * @param key event type and topic key.
+     * @param attributes event attributes map.
      */
-    private EfsFile(final EfsTopicKey<E> key)
+    private EfsFile(final EfsTopicKey<E> key,
+                    final SortedSet<String> fields,
+                    final Map<String, Attribute<EfsRow<E>, ?>> attributes)
     {
         mTopicKey = key;
+        mFields = fields;
+        mAttributes = attributes;
         mFileName = key.toString();
+        mOpenFlag = new AtomicBoolean(true);
         mTable = new ConcurrentIndexedCollection<>();
+        mConnections = new ArrayList<>();
         mActiveRequests = new ArrayList<>();
 
         mRowIndex =
@@ -309,8 +443,8 @@ public final class EfsFile<E extends IEfsEvent>
         HashIndex.onAttribute(mPubTimeIndex);
 
         mNextRowIndex = new AtomicLong();
-        mLatestRow = new EfsRow<>(sClock.instant(), 0L, null);
-    } // end of EfsFile(EfsTopicKey)
+        mLatestRow = new EfsRow<>(sClock.instant(), 0, null);
+    } // end of EfsFile(EfsTopicKey, Map<>)
 
     //
     // end of Constructors.
@@ -335,14 +469,6 @@ public final class EfsFile<E extends IEfsEvent>
     //-----------------------------------------------------------
 
     //-----------------------------------------------------------
-    // Object Method Overrides.
-    //
-
-    //
-    // end of Object Method Overrides.
-    //-----------------------------------------------------------
-
-    //-----------------------------------------------------------
     // Get Methods.
     //
 
@@ -356,6 +482,35 @@ public final class EfsFile<E extends IEfsEvent>
     } // end of topicKey()
 
     /**
+     * Returns cqengine attribute associated with given field
+     * name. Returns {@code null} if field does not have an
+     * associated attribute defined.
+     * @param field event field name.
+     * @return cqengine attribute or {@code null} if there is
+     * no attribute for event field.
+     * @throws IllegalArgumentException
+     * if {@code field} is either {@code null}, an empty string,
+     * or blank or if event has no such field.
+     */
+    @Nullable
+    public Attribute<EfsRow<E>, ?> attribute(final String field)
+    {
+        if (Strings.isNullOrEmpty(field) || field.isBlank())
+        {
+            throw (new IllegalArgumentException(INVALID_FIELD));
+        }
+
+        if (!mFields.contains(field))
+        {
+            throw (
+                new IllegalArgumentException(
+                    String.format(UNKNOWN_FIELD, field)));
+        }
+
+        return (mAttributes.get(field));
+    } // end of attribute(String)
+
+    /**
      * Returns <em>approximate</em> number of rows in efs file.
      * These reason this value is approximate is due to rows
      * are added asynchronously to file. It is possible that at
@@ -366,6 +521,38 @@ public final class EfsFile<E extends IEfsEvent>
     {
         return (mNextRowIndex.get());
     } // end of rowCount()
+
+    /**
+     * Returns current instant as per the current {@code Clock}.
+     * @return clock's current instant.
+     */
+    public Instant instant()
+    {
+        return (sClock.instant());
+    } // end of instant()
+
+    /**
+     * Returns {@code true} if this efs event file is open and
+     * {@code false} otherwise.
+     * @return {@code true} if this efs event file is open.
+     */
+    public boolean isOpen()
+    {
+        return (mOpenFlag.get());
+    } // end of isOpen()
+
+    /**
+     * Returns {@code true} if efs event file exists for given
+     * topic key and {@code false} otherwise.
+     * @param <E> efs event type.
+     * @param key event file topic key.
+     * @return {@code true} if there is an efs event file for
+     * {@code key}.
+     */
+    public static <E extends IEfsEvent> boolean exists(final EfsTopicKey<E> key)
+    {
+        return (sFiles.containsKey(key));
+    } // end of exists(EfsTopicKey)
 
     /**
      * Returns currently configured system clock.
@@ -409,57 +596,24 @@ public final class EfsFile<E extends IEfsEvent>
     //-----------------------------------------------------------
 
     /**
-     * TODO
-     * @param event event added to efs file.
-     * @return efs event retrieval subscription.
-     *
-     * @see #retrieve(EfsInterval, Query, Consumer, Consumer, IEfsAgent)
-     */
-    public Instant add(final E event)
-    {
-        final Instant pubTime = sClock.instant();
-        final AddInternalEvent<E> addEvent =
-            new AddInternalEvent<>(pubTime, event);
-
-        Objects.requireNonNull(event, NULL_EVENT);
-
-        EfsDispatcher.dispatch(this::onAdd, addEvent, this);
-
-        return (pubTime);
-    } // end of add(E)
-
-    /**
-     * TODO
-     * @param interval forward only those events within this
-     * interval.
-     * @param condition forward only those events which match
-     * this condition.
-     * @param eventCB forward matching events to this callback.
-     * @param completionCB when retrieval is complete, post
-     * {@link RetrievalCompleteEvent} to this callback.
-     * @param agent forward matching events to this agent.
-     * @return returns an event retrieval subscription.
+     * Returns an {@link EfsFileConnection} instance for given
+     * connection mode and agent.
+     * @param accessMode event file connect mode.
+     * @param agent agent accessing event file.
+     * @return efs event file connect instance.
      * @throws NullPointerException
-     * if any of the arguments is {@code null}.
+     * if either {@code accessMode} or {@code agent} is
+     * {@code null}.
      * @throws IllegalStateException
-     * if {@code agent} is not registered with a dispatcher.
-     *
-     * @see #add(IEfsEvent)
+     * if {@code agent} is not registered with a dispatcher or
+     * this file is closed.
      */
-    @Nonnull
-    public Retrieval<E> retrieve(@Nonnull final EfsInterval interval,
-                                 @Nonnull final Query<E> condition,
-                                 @Nonnull final Consumer<EfsRow<E>> eventCB,
-                                 @Nonnull final Consumer<RetrievalCompleteEvent<E>> completionCB,
-                                 @Nonnull final IEfsAgent agent)
+    public EfsFileConnection<E> connect(final AccessMode accessMode,
+                                        final IEfsAgent agent)
     {
-        final Retrieval<E> retval;
+        final EfsFileConnection<E> retval;
 
-        // Validate arguments.
-        Objects.requireNonNull(interval, NULL_INTERVAL);
-        Objects.requireNonNull(condition, NULL_CONDITION);
-        Objects.requireNonNull(eventCB, NULL_EVENT_CALLBACK);
-        Objects.requireNonNull(completionCB, NULL_DONE_CALLBACK);
+        Objects.requireNonNull(accessMode, NULL_ACCESS_MODE);
         Objects.requireNonNull(agent, NULL_AGENT);
 
         // Is agent registered with a dispatcher?
@@ -472,39 +626,71 @@ public final class EfsFile<E extends IEfsEvent>
                         UNREGISTERED_AGENT, agent.name())));
         }
 
-        retval = new Retrieval<>(this,
-                                 agent,
-                                 interval,
-                                 condition,
-                                 eventCB,
-                                 completionCB);
+        // Is this file closed?
+        if (!mOpenFlag.get())
+        {
+            throw (
+                new IllegalStateException(
+                    String.format(CLOSED_FILE, mFileName)));
+        }
 
-        // Do actual row retrieval on dispatcher thread.
-        EfsDispatcher.dispatch(
-            this::onRetrieve,
-            new RetrievalInternalEvent<>(retval),
-            this);
+        // TODO: determine agent's connect rights.
+
+        retval = new EfsFileConnection<>(this, agent, accessMode);
+        mConnections.add(retval);
 
         return (retval);
-    } // end of retrieve(...)
+    } // end of connect(AccessMode, IEfsAgent)
 
     /**
-     * TODO
+     * Closes this efs event file asynchronously on dispatcher
+     * thread. All stored events are lost. Does nothing if
+     * already closed.
+     */
+    public void close()
+    {
+        if (mOpenFlag.compareAndSet(true, false))
+        {
+            sFiles.remove(mTopicKey);
+            EfsDispatcher.dispatch(
+                this::onClose, new CloseInternalEvent(), this);
+        }
+    } // end of close()
+
+    /**
+     * Returns a newly created efs event file for given
+     * type+topic key and assigning the file to the given
+     * dispatcher.
      * @param <E> efs event type.
      * @param key efs event class and topic key.
      * @param dispatcher efs file is associated with this
      * dispatcher.
-     * @return open efs file.
+     * @return efs event file.
      * @throws NullPointerException
      * if {@code key} is {@code null}.
      * @throws IllegalArgumentException
      * if {@code dispatcher} is either a {@code null}, empty, or
      * blank or is not a known dispatcher.
+     * @throws NullPointerException
+     * if {@code key} is {@code null}.
+     * @throws IllegalArgumentException
+     * {@code dispatcher} is either {@code null}, an empty
+     * string, or blanks or does not reference a known
+     * dispatcher.
+     * @throws IllegalStateException
+     * if event file for {@code key} already exists.
+     * @throws IOException
+     * if attempt to open efs event file fails.
+     *
+     * @see #getEventFile(EfsTopicKey)
      */
     @SuppressWarnings ("unchecked")
-    public static <E extends IEfsEvent> EfsFile<E> openEventFile(final EfsTopicKey<E> key,
-                                                                 final String dispatcher)
+    public static <E extends IEfsEvent> EfsFile<E> createEventFile(final EfsTopicKey<E> key,
+                                                                   final String dispatcher)
+        throws IOException
     {
+        final EfsEventLayout<E> layout;
+        final Map<String, Attribute<EfsRow<E>, ?>> attributes;
         final EfsFile<E> retval;
 
         // Validate arguments.
@@ -527,30 +713,75 @@ public final class EfsFile<E extends IEfsEvent>
                         UNKNOWN_DISPATCHER, dispatcher)));
         }
 
-        retval =
-            (EfsFile<E>)
-                sFiles.computeIfAbsent(
-                    key,
-                    k -> {
-                        final EfsFile<E> ef =
-                            new EfsFile<>(key);
+        // Does this event file already exist?
+        if (sFiles.containsKey(key))
+        {
+            throw (
+                new IllegalStateException(
+                    String.format(
+                        FILE_PREVIOUSLY_CREATED, key)));
+        }
 
-                        // Register efs file agent with its
-                        // dispatcher before returning.
-                        EfsDispatcher.register(ef, dispatcher);
+        layout =
+            EfsEventLayout.getLayout(
+                (Class<E>) key.eventClass());
 
-                        return (ef);
-                    });
+        try
+        {
+            attributes =
+                CQAttributeGenerator.createAttributeMap(layout);
+        }
+        catch (Exception jex)
+        {
+            throw (
+                new IOException(
+                    String.format(
+                        "attempt to open %s event file failed",
+                        key),
+                    jex));
+        }
+
+        retval = new EfsFile<>(key, layout.fields(), attributes);
+        EfsDispatcher.register(retval, dispatcher);
+        sFiles.put(key, retval);
 
         return (retval);
-    } // end of openEventFile(EfsTopicKey, String)
+    } // end of createEventFile(EfsTopicKey, String)
 
-    //-----------------------------------------------------------
-    // Event Handlers.
-    //
-
-    private void onAdd(final AddInternalEvent<E> addEvent)
+    /**
+     * Returns a previously created efs event file.
+     * @param <E> efs event type.
+     * @param key efs event class and topic key.
+     * @return efs event file.
+     * @throws IllegalStateException
+     * if there is no event file for {@code key}.
+     *
+     * @see #createEventFile(EfsTopicKey, String)
+     */
+    @SuppressWarnings ("unchecked")
+    public static <E extends IEfsEvent> EfsFile<E> getEventFile(final EfsTopicKey<E> key)
     {
+        Objects.requireNonNull(key, NULL_TOPIC_KEY);
+
+        if (!sFiles.containsKey(key))
+        {
+            throw (
+                new IllegalStateException(
+                    String.format(NO_SUCH_FILE, key)));
+        }
+
+        return ((EfsFile<E>) sFiles.get(key));
+    } // end of getEventFile(EfsTopicKey)
+
+    /* package */ void onAdd(final AddInternalEvent<E> addEvent)
+    {
+        // Is this file open?
+        if (!mOpenFlag.get())
+        {
+            // No. Do nothing.
+            return;
+        }
+
         final Instant pubTime = addEvent.publishTimestamp();
         final EfsRow<E> row =
             new EfsRow<>(pubTime,
@@ -600,13 +831,7 @@ public final class EfsFile<E extends IEfsEvent>
                     // and then tell agent about retrieval
                     // completion.
                     rIt.remove();
-                    request.markCompleted();
-
-                    request.dispatch(
-                        new RetrievalCompleteEvent<>(
-                            CompletionType.RETRIEVAL_COMPLETED,
-                        pubTime,
-                        request));
+                    request.markCompleted(pubTime);
                 }
             }
             // No, request was canceled by user.
@@ -615,52 +840,69 @@ public final class EfsFile<E extends IEfsEvent>
         }
     } // end of onAdd(Instant, E)
 
-    private void onRetrieve(final RetrievalInternalEvent<E> retrieveEvent)
+    /* package */ void onRetrieve(final RetrievalInternalEvent<E> retrieveEvent)
     {
-        final Retrieval<E> retrieval= retrieveEvent.request();
+        final Retrieval<E> retrieval = retrieveEvent.request();
+        final EfsInterval interval = retrieval.interval();
+
+        // Is this file open?
+        if (!mOpenFlag.get())
+        {
+            // No. Inform agent that retrieval is completed due
+            // do event file being closed.
+            retrieval.close(sClock.instant(),
+                            CompletionType.FILE_CLOSED);
+            return;
+        }
 
         // Was retrieval request canceled during hand-off to
         // dispatcher thread?
-        if (!retrieval.isCompleted())
+        if (retrieval.isCompleted())
+        {
+            // Yes, no-op.
+        }
+        // Is this file empty?
+        else if (mNextRowIndex.get() == 0)
+        {
+            // Yes. Does this retrieval for future events?
+            if (interval.isFutureInterval(sClock.instant()))
+            {
+                // Yes again. Store request away while waiting
+                // for those future events.
+                generateRowQuery(retrieval);
+                mActiveRequests.add(retrieval);
+            }
+            else
+            {
+                // No. Then this retrieval is completed because
+                // there are no historical events to retrieve.
+                retrieval.close(
+                    sClock.instant(),
+                    CompletionType.RETRIEVAL_COMPLETED);
+            }
+        }
+        else
         {
             // No, request is still active. Generate CQEngine
             // query based on request interval and current time
             // and row index.
-            final EfsInterval interval = retrieval.interval();
-            final Query<EfsRow<E>> beginQuery =
-                generateBeginQuery(interval.beginning());
-            final Query<EfsRow<E>> endQuery =
-                generateEndQuery(interval.ending());
-            final Query<EfsRow<E>> intervalQuery =
-                and(beginQuery, endQuery);
-
-            // Store interval queries into retrieval request.
-            retrieval.intervalQuery(beginQuery, endQuery);
+            final Query<EfsRow<E>> rowQuery =
+                generateRowQuery(retrieval);
 
             // Retrieve events as per request. If request is for
             // future events, then store retrieval.
             try (ResultSet<EfsRow<E>> results =
-                     mTable.retrieve(intervalQuery, mOrderByOpts))
+                     mTable.retrieve(rowQuery, mOrderByOpts))
             {
-                E event;
-
+                // Dispatch matching rows to user.
                 for (EfsRow<E> r : results)
                 {
-                    event = r.getEvent();
-
-                    // Does row event match user query?
-                    if (retrieval.matches(event))
-                    {
-                        // Yes. Dispatch this row to user.
-                        retrieval.dispatch(r);
-                    }
+                    retrieval.dispatch(r);
                 }
             }
 
-            // Were any rows returned? No rows
-            // Is this request also include future events?
-            if (mLatestRow == null ||
-                !retrieval.isAtEnd(mLatestRow))
+            // Does this request also include future events?
+            if (!retrieval.isAtEnd(mLatestRow))
             {
                 // Yes. Store request away so it can be matched
                 // against those future events.
@@ -670,33 +912,90 @@ public final class EfsFile<E extends IEfsEvent>
             // know this fact.
             else
             {
-                retrieval.dispatch(
-                    new RetrievalCompleteEvent<>(
-                        CompletionType.RETRIEVAL_COMPLETED,
-                        sClock.instant(),
-                        retrieval));
+                retrieval.close(
+                    sClock.instant(),
+                    CompletionType.RETRIEVAL_COMPLETED);
             }
         }
-    } // end of onRetrieve(Instant, Retrieval)
+    } // end of onRetrieve(RetrieveEvent)
 
-    private void onCancel(final CancelInternalEvent<E> cancelEvent)
+    /**
+     * Removes specified retrieval request from active requests
+     * map.
+     * @param cancelEvent contains cancel
+     */
+    /* package */ void onCancel(final CancelInternalEvent<E> cancelEvent)
     {
-        final Retrieval<E> retrieval = cancelEvent.request();
-
-        // Make sure retrieval request is in list.
-        if (mActiveRequests.remove(retrieval))
-        {
-            retrieval.dispatch(
-                new RetrievalCompleteEvent<>(
-                    CompletionType.USER_CANCEL,
-                    cancelEvent.cancelTimestamp(),
-                    retrieval));
-        }
+        mActiveRequests.remove(cancelEvent.request());
     } // end of onCancel(Instant, Retrieval)
+
+    /**
+     * Removes a now disconnected connection from connections
+     * list.
+     * @param connection remove this connection from connections
+     * list.
+     */
+    /* package */ void onDisconnect(final DisconnectInternalEvent<E> disconnectEvent)
+    {
+        mConnections.remove(disconnectEvent.connection());
+    } // end of onDisconnect(DisconnectInternalEvent)
+
+    /**
+     * Closes event file by clearing out event table, reporting
+     * all retrievals as completed due to file closing, and
+     * marks all connections as disconnected.
+     * @param event event used to process file closure on
+     * dispatcher thread.
+     */
+    @SuppressWarnings ({"unused"})
+    private void onClose(final CloseInternalEvent event)
+    {
+        final Instant now = sClock.instant();
+
+        // Clear out collected events.
+        mTable.clear();
+        mNextRowIndex.set(0L);
+
+        // Report all requests as canceled due file closure.
+        for (Retrieval<E> r : mActiveRequests)
+        {
+            r.close(now, CompletionType.FILE_CLOSED);
+        }
+
+        mActiveRequests.clear();
+
+        // Disconnect all active connections.
+        for (EfsFileConnection<E> c : mConnections)
+        {
+            c.markClosed();
+        }
+
+        mConnections.clear();
+
+        // De-register this file from the dispatcher.
+        EfsDispatcher.deregister(this);
+    } // end of onClose(CloseInternalEvent)
 
     //
     // end of Event Handlers.
     //-----------------------------------------------------------
+
+    /**
+     * Returns efs row query for given retrieval request interval
+     * and user query.
+     * @param retrieval event retrieval request.
+     * @return efs row query.
+     */
+    private Query<EfsRow<E>> generateRowQuery(final Retrieval<E> retrieval)
+    {
+        final EfsInterval interval = retrieval.interval();
+        final Query<EfsRow<E>> beginQuery =
+            generateBeginQuery(interval.beginning());
+        final Query<EfsRow<E>> endQuery =
+            generateEndQuery(interval.ending());
+
+        return (retrieval.intervalQuery(beginQuery, endQuery));
+    } // end of generateRowQuery(Retrieval)
 
     /**
      * Returns a CQEngine query based on the interval's
@@ -848,286 +1147,4 @@ public final class EfsFile<E extends IEfsEvent>
 
         return (retval);
     } // end of generateEndQuery(...)
-
-//---------------------------------------------------------------
-// Inner classes.
-//
-
-    /**
-     * Acts as a subscription to future events added to ef file.
-     * TODO
-     * @param <E> efs event type.
-     */
-    public static final class Retrieval<E extends IEfsEvent>
-        implements AutoCloseable
-    {
-    //-----------------------------------------------------------
-    // Member data.
-    //
-
-        //-------------------------------------------------------
-        // Constants.
-        //
-        //-------------------------------------------------------
-        // Statics.
-        //
-
-        //-------------------------------------------------------
-        // Locals.
-        //
-
-        /**
-         * Retrieval is for events stored in this file.
-         */
-        private final EfsFile<E> mFile;
-
-        /**
-         * Dispatch retrieved rows to this agent.
-         */
-        private final IEfsAgent mAgent;
-
-        /**
-         * Retrieve rows within this interval.
-         */
-        private final EfsInterval mInterval;
-
-        /**
-         * User event condition.
-         */
-        private final Query<E> mUserQuery;
-
-        /**
-         * Used to retrieve events based on begin interval
-         * point. This data member is not final because it is
-         * generated after the retrieval instance is created and
-         * when the retrieval is performed on the dispatcher
-         * thread.
-         */
-        private Query<EfsRow<E>> mIntervalBeginQuery;
-
-        /**
-         * Used to retrieve events based on end interval point.
-         * This data member is not final because it is generated
-         * after the retrieval instance is created and when the
-         * retrieval is performed on the dispatcher thread.
-         */
-        private Query<EfsRow<E>> mIntervalEndQuery;
-
-        /**
-         * Post events to this agent callback.
-         */
-        private final Consumer<EfsRow<E>> mEventCB;
-
-        /**
-         * Post {@link RetrievalCompleteEvent} to this callback
-         * method.
-         */
-        private final Consumer<RetrievalCompleteEvent<E>> mCompletionCB;
-
-        /**
-         * Set to {@code true} when retrieval request reaches
-         * completion. This may be due to all requested rows
-         * being retrieved or user cancellation. Initialized to
-         * {@code false}.
-         */
-        private final AtomicBoolean mCompletionFlag;
-
-    //-----------------------------------------------------------
-    // Member methods.
-    //
-
-        //-------------------------------------------------------
-        // Constructors.
-        //
-
-        private Retrieval(final EfsFile<E> file,
-                          final IEfsAgent agent,
-                          final EfsInterval interval,
-                          final Query<E> userCondition,
-                          final Consumer<EfsRow<E>> eventCB,
-                          final Consumer<RetrievalCompleteEvent<E>> completionCB)
-        {
-            mFile = file;
-            mAgent = agent;
-            mInterval = interval;
-            mUserQuery = userCondition;
-            mEventCB = eventCB;
-            mCompletionCB = completionCB;
-            mCompletionFlag = new AtomicBoolean();
-        } // end of Retrieval(...)
-
-        //
-        // end of Constructors.
-        //-------------------------------------------------------
-
-        //-------------------------------------------------------
-        // AutoCloseable Interface Implementation.
-        //
-
-        /**
-         * Reports to {@link EfsFile} that this retrieval request
-         * is now canceled and should be removed from request
-         * list. Does nothing if this request is marked
-         * completed.
-         * @throws Exception
-         * if an error occurs canceling this retrieval request.
-         */
-        @Override
-        public void close()
-            throws Exception
-        {
-            // Is this retrieval request completed?
-            if (mCompletionFlag.compareAndSet(false, true))
-            {
-                // No, mark this request as completed and have
-                // the event file cancel this request.
-                EfsDispatcher.dispatch(
-                    mFile::onCancel,
-                    new CancelInternalEvent<>(
-                        sClock.instant(), this),
-                    mAgent);
-            }
-        } // end of close()
-
-        //
-        // end of AutoCloseable Interface Implementation.
-        //-------------------------------------------------------
-
-        //-------------------------------------------------------
-        // Object Method Overrides.
-        //
-        //
-        // end of Object Method Overrides.
-        //-------------------------------------------------------
-
-        //-------------------------------------------------------
-        // Get Methods.
-        //
-
-        /**
-         * Returns agent retrieving rows.
-         * @return retrieving agent.
-         */
-        private IEfsAgent agent()
-        {
-            return (mAgent);
-        } // end of agent()
-
-        /**
-         * Returns retrieval interval.
-         * @return retrieval interval.
-         */
-        private EfsInterval interval()
-        {
-            return (mInterval);
-        } // end of interval()
-
-        /**
-         * Returns {@code true} if given row is beyond interval
-         * ending and {@code false} if not. Returning
-         * {@code true} means that the retrieval request is
-         * completed.
-         * @param row latest event row.
-         * @return {@code true} if retrieval request has reached
-         * completion.
-         */
-        private boolean isAtEnd(final EfsRow<E> row)
-        {
-            return (!mIntervalEndQuery.matches(row, NO_OPTS));
-        } // end of isAtEnd(Instant, long)
-
-        /**
-         * Returns {@code true} if retrieval request has reached
-         * completion and should now be removed from request
-         * list; {@code false} if request is still active.
-         * @return {@code true} if retrieval request is
-         * completed.
-         */
-        private boolean isCompleted()
-        {
-            return (mCompletionFlag.get());
-        } // end of isCompleted()
-
-        //
-        // end of Get Methods.
-        //-------------------------------------------------------
-
-        //-------------------------------------------------------
-        // Set Methods.
-        //
-
-        /**
-         * Sets interval query for a retrieval request for future
-         * events.
-         * @param beginQuery beginning interval query.
-         * @param endQuery ending interval query.
-         */
-        private void intervalQuery(final Query<EfsRow<E>> beginQuery,
-                                   final Query<EfsRow<E>> endQuery)
-        {
-            mIntervalBeginQuery = beginQuery;
-            mIntervalEndQuery = endQuery;
-        } // end of intervalQuery(Query, Query)
-
-        /**
-         * Returns {@code true} if retrieval request was not
-         * previously canceled and so is now completed due to all
-         * requested rows being retrieved.
-         * @return {@code true} if retrieval request successfully
-         * reached completion.
-         */
-        private boolean markCompleted()
-        {
-            return (mCompletionFlag.compareAndSet(false, true));
-        } // end of markCompleted()
-
-        //
-        // end of Set Methods.
-        //-------------------------------------------------------
-
-        /**
-         * Returns {@code true} if given event matches
-         * user-provided query; otherwise returns {@code false}.
-         * @param event apply user query to this event.
-         * @return {@code true} if event matches user query.
-         */
-        private boolean matches(final E event)
-        {
-            return (mUserQuery.matches(event, NO_OPTS));
-        } // end of matches(E)
-
-        /**
-         * Returns {@code true} if given row and encapsulated
-         * event satisfies both the interval query and user event
-         * query; otherwise returns {@code false}.
-         * @param row compare this efs table row against both
-         * interval and user queries.
-         * @return {@code true} if row and event satisfy interval
-         * and user event queries.
-         */
-        private boolean matches(final EfsRow<E> row)
-        {
-            return (mIntervalBeginQuery.matches(row, NO_OPTS) &&
-                    mIntervalEndQuery.matches(row, NO_OPTS) &&
-                    mUserQuery.matches(row.getEvent(), NO_OPTS));
-        } // end of matches(EfsRow)
-
-        /**
-         * Dispatches event row to retrieval agent.
-         * @param row dispatch this row to agent.
-         */
-        private void dispatch(final EfsRow<E> row)
-        {
-            EfsDispatcher.dispatch(mEventCB, row, mAgent);
-        } // end of dispatch(EfsRow)
-
-        /**
-         * Dispatches retrieval completed event to agent.
-         * @param event dispatch this event to agent.
-         */
-        private void dispatch(final RetrievalCompleteEvent<E> event)
-        {
-            EfsDispatcher.dispatch(mCompletionCB, event, mAgent);
-        } // end of dispatch(RetrievalCompleteEvent)
-    } // end of class Retrieval
 } // end of class EfsFile

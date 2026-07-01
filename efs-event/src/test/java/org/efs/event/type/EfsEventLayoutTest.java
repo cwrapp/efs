@@ -168,6 +168,7 @@ public class EfsEventLayoutTest
         final Class<ChildEvent> ec = ChildEvent.class;
         final EfsEventLayout<ChildEvent> layout =
             EfsEventLayout.getLayout(ec);
+        String fieldName;
         EfsEventField field;
 
         assertThat(layout).isNotNull();
@@ -217,12 +218,16 @@ public class EfsEventLayoutTest
 
         assertThat(layout.field("snafu")).isNull();
 
-        field = layout.field("name");
+        fieldName = "name";
+        field = layout.field(fieldName);
         assertThat(field).isNotNull();
+        assertThat(field.name()).isEqualTo(fieldName);
         assertThat(field.dataType()).isEqualTo(String.class);
 
-        field = layout.field("timestamp");
+        fieldName = "timestamp";
+        field = layout.field(fieldName);
         assertThat(field).isNotNull();
+        assertThat(field.name()).isEqualTo(fieldName);
         assertThat(field.dataType()).isEqualTo(Instant.class);
 
         final List<String> expectedFieldNames =

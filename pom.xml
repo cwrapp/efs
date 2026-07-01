@@ -24,7 +24,7 @@ limitations under the License.
 
   <groupId>io.github.cwrapp</groupId>
   <artifactId>efs-parent</artifactId>
-  <version>0.7.0</version>
+  <version>0.7.1</version>
 
   <packaging>pom</packaging>
 
@@ -46,7 +46,8 @@ limitations under the License.
 
   <!-- scm tag required by Maven Central Respository -->
   <scm>
-    <connection>scm:git:git://github.com/cwrapp/efs.git</connection>
+    <connection>scm:git:git@github.com:cwrapp/efs.git</connection>
+    <developerConnection>scm:git:git@github.com:cwrapp/efs.git</developerConnection>
     <url>https://github.com/cwrapp/efs.git</url>
   </scm>
 
@@ -75,7 +76,6 @@ limitations under the License.
     <module>efs-io</module>
   </modules>
 
-<!-- Delete?
   <distributionManagement>
 
     <repository>
@@ -85,7 +85,6 @@ limitations under the License.
     </repository>
 
   </distributionManagement>
--->
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -102,22 +101,24 @@ limitations under the License.
     <guava.version>33.6.0-jre</guava.version>
     <decimal4j.version>1.0.3</decimal4j.version>
     <openhft.version>2026.2</openhft.version>
-    <typesafe.version>1.4.8</typesafe.version>
+    <typesafe.version>1.4.9</typesafe.version>
     <jctools.version>4.0.6</jctools.version>
     <reflections.version>0.10.2</reflections.version>
     <jakarta.version>3.0.0</jakarta.version>
     <cqengine.version>3.6.0</cqengine.version>
 
     <slf4j.version>2.0.18</slf4j.version>
-    <logback.version>1.5.32</logback.version>
+    <logback.version>1.5.36</logback.version>
 
-    <junit.version>6.0.3</junit.version>
+    <junit.version>6.1.0</junit.version>
     <assertj.version>3.27.7</assertj.version>
     <mockito.version>5.23.0</mockito.version>
     <awaitility.version>4.3.0</awaitility.version>
-    <jacoco.version>0.8.14</jacoco.version>
+    <jacoco.version>0.8.15</jacoco.version>
 
-    <project.reporting.outputDirectory>target</project.reporting.outputDirectory>
+    <project.reporting.outputDirectory>./target/</project.reporting.outputDirectory>
+
+    <argLine>--add-opens java.base/java.time=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED -Dfile.encoding=UTF-8</argLine>
   </properties>
 
   <dependencyManagement>
@@ -314,10 +315,118 @@ limitations under the License.
       </properties>
     </profile>
 
+    <profile>
+      <id>deployment</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <version>3.4.0</version>
+
+            <executions>
+              <execution>
+                <id>attach-sources</id>
+                <goals>
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>3.2.8</version>
+
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+                <configuration>
+                  <executable>/usr/local/bin/gpg2</executable>
+                  <defaultKeyring>/Users/charlesr/.gnupg/pubring.kbx</defaultKeyring>
+                  <keyname>C73A52FB7807C2E1F4FF1CD2748464F3750732B5</keyname>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+
+        <plugin>
+          <groupId>org.sonatype.central</groupId>
+          <artifactId>central-publishing-maven-plugin</artifactId>
+          <version>0.11.0</version>
+          <extensions>true</extensions>
+          <configuration>
+            <publishingServerId>central</publishingServerId>
+            <autoPublish>true</autoPublish>
+            <waitUntil>uploaded</waitUntil>
+          </configuration>
+        </plugin>
+
+        </plugins>
+      </build>
+    </profile>
+
   </profiles>
 
   <build>
+
+    <pluginManagement>
+      <plugins>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>3.5.6</version>
+        </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-report-plugin</artifactId>
+          <version>3.5.6</version>
+        </plugin>
+
+      </plugins>
+    </pluginManagement>
+
     <plugins>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <!-- argLine in properties -->
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.version}</version>
+
+        <executions>
+
+          <execution>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+          </execution>
+
+          <execution>
+            <id>report</id>
+            <phase>prepare-package</phase>
+            <goals>
+              <goal>report</goal>
+            </goals>
+
+          </execution>
+
+        </executions>
+      </plugin>
 
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -363,79 +472,6 @@ limitations under the License.
         </executions>
       </plugin>
 
-      <plugin>
-        <groupId>org.jacoco</groupId>
-        <artifactId>jacoco-maven-plugin</artifactId>
-        <version>${jacoco.version}</version>
-
-        <executions>
-          <execution>
-            <goals>
-              <goal>prepare-agent</goal>
-            </goals>
-          </execution>
-
-          <execution>
-            <id>report</id>
-            <phase>prepare-package</phase>
-            <goals>
-              <goal>report</goal>
-            </goals>
-
-            <configuration>
-              <outputDirectory>${project.reporting.outputDirectory}/jacoco_test</outputDirectory>
-            </configuration>
-          </execution>
-
-        </executions>
-      </plugin>
-
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-source-plugin</artifactId>
-        <version>${source-version}</version>
-
-        <executions>
-          <execution>
-            <id>attach-sources</id>
-            <goals>
-              <goal>jar-no-fork</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
-
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-gpg-plugin</artifactId>
-        <version>3.2.8</version>
-
-        <executions>
-          <execution>
-            <id>sign-artifacts</id>
-            <phase>verify</phase>
-            <goals>
-              <goal>sign</goal>
-            </goals>
-            <configuration>
-              <executable>/usr/local/bin/gpg2</executable>
-              <defaultKeyring>/Users/charlesr/.gnupg/pubring.kbx</defaultKeyring>
-              <keyname>C73A52FB7807C2E1F4FF1CD2748464F3750732B5</keyname>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
-
-      <plugin>
-        <groupId>org.sonatype.central</groupId>
-        <artifactId>central-publishing-maven-plugin</artifactId>
-        <version>0.10.0</version>
-        <extensions>true</extensions>
-        <configuration>
-          <publishingServerId>central</publishingServerId>
-        </configuration>
-      </plugin>
-
     </plugins>
   </build>
 
@@ -445,7 +481,18 @@ limitations under the License.
       <plugin>
         <groupId>org.jacoco</groupId>
         <artifactId>jacoco-maven-plugin</artifactId>
-        <version>${jacoco.version}</version>
+
+        <reportSets>
+          <reportSet>
+            <reports>
+              <report>report</report>
+            </reports>
+            <configuration>
+              <dataFile>${project.reporting.outputDirectory}/jacoco.exec</dataFile>
+            </configuration>
+          </reportSet>
+        </reportSets>
+
       </plugin>
 
     </plugins>

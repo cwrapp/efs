@@ -18,7 +18,7 @@ package org.efs.io;
 
 import java.time.Instant;
 import org.efs.event.IEfsEvent;
-import org.efs.io.EfsFile.Retrieval;
+import org.efs.io.EfsFileConnection.Retrieval;
 
 /**
  * {@link EfsFile} posts this event to target agent
@@ -51,7 +51,17 @@ public final class RetrievalCompleteEvent<E extends IEfsEvent>
         /**
          * Retrieval terminated due to user cancellation.
          */
-        USER_CANCEL
+        USER_CANCEL,
+
+        /**
+         * Retrieve terminated due to connection closing.
+         */
+        CONNECTION_CLOSED,
+
+        /**
+         * Retrieve terminated due to file closing.
+         */
+        FILE_CLOSED
     } // end of enum CompletionType
 
 //---------------------------------------------------------------
@@ -75,7 +85,7 @@ public final class RetrievalCompleteEvent<E extends IEfsEvent>
     /**
      * Unique subscription identifier.
      */
-    private final EfsFile.Retrieval mRetrieval;
+    private final Retrieval<E> mRetrieval;
 
 //---------------------------------------------------------------
 // Member methods.
@@ -94,7 +104,7 @@ public final class RetrievalCompleteEvent<E extends IEfsEvent>
      */
     /* package */ RetrievalCompleteEvent(final CompletionType type,
                                          final Instant endTime,
-                                         final Retrieval retrieval)
+                                         final Retrieval<E> retrieval)
     {
         mCompletionType = type;
         mCompletionTime = endTime;

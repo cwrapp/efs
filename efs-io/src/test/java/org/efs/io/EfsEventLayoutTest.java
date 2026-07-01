@@ -19,7 +19,7 @@ package org.efs.io;
 import java.util.Map;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
-import org.decimal4j.immutable.Decimal2f;
+import org.decimal4j.api.Decimal;
 import org.efs.io.EfsEventLayout.GetterMethod;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -81,28 +81,32 @@ public class EfsEventLayoutTest
             "symbol",
             "price",
             "size",
-            "priceTrend"
+            "priceTrend",
+            "volume"
         };
         final String[] methodNames =
         {
             "getSymbol",
             "getPrice",
             "getSize",
-            "getPriceTrend"
+            "getPriceTrend",
+            "getVolume"
         };
         final Class[] fieldTypes =
         {
             String.class,
-            Decimal2f.class,
+            Decimal.class,
             int.class,
-            TradeEvent.PriceTrend.class
+            TradeEvent.PriceTrend.class,
+            int.class
         };
         final CQIndexType[] indexTypes =
         {
             CQIndexType.RADIX_TREE_INDEX,
             CQIndexType.NAVIGABLE_INDEX,
             CQIndexType.NAVIGABLE_INDEX,
-            CQIndexType.HASH_INDEX
+            CQIndexType.HASH_INDEX,
+            CQIndexType.NO_INDEX
         };
         final int numFields = fieldNames.length;
         final EfsEventLayout<TradeEvent> layout =
@@ -139,8 +143,6 @@ public class EfsEventLayoutTest
             assertThat(annotation.index())
                 .isEqualTo(indexTypes[i]);
         }
-
-        assertThat(getters.containsKey("volume")).isFalse();
 
         assertThat(EfsEventLayout.getLayout(tc))
             .isSameAs(layout);

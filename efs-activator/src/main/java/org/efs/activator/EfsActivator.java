@@ -135,6 +135,13 @@ public final class EfsActivator
     public static final String STAND_ALONE_STEP =
         "standalone-step";
 
+    /**
+     * {@code IllegalArgumentException} message when an invalid
+     * agent name is provided is {@value}.
+     */
+    public static final String INVALID_AGENT_NAME =
+        "agent name is either null, an empty string, or blank";
+
     //-----------------------------------------------------------
     // Statics.
     //
@@ -226,17 +233,28 @@ public final class EfsActivator
     /**
      * Returns named agent's current state.
      * @param agentName agent's unique name.
-     * @return agent's current state.
-     * @throws IllegalStateException
-     * if {@code agentName} either references an un-registered
-     * agent or the agent does not implement
-     * {@code IEfsActivateAgent}.
+     * @return agent's current state or {@code null} if there is
+     * no activation agent with given agent name.
+     * @throws IllegalArgumentException
+     * if {@code agentName} is either {@code null}, an empty
+     * string, or blank.
      */
+    @Nullable
     public EfsAgentState agentState(final String agentName)
     {
-        final AgentInfo agentInfo = findAgent(agentName);
+        final AgentInfo agentInfo;
 
-        return (agentInfo.state());
+        if (Strings.isNullOrEmpty(agentName) ||
+            agentName.isBlank())
+        {
+            throw (
+                new IllegalArgumentException(
+                    INVALID_AGENT_NAME));
+        }
+
+        agentInfo = mAgents.get(agentName);
+
+        return (agentInfo == null ? null : agentInfo.state());
     } // end of agentState(String)
 
     /**

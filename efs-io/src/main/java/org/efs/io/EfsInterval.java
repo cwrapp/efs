@@ -16,6 +16,7 @@
 
 package org.efs.io;
 
+import java.time.Instant;
 import java.util.Objects;
 import javax.annotation.Nonnull;
 import javax.annotation.concurrent.Immutable;
@@ -169,6 +170,17 @@ public final class EfsInterval
     {
         return (mEnding);
     } // end of ending()
+
+    /**
+     * Returns {@code true} if this interval references future
+     * events and {@code false} if references past events only.
+     * @param now current timestamp.
+     * @return {@code true} if interval references future events.
+     */
+    public boolean isFutureInterval(final Instant now)
+    {
+        return (mEnding.isFuture(now));
+    } // end of isFutureInterval(Instant)
 
     //
     // end of Get Methods.

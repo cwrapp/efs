@@ -61,9 +61,25 @@ public @interface CQAttribute
     CQAttributeType attribute();
 
     /**
+     * Returns {@code true} if a multi-value field contains
+     * {@code null} values; otherwise returns {@code false}. If
+     * not specified, then defaults to {@code false}.
+     * <p>
+     * This field should be used only when {@link #attribute()}
+     * is set to {@link CQAttributeType#MULTIVALUE_NULLABLE}.
+     * This flag is ignored for all other attribute types.
+     * </p>
+     * @return {@code true} if a multi-value field contains
+     * {@code null} values.
+     *
+     * @see #attribute()
+     */
+    boolean nullValues() default false;
+
+    /**
      * Returns
      * {@link com.googlecode.cqengine.index.AttributeIndex CQEngine attribute index}
-     * type associated with the get method attribute. If no
+     * type associated with the get method attribute. If not
      * specified, then defaults to
      * {@link CQIndexType#NO_INDEX NO_INDEX}.
      * @return CQEngine index type.

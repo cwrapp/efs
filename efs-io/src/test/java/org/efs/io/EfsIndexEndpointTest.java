@@ -22,11 +22,12 @@ import org.efs.io.EfsIntervalEndpoint.IntervalLocation;
 import org.junit.jupiter.api.Test;
 
 /**
+ * Tests event index endpoint.
  *
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
 
-public class EfsIndexEndpointTest
+public final class EfsIndexEndpointTest
 {
 //---------------------------------------------------------------
 // Member data.

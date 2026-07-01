@@ -17,6 +17,7 @@
 package org.efs.io;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.errorprone.annotations.Immutable;
 import jakarta.annotation.Nonnull;
 import java.lang.reflect.Method;
@@ -24,6 +25,7 @@ import java.lang.reflect.Modifier;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.SortedSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
 import org.efs.event.IEfsEvent;
@@ -224,6 +226,15 @@ import org.reflections.ReflectionUtils;
     {
         return (mEventClass);
     } // end of eventClass()
+
+    /**
+     * Returns fields names in an immutable sorted set.
+     * @return sorted field names set.
+     */
+    /* package */ SortedSet<String> fields()
+    {
+        return (ImmutableSortedSet.copyOf(mGetters.keySet()));
+    } // end of fields()
 
     /**
      * Returns immutable map of event field names to getter

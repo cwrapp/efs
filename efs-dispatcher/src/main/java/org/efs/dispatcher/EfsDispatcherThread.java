@@ -528,9 +528,9 @@ public final class EfsDispatcherThread
     {
         EfsAgent retval = null;
 
-        while (mRunFlag && retval == null)
+        while (mRunFlag && (retval = mRunQueue.poll()) == null)
         {
-            retval = mRunQueue.poll();
+            Thread.onSpinWait();
         }
 
         return (retval);
@@ -559,6 +559,7 @@ public final class EfsDispatcherThread
                 counter = mSpinLimit;
             }
 
+            Thread.onSpinWait();
             retval = mRunQueue.poll();
             --counter;
         }
@@ -592,6 +593,7 @@ public final class EfsDispatcherThread
             }
 
             retval = mRunQueue.poll();
+            Thread.onSpinWait();
             --counter;
         }
 
