@@ -63,6 +63,11 @@ public final class TestRetriever
     private CountDownLatch mRetrieveSignal;
 
     /**
+     * Retrieval request.
+     */
+    private Retrieval<TradeEvent> mRequest;
+
+    /**
      * Track number of trades received.
      */
     private int mTradesReceived;
@@ -76,6 +81,11 @@ public final class TestRetriever
      * Verify that received trade size is &ge; to this size.
      */
     private int mMinSize;
+
+    /**
+     * Retrieval trade event query.
+     */
+    private Query<EfsRow<TradeEvent>> mQuery;
 
     /**
      * Retrieval completion reason.
@@ -109,6 +119,16 @@ public final class TestRetriever
     //-----------------------------------------------------------
     // Get Methods.
     //
+
+    public Retrieval<TradeEvent> request()
+    {
+        return (mRequest);
+    } // end of request()
+
+    public Query<EfsRow<TradeEvent>> query()
+    {
+        return (mQuery);
+    } // end of query()
 
     public int tradesReceived()
     {
@@ -152,12 +172,14 @@ public final class TestRetriever
 
     public void onDone(final RetrievalCompleteEvent<TradeEvent> event)
     {
+        final Retrieval<TradeEvent> request = event.retrieval();
+
         mReason = event.completionType();
 
         sLogger.info(
             "{}: retrieval {} completed, reason {}, {} trades.",
             mAgentName,
-            (event.retrieval()).id(),
+            (request == null ? 0 : request.id()),
             mReason,
             mTradesReceived);
 
@@ -178,8 +200,10 @@ public final class TestRetriever
                          final Consumer<EfsRow<TradeEvent>> eventCB,
                          final Consumer<RetrievalCompleteEvent<TradeEvent>> completionCB)
     {
-        mTradeConnection.retrieve(
-            interval, query, eventCB, completionCB);
+        mQuery = query;
+        mRequest =
+            mTradeConnection.retrieve(
+                interval, query, eventCB, completionCB);
     } // end of retrieve(...)
 
     @SuppressWarnings ("unchecked")
@@ -188,10 +212,6 @@ public final class TestRetriever
                                final int minSize,
                                final CountDownLatch doneSignal)
     {
-        final Query<EfsRow<TradeEvent>> query =
-            generateQuery(maxPrice, minSize);
-        final Retrieval<TradeEvent> request;
-
         sLogger.info(
             "{}: retrieving trades over interval {}, max price {}, min size {}.",
             mAgentName,
@@ -199,6 +219,7 @@ public final class TestRetriever
             maxPrice,
             minSize);
 
+        mQuery = generateQuery(maxPrice, minSize);
         mRetrieveSignal = doneSignal;
         mMaxPrice = maxPrice;
         mMinSize = minSize;
@@ -206,15 +227,15 @@ public final class TestRetriever
         // Reset trades received count to zero.
         mTradesReceived = 0;
 
-        request =
+        mRequest =
             mTradeConnection.retrieve(interval,
-                                      query,
+                                      mQuery,
                                       this::onEvent,
                                       this::onDone);
 
         sLogger.info("{}: retrieval request {} in place.",
                      mAgentName,
-                     request.id());
+                     mRequest.id());
     } // end of retrieveTrades(...)
 
     @SuppressWarnings ("unchecked")

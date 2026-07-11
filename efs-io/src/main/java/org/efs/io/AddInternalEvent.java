@@ -18,6 +18,8 @@ package org.efs.io;
 
 import com.google.errorprone.annotations.Immutable;
 import java.time.Instant;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.efs.event.IEfsEvent;
 
 /**
@@ -47,6 +49,12 @@ import org.efs.event.IEfsEvent;
     private final Instant mPublishTimestamp;
 
     /**
+     * Immutable set containing zero or more user-defined tags
+     * for this event.
+     */
+    private final Set<Integer> mTags;
+
+    /**
      * Published event.
      */
     private final E mEvent;
@@ -62,14 +70,17 @@ import org.efs.event.IEfsEvent;
     /**
      * Creates an interval event add event.
      * @param pubTime event publish timestamp.
+     * @param tags user-defined event tags.
      * @param event published event.
      */
     /* package */ AddInternalEvent(final Instant pubTime,
+                                   final Set<Integer> tags,
                                    final E event)
     {
         mPublishTimestamp = pubTime;
+        mTags = tags;
         mEvent = event;
-    } // end of AddInternalEvent(Instant, E)
+    } // end of AddInternalEvent(Instant, Set<>, E)
 
     //
     // end of Constructors.
@@ -85,9 +96,14 @@ import org.efs.event.IEfsEvent;
     @Override
     public String toString()
     {
-        return (String.format("[timestamp=%s, event=%s]",
-                              mPublishTimestamp,
-                              mEvent));
+        return (
+            String.format(
+                "[timestamp=%s, tags=%s, event=%s]",
+                mPublishTimestamp,
+                mTags.stream()
+                     .map(String::valueOf)
+                     .collect(Collectors.joining(", ")),
+                mEvent));
     } // end of toString()
 
     //
@@ -106,6 +122,15 @@ import org.efs.event.IEfsEvent;
     {
         return (mPublishTimestamp);
     } // end of publishTimestamp()
+
+    /**
+     * Returns immutable set of user-defined event tags.
+     * @return user-defined event tags set.
+     */
+    /* package */ Set<Integer> tags()
+    {
+        return (mTags);
+    } // end of tags()
 
     /**
      * Returns published event.

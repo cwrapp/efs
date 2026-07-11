@@ -148,10 +148,13 @@ Implements `org.slf4j.Logger` and `org.slf4j.LoggerFactory` with `org.efs.loggin
 ### 7. `org.efs.io`
 Provides `org.efs.io.EfsFile` which provides access to past and
 future events using [CQEngine](https://github.com/npgall/cqengine?tab=readme-ov-file) for event querying over a specified `EfsInterval`. `EfsFile` associates a publish timestamp and a monotonic, continuous index to each event posted to the event file.
+Agents access an `EfsFile` using `org.efs.io.EfsFileConnection` using an `EfsFile.AccessMode`. Automatically defines `com.googlecode.cqengine.attribute.Attribute` based on
+event field `org.efs.io.CQAttribute` annotation. Only those fields annotated with `@CQAttribute` have an CQEngine attribute generated for it.
 
 **Key Topics:**
 - Stores events for a given event class and topic.
-- Uses CQEngine `Query` class to retrieve events over a given interval (based on event row index or publish timestamp) and matching given query.
+- Uses CQEngine `Query` class to retrieve events over a given interval (based on event row index or publish timestamp) and matching user query.
+- User queries _must_ use CQEngine attributes provided by `EfsFile.attribute(String)`. Failure to do so causes the query to be ineffective.
 - Currently does not persist events but goal is to do so in future releases. Consider `EfsFile` a work-in-progress.
 
 ### efs Background

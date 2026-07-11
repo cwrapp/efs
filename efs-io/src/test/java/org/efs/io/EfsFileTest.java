@@ -16,6 +16,7 @@
 
 package org.efs.io;
 
+import com.google.common.collect.ImmutableSet;
 import com.googlecode.cqengine.query.Query;
 import static com.googlecode.cqengine.query.QueryFactory.all;
 import java.io.IOException;
@@ -23,9 +24,13 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
@@ -40,6 +45,7 @@ import org.efs.io.EfsFile.AccessMode;
 import org.efs.io.EfsFileConnection.Retrieval;
 import org.efs.io.EfsIntervalEndpoint.Clusivity;
 import org.efs.io.RetrievalCompleteEvent.CompletionType;
+import static org.efs.io.RetrievalCompleteEvent.CompletionType.RETRIEVAL_COMPLETED;
 import org.efs.io.TradeEvent.PriceTrend;
 import org.efs.logging.AsyncLoggerFactory;
 import org.efs.util.DelayedExecution;
@@ -83,15 +89,7 @@ public final class EfsFileTest
     /**
      * Test trading symbol.
      */
-    /* package */ static final String SYMBOL = "ACME";
-
-    /**
-     * Test trading efs file topic.
-     */
-    /* package */ static final String TOPIC = EXCHANGE + SYMBOL;
-
-    private static final EfsTopicKey<TradeEvent> TRADE_KEY =
-        EfsTopicKey.getKey(TradeEvent.class, TOPIC);
+    /* package */ static final String SYMBOL = "ACME-";
 
     /**
      * {@link EfsFile} dispatcher is named {@value}.
@@ -123,10 +121,21 @@ public final class EfsFileTest
     private static final String AGENT_NAME = "test-agent";
 
     /**
+     * Agent used to post and retrieve tagged trade events is
+     * named {@value}.
+     */
+    private static final String TAG_AGENT_NAME = "tag-agent";
+
+    /**
      * Unregistered agent name is {@value}.
      */
     private static final String UNREGISERED_NAME =
         "test-unregistered";
+
+    /**
+     * Event queue sizes are {@value}.
+     */
+    private static final int EVENT_QUEUE_SIZE = 1_024;
 
     //-----------------------------------------------------------
     // Statics.
@@ -152,6 +161,11 @@ public final class EfsFileTest
      * Query to retrieve all rows.
      */
     private static Query sAllQuery;
+
+    /**
+     * Used to generate a unique symbol for each test.
+     */
+    private static AtomicInteger sSymbolIndex;
 
     /**
      * Logging subsystem interface.
@@ -183,6 +197,16 @@ public final class EfsFileTest
      */
     private TestAgent mTestAgent;
 
+    /**
+     * Latest trade symbol.
+     */
+    private String mSymbol;
+
+    /**
+     * Latest trade key for this test.
+     */
+    private EfsTopicKey<TradeEvent> mTradeKey;
+
 //---------------------------------------------------------------
 // Member methods.
 //
@@ -202,7 +226,6 @@ public final class EfsFileTest
     public static void setUpClass()
         throws IOException
     {
-        final int eventQueueSize = 8_192;
         EfsDispatcher.Builder builder =
             EfsDispatcher.builder(FILE_DISPATCHER);
 
@@ -213,9 +236,9 @@ public final class EfsFileTest
                .spinLimit(2_500_000L)
                .parkTime(Duration.ofNanos(500L))
                .dispatcherType(EfsDispatcher.DispatcherType.EFS)
-               .eventQueueCapacity(eventQueueSize)
+               .eventQueueCapacity(EVENT_QUEUE_SIZE)
                .runQueueCapacity(4)
-               .maxEvents(eventQueueSize)
+               .maxEvents(EVENT_QUEUE_SIZE)
                .build();
 
         // Create agent dispatcher.
@@ -226,9 +249,9 @@ public final class EfsFileTest
                .spinLimit(2_500_000L)
                .parkTime(Duration.ofNanos(500L))
                .dispatcherType(EfsDispatcher.DispatcherType.EFS)
-               .eventQueueCapacity(eventQueueSize)
+               .eventQueueCapacity(EVENT_QUEUE_SIZE)
                .runQueueCapacity(4)
-               .maxEvents(eventQueueSize)
+               .maxEvents(EVENT_QUEUE_SIZE)
                .build();
 
         sTestClock = Clock.fixed(Instant.parse(TEST_TIME), GMT);
@@ -250,6 +273,8 @@ public final class EfsFileTest
                                    .build();
 
         sAllQuery = all(TradeEvent.class);
+
+        sSymbolIndex = new AtomicInteger();
     } // end of setUpClass()
 
     @AfterAll
@@ -262,8 +287,14 @@ public final class EfsFileTest
     public void setUp()
         throws IOException
     {
+        final String topic;
+
+        mSymbol = SYMBOL + sSymbolIndex.getAndIncrement();
+        topic = EXCHANGE + mSymbol;
+
+        mTradeKey = EfsTopicKey.getKey(TradeEvent.class, topic);
         mTradeFile =
-            EfsFile.createEventFile(TRADE_KEY, FILE_DISPATCHER);
+            EfsFile.createEventFile(mTradeKey, FILE_DISPATCHER);
         mPublisher =
             new TestPublisher(
                 PUBLISHER_NAME, mTradeFile, sTestClock);
@@ -290,6 +321,10 @@ public final class EfsFileTest
         mPublisher.close();
         mRetriever.close();
         mTestAgent.close();
+
+        EfsDispatcher.deregister(mPublisher);
+        EfsDispatcher.deregister(mRetriever);
+        EfsDispatcher.deregister(mTestAgent);
 
         mTradeFile.close();
     } // end of tearDown()
@@ -324,7 +359,7 @@ public final class EfsFileTest
 
         assertThatThrownBy(
             () -> EfsFile.createEventFile(
-                TRADE_KEY, dispatcher))
+                mTradeKey, dispatcher))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessage(EfsFile.INVALID_DISPATCHER);
     } // end of nullDispatcherTest()
@@ -337,7 +372,7 @@ public final class EfsFileTest
 
         assertThatThrownBy(
             () -> EfsFile.createEventFile(
-                TRADE_KEY, dispatcher))
+                mTradeKey, dispatcher))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessage(EfsFile.INVALID_DISPATCHER);
     } // end of emptyDispatcherTest()
@@ -350,7 +385,7 @@ public final class EfsFileTest
 
         assertThatThrownBy(
             () -> EfsFile.createEventFile(
-                TRADE_KEY, dispatcher))
+                mTradeKey, dispatcher))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessage(EfsFile.INVALID_DISPATCHER);
     } // end of blankDispatcherTest()
@@ -366,7 +401,7 @@ public final class EfsFileTest
 
         assertThatThrownBy(
             () -> EfsFile.createEventFile(
-                TRADE_KEY, dispatcher))
+                mTradeKey, dispatcher))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessage(message);
     } // end of unknownDispatcherTest()
@@ -377,11 +412,11 @@ public final class EfsFileTest
     {
         final String message =
             String.format(EfsFile.FILE_PREVIOUSLY_CREATED,
-                          TRADE_KEY);
+                          mTradeKey);
 
         assertThatThrownBy(
             () -> EfsFile.createEventFile(
-                TRADE_KEY, FILE_DISPATCHER))
+                mTradeKey, FILE_DISPATCHER))
             .isInstanceOf(IllegalStateException.class)
             .hasMessage(message);
     } // end of duplicateEventFileCreationTest()
@@ -491,7 +526,7 @@ public final class EfsFileTest
     public void addInvalidAccess()
     {
         final TradeEvent trade =
-            (TradeEvent.builder()).symbol(SYMBOL)
+            (TradeEvent.builder()).symbol(mSymbol)
                                   .price(Decimal2f.valueOf(1.23d))
                                   .size(1_000)
                                   .priceTrend(PriceTrend.DOWN)
@@ -513,7 +548,7 @@ public final class EfsFileTest
         final AbstractTestAgent agent = mTestAgent;
         final AccessMode mode = agent.accessMode();
         final TradeEvent trade =
-            (TradeEvent.builder()).symbol(SYMBOL)
+            (TradeEvent.builder()).symbol(mSymbol)
                                   .price(Decimal2f.valueOf(1.23d))
                                   .size(1_000)
                                   .priceTrend(PriceTrend.DOWN)
@@ -522,7 +557,9 @@ public final class EfsFileTest
         final EfsFileConnection<TradeEvent> eventFile =
             mTradeFile.connect(mode, agent);
         final String message =
-            String.format(EfsFileConnection.CLOSED_FILE, mTradeFile.name());
+            String.format(
+                EfsFileConnection.CLOSED_CONNECTION,
+                mTradeFile.name());
 
         eventFile.close();
 
@@ -648,7 +685,9 @@ public final class EfsFileTest
         final EfsFileConnection<TradeEvent> eventFile =
             mTradeFile.connect(mode, agent);
         final String message =
-            String.format(EfsFileConnection.CLOSED_FILE, mTradeFile.name());
+            String.format(
+                EfsFileConnection.CLOSED_CONNECTION,
+                mTradeFile.name());
 
         eventFile.close();
 
@@ -706,6 +745,36 @@ public final class EfsFileTest
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessage(text);
     } // end of fieldNameUnknown()
+
+    @Test
+    @DisplayName ("add on closed file")
+    public void addOnClosedFile()
+    {
+        final TradeEvent.Builder tradeBuilder =
+            TradeEvent.builder();
+        final Decimal2f price =
+            Decimal2f.valueOfUnscaled(4321, 2);
+        final int size = 200;
+        final TradeEvent trade =
+            tradeBuilder.symbol(mSymbol)
+                        .price(price)
+                        .size(size)
+                        .priceTrend(PriceTrend.DOWN)
+                        .volume(103_700)
+                        .build();
+        final String text =
+            String.format(
+                EfsFileConnection.CLOSED_CONNECTION,
+                mTradeFile.name());
+
+        // Close file from underneath publishing agent.
+        mTradeFile.close();
+
+        assertThatThrownBy(
+            () -> mPublisher.add(trade))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage(text);
+    } // end of addOnClosedFile()
 
     // Success Tests.
 
@@ -784,10 +853,10 @@ public final class EfsFileTest
         agent.setDoneSignal(doneSignal);
         retrieval = agent.retrieve(interval, query);
 
-        // Create retrieval, examine, and close.
+        // Create retrieval, examine, and doClose.
         final String text =
             String.format(
-                "[id=%d, agent=%s, interval=%s, query=%s]",
+                "[id=%d, agent=%s, status=active, interval=%s, query=%s]",
                 retrieval.id(),
                 agent.name(),
                 interval,
@@ -827,7 +896,7 @@ public final class EfsFileTest
     public void getPreviouslyOpenedFile()
     {
         final EfsFile<TradeEvent> file =
-            EfsFile.getEventFile(TRADE_KEY);
+            EfsFile.getEventFile(mTradeKey);
 
         assertThat(file).isSameAs(mTradeFile);
     } // end of getPreviouslyOpenedFile()
@@ -844,7 +913,8 @@ public final class EfsFileTest
         CountDownLatch doneSignal = new CountDownLatch(1);
 
         // Start by adding trades to file.
-        mPublisher.postTrades(runTime, publishFlag, doneSignal);
+        mPublisher.postTrades(
+            mSymbol, runTime, publishFlag, doneSignal);
 
         try
         {
@@ -929,7 +999,8 @@ public final class EfsFileTest
                                   maxPrice,
                                   minSize,
                                   doneSignal);
-        mPublisher.postTrades(runTime, publishFlag, doneSignal);
+        mPublisher.postTrades(
+            mSymbol, runTime, publishFlag, doneSignal);
 
         try
         {
@@ -957,14 +1028,15 @@ public final class EfsFileTest
         final Decimal<Scale2f> maxPrice =
             initialPrice.add(Decimal2f.valueOfUnscaled(1, 0));
         final int minSize = 500;
-        CountDownLatch doneSignal = new CountDownLatch(2);
+        CountDownLatch doneSignal = new CountDownLatch(1);
 
         // Start by adding trades to file.
-        mPublisher.postTrades(runTime, publishFlag, doneSignal);
+        mPublisher.postTrades(
+            mSymbol, runTime, publishFlag, doneSignal);
 
         try
         {
-            doneSignal.await(5L, TimeUnit.SECONDS);
+            doneSignal.await(30L, TimeUnit.SECONDS);
         }
         catch (InterruptedException interrupt)
         {}
@@ -985,9 +1057,11 @@ public final class EfsFileTest
             (EfsInterval.builder()).beginning(beginning)
                                    .ending(ending)
                                    .build();
+        Retrieval<TradeEvent> request;
+        String text;
 
         runTime = Duration.ofSeconds(runTimeSeconds);
-        doneSignal = new CountDownLatch(1);
+        doneSignal = new CountDownLatch(2);
 
         sLogger.info(
             "Past & future test: retrieving interval {}, initial price {}, max price {}.",
@@ -1000,11 +1074,24 @@ public final class EfsFileTest
                                   maxPrice,
                                   minSize,
                                   doneSignal);
-        mPublisher.postTrades(runTime, publishFlag, doneSignal);
+
+        request = mRetriever.request();
+        text =
+            String.format(
+                "[id=%d, agent=%s, status=active, interval=%s, query=%s]",
+                request.id(),
+                mRetriever.name(),
+                interval,
+                mRetriever.query());
+
+        assertThat(request.toString()).isEqualTo(text);
+
+        mPublisher.postTrades(
+            mSymbol, runTime, publishFlag, doneSignal);
 
         try
         {
-            doneSignal.await(5L, TimeUnit.SECONDS);
+            doneSignal.await(30L, TimeUnit.SECONDS);
         }
         catch (InterruptedException interrupt)
         {}
@@ -1013,6 +1100,17 @@ public final class EfsFileTest
         publishFlag.set(false);
 
         assertThat(mRetriever.tradesReceived()).isGreaterThan(0);
+
+        text =
+            String.format(
+                "[id=%d, agent=%s, status=completed (%s), interval=%s, query=%s]",
+                request.id(),
+                mRetriever.name(),
+                request.completionType(),
+                interval,
+                mRetriever.query());
+
+        assertThat(request.toString()).isEqualTo(text);
     } // end of pastAndFutureRetrievalTest()
 
     @Test
@@ -1046,7 +1144,8 @@ public final class EfsFileTest
         publisher.open();
         retriever.open();
 
-        publisher.postTrades(runTime, publishFlag, doneSignal);
+        publisher.postTrades(
+            mSymbol, runTime, publishFlag, doneSignal);
 
         try
         {
@@ -1107,6 +1206,48 @@ public final class EfsFileTest
         assertThat(retriever.completionReason())
             .isEqualTo(CompletionType.FILE_CLOSED);
     } // end of efsFileStateTest()
+
+    @Test
+    @DisplayName("cancel retrieval on close")
+    public void cancelRetrievalOnClose()
+    {
+        final Decimal<Scale2f> initialPrice = mPublisher.price();
+        final Decimal<Scale2f> maxPrice =
+            initialPrice.add(Decimal2f.valueOfUnscaled(10, 0));
+        final int minSize = 100;
+        final long tIndex0 = 1L;
+        final long tsIndex1 = 100L;
+        final EfsIntervalEndpoint beginning =
+            (EfsIndexEndpoint.builder())
+                .indexOffset(tIndex0, Clusivity.INCLUSIVE)
+                .build();
+        final EfsIntervalEndpoint ending =
+            (EfsIndexEndpoint.builder())
+                .indexOffset(tsIndex1, Clusivity.EXCLUSIVE)
+                .build();
+        final EfsInterval interval =
+            (EfsInterval.builder()).beginning(beginning)
+                                   .ending(ending)
+                                   .build();
+        final CountDownLatch doneSignal = new CountDownLatch(1);
+
+        mRetriever.retrieveTrades(interval,
+                                  maxPrice,
+                                  minSize,
+                                  doneSignal);
+
+        mRetriever.close();
+
+        try
+        {
+            doneSignal.await(5L, TimeUnit.SECONDS);
+        }
+        catch (InterruptedException interrupt)
+        {}
+
+        assertThat(mRetriever.completionReason())
+            .isEqualTo(CompletionType.CONNECTION_CLOSED);
+    } // end of cancelRetrievalOnClose()
 
     @Test
     @DisplayName("intervals test")
@@ -1221,6 +1362,257 @@ public final class EfsFileTest
         retrieveTrades(interval);
     } // end of intervalTest()
 
+//    @Disabled
+    @Test
+    @DisplayName("tagged event add and retrieve test")
+    public void taggedEventTest()
+    {
+        // NOTE: all of the following arrays must be the same
+        // size.
+        final int[][] tags =
+        {
+            { 101 },
+            { 202, 303 },
+            { 101, 303}
+        };
+        final Decimal2f[] prices =
+        {
+            Decimal2f.valueOfUnscaled(234, 2),
+            Decimal2f.valueOfUnscaled(235, 2),
+            Decimal2f.valueOfUnscaled(235, 2),
+        };
+        final int[] sizes = { 400, 700, 500 };
+        final PriceTrend[] trends =
+        {
+            PriceTrend.ZERO_MINUS,
+            PriceTrend.UP,
+            PriceTrend.ZERO_PLUS
+        };
+        final int[] volumes = { 14_500, 15_200, 15_700 };
+        CountDownLatch doneSignal = new CountDownLatch(1);
+        final TagAgent agent =
+            new TagAgent(TAG_AGENT_NAME, mTradeFile, sTestClock);
+        int tag = 101;
+
+        EfsDispatcher.register(agent, AGENT_DISPATCHER);
+        agent.open();
+
+        // Retrieve on empty file.
+        agent.retrieve(tag, doneSignal);
+
+        try
+        {
+            doneSignal.await(5L, TimeUnit.SECONDS);
+        }
+        catch (InterruptedException interrupt)
+        {}
+
+        assertThat(agent.trades()).isEmpty();
+
+        // Post tagged trades to event file.
+        agent.postTrades(
+            mSymbol, tags, prices, sizes, trends, volumes);
+
+        // Retrieve trades with given tag.
+        doneSignal = new CountDownLatch(1);
+        agent.retrieve(tag, doneSignal);
+
+        try
+        {
+            doneSignal.await(5L, TimeUnit.SECONDS);
+        }
+        catch (InterruptedException interrupt)
+        {}
+
+        final List<EfsRow<TradeEvent>> trades = agent.trades();
+
+        assertThat(trades).hasSize(2);
+        validateRow(trades.get(0),
+                    tag,
+                    prices[0],
+                    sizes[0],
+                    trends[0],
+                    volumes[0]);
+        validateRow(trades.get(1),
+                    tag,
+                    prices[2],
+                    sizes[2],
+                    trends[2],
+                    volumes[2]);
+
+        // Now retrieve rows with an unknown tag.
+        tag = 404;
+        doneSignal = new CountDownLatch(1);
+        agent.retrieve(tag, doneSignal);
+
+        try
+        {
+            doneSignal.await(5L, TimeUnit.SECONDS);
+        }
+        catch (InterruptedException interrupt)
+        {}
+
+        assertThat(agent.trades()).isEmpty();
+
+        agent.close();
+    } // end of taggedEventTest()
+
+    @Test
+    @DisplayName("trigger event overflow on tag retrieval event delivery")
+    public void taggedEventRetrievalOverflow()
+    {
+        final int tag = 202;
+        final Decimal2f price =
+            Decimal2f.valueOfUnscaled(321, 2);
+        final TradeEvent trade =
+            (TradeEvent.builder()).symbol(mSymbol)
+                                  .price(price)
+                                  .size(500)
+                                  .priceTrend(PriceTrend.ZERO_MINUS)
+                                  .volume(123_700)
+                                  .build();
+        final TagRetrieveInternalEvent<TradeEvent> tagRetrieve =
+            new TagRetrieveInternalEvent<>(tag,
+                                           mTestAgent,
+                                           mTestAgent::onEvent,
+                                           mTestAgent::onDone);
+        final Set<Integer> tags = new TreeSet<>();
+        final long timeDelta = 10L;
+        final int numEvents = (EVENT_QUEUE_SIZE + 2);
+        final CountDownLatch continueSignal =
+            new CountDownLatch(1);
+        final CountDownLatch doneSignal = new CountDownLatch(1);
+        int index;
+        Instant timestamp = sTestClock.instant();
+        EfsRow<TradeEvent> row;
+
+        tags.add(tag);
+
+        mTestAgent.setContinueSignal(continueSignal);
+        mTestAgent.setDoneSignal(doneSignal);
+
+        for (index = 0; index < numEvents; ++index)
+        {
+            row = new EfsRow<>(timestamp, index, tags, trade);
+
+            tagRetrieve.postRow(row);
+
+            timestamp = timestamp.plusMillis(timeDelta);
+        }
+
+        continueSignal.countDown();
+
+        tagRetrieve.postCompletion(
+            timestamp, RETRIEVAL_COMPLETED);
+
+        try
+        {
+            doneSignal.await(5L, TimeUnit.SECONDS);
+        }
+        catch (InterruptedException interrupt)
+        {}
+    } // end of taggedEventRetrievalOverflow()
+
+    @Test
+    @DisplayName("trigger event overflow on retrieval complete delivery")
+    public void taggedEventRetrievalCompleteOverflow()
+    {
+        final int tag = 202;
+        final Decimal2f price =
+            Decimal2f.valueOfUnscaled(321, 2);
+        final TradeEvent trade =
+            (TradeEvent.builder()).symbol(mSymbol)
+                                  .price(price)
+                                  .size(500)
+                                  .priceTrend(PriceTrend.ZERO_MINUS)
+                                  .volume(123_700)
+                                  .build();
+        final TagRetrieveInternalEvent<TradeEvent> tagRetrieve =
+            new TagRetrieveInternalEvent<>(tag,
+                                           mTestAgent,
+                                           mTestAgent::onEvent,
+                                           mTestAgent::onDone);
+        final Set<Integer> tags = new TreeSet<>();
+        final long timeDelta = 10L;
+        final int numEvents = (EVENT_QUEUE_SIZE + 1);
+        final CountDownLatch continueSignal =
+            new CountDownLatch(1);
+        final CountDownLatch doneSignal = new CountDownLatch(1);
+        int index;
+        Instant timestamp = sTestClock.instant();
+        EfsRow<TradeEvent> row;
+
+        tags.add(tag);
+
+        mTestAgent.setContinueSignal(continueSignal);
+        mTestAgent.setDoneSignal(doneSignal);
+
+        for (index = 0; index < numEvents; ++index)
+        {
+            row = new EfsRow<>(timestamp, index, tags, trade);
+
+            tagRetrieve.postRow(row);
+
+            timestamp = timestamp.plusMillis(timeDelta);
+        }
+
+        tagRetrieve.postCompletion(
+            timestamp, RETRIEVAL_COMPLETED);
+
+        continueSignal.countDown();
+    } // end of taggedEventRetrievalCompleteOverflow()
+
+    @Test
+    @DisplayName("event and completion dispatch failure")
+    @SuppressWarnings({"unchecked"})
+    public void eventCompletionDispatchFailure()
+    {
+        final Decimal2f price =
+            Decimal2f.valueOfUnscaled(321, 2);
+        final TradeEvent trade =
+            (TradeEvent.builder()).symbol(mSymbol)
+                                  .price(price)
+                                  .size(500)
+                                  .priceTrend(PriceTrend.ZERO_MINUS)
+                                  .volume(123_700)
+                                  .build();
+        final Set<Integer> tags = ImmutableSet.of();
+        final int requestId = 12345;
+        final Retrieval<TradeEvent> request =
+            new Retrieval<>(requestId,
+                            mTestAgent.connection(),
+                            mTestAgent,
+                            sInterval,
+                            sAllQuery,
+                            mTestAgent::onEvent,
+                            mTestAgent::onDone);
+        final long timeDelta = 10L;
+        final int numEvents = (EVENT_QUEUE_SIZE + 2);
+        final CountDownLatch continueSignal =
+            new CountDownLatch(1);
+        final CountDownLatch doneSignal = new CountDownLatch(1);
+        int index;
+        Instant timestamp = sTestClock.instant();
+        EfsRow<TradeEvent> row;
+
+        mTestAgent.setContinueSignal(continueSignal);
+        mTestAgent.setDoneSignal(doneSignal);
+
+        for (index = 0; index < numEvents; ++index)
+        {
+            row = new EfsRow<>(timestamp, index, tags, trade);
+
+            request.postRow(row);
+
+            timestamp = timestamp.plusMillis(timeDelta);
+        }
+
+        request.doClose(timestamp,
+                        CompletionType.RETRIEVAL_COMPLETED);
+
+        continueSignal.countDown();
+    } // end of eventCompletionDispatchFailure()
+
     //
     // end of JUnit Tests.
     //-----------------------------------------------------------
@@ -1238,7 +1630,8 @@ public final class EfsFileTest
                 new CountDownLatch(1);
 
             // Start by adding trades to file.
-            mPublisher.postTrades(runTime, publishFlag, doneSignal);
+            mPublisher.postTrades(
+                mSymbol, runTime, publishFlag, doneSignal);
 
             try
             {
@@ -1266,4 +1659,24 @@ public final class EfsFileTest
         catch (InterruptedException interrupt)
         {}
     } // end of retrieveTrades(EfsInterval)
+
+    private void validateRow(final EfsRow<TradeEvent> row,
+                             final int tag,
+                             final Decimal2f price,
+                             final int size,
+                             final PriceTrend pxTrend,
+                             final int volume)
+    {
+        final TradeEvent trade;
+
+        assertThat(row).isNotNull();
+        assertThat(row.getTags()).contains(tag);
+
+        trade = row.getEvent();
+        assertThat(trade.getSymbol()).isEqualTo(mSymbol);
+        assertThat(trade.getPrice()).isEqualTo(price);
+        assertThat(trade.getSize()).isEqualTo(size);
+        assertThat(trade.getPriceTrend()).isEqualTo(pxTrend);
+        assertThat(trade.getVolume()).isEqualTo(volume);
+    } // end of validateRow(int, EfsRow<>)
 } // end of class EfsFileTest

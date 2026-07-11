@@ -20,9 +20,7 @@ import com.googlecode.cqengine.query.Query;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Random;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
@@ -30,7 +28,6 @@ import org.decimal4j.immutable.Decimal2f;
 import org.efs.dispatcher.EfsDispatcher;
 import org.efs.io.EfsFile.AccessMode;
 import static org.efs.io.EfsFileTest.GMT;
-import static org.efs.io.EfsFileTest.SYMBOL;
 import org.efs.io.TradeEvent.PriceTrend;
 import org.efs.logging.AsyncLoggerFactory;
 import org.slf4j.Logger;
@@ -65,21 +62,9 @@ public final class TestPublisher
     private static final int MAX_SIZE = 11;
     private static final int LOT_SIZE = 100;
 
-    private static final long MIN_TIME_DELTA = 100_000L;
-    private static final long MAX_TIME_DELTA = 5_000_000L;
-
-    private static final int PAUSE_RATE = 1_024;
-    private static final long PAUSE_TIME = 100_000L;
-
     //-----------------------------------------------------------
     // Statics.
     //
-
-    /**
-     * Used to generate random prices, sizes, and trade delays.
-     */
-    private static final Random sRandomizer =
-        ThreadLocalRandom.current();
 
     private static final Logger sLogger =
         AsyncLoggerFactory.getLogger(TestPublisher.class);
@@ -88,17 +73,13 @@ public final class TestPublisher
     // Locals.
     //
 
+    private String mSymbol;
     private Decimal2f mPrice;
     private Decimal2f mPriceDelta;
     private int mSize;
     private PriceTrend mPriceTrend;
     private int mVolume;
     private int mTradeCount;
-
-    /**
-     * Test clock always updated to latest publish timestamp.
-     */
-    private Clock mTestClock;
 
 //---------------------------------------------------------------
 // Member methods.
@@ -177,6 +158,7 @@ public final class TestPublisher
 
     /**
      * Reset trade values to initial settings.
+     * @param clock clock used for testing.
      */
     public void reset(final Clock clock)
     {
@@ -226,7 +208,7 @@ public final class TestPublisher
             mPriceTrend = getTrend(mPriceDelta, mPriceTrend);
             mVolume += mSize;
 
-            trade = tradeBuilder.symbol(SYMBOL)
+            trade = tradeBuilder.symbol(mSymbol)
                                 .price(mPrice)
                                 .size(mSize)
                                 .priceTrend(mPriceTrend)
@@ -291,10 +273,12 @@ public final class TestPublisher
             interval, query, eventCB, completionCB);
     } // end of retrieve(...)
 
-    public void postTrades(final Duration runTime,
+    public void postTrades(final String symbol,
+                           final Duration runTime,
                            final AtomicBoolean continueFlag,
                            final CountDownLatch doneSignal)
     {
+        mSymbol = symbol;
         EfsDispatcher.dispatch(
             () -> this.doPostTrades(runTime,
                                     continueFlag,
@@ -347,13 +331,4 @@ public final class TestPublisher
 
         return (retval);
     } // end of getTrend(Decimal2f)
-
-    private Duration generateTimeDelta()
-    {
-        final long nanodelta =
-            sRandomizer.nextLong(
-                MIN_TIME_DELTA, MAX_TIME_DELTA);
-
-        return (Duration.ofNanos(nanodelta));
-    } // end of generateTimeDelta()
 } // end of class TestPublisher

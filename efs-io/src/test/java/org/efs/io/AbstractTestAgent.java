@@ -16,7 +16,10 @@
 
 package org.efs.io;
 
-import org.efs.dispatcher.EfsDispatcher;
+import java.time.Clock;
+import java.time.Duration;
+import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
 import org.efs.dispatcher.IEfsAgent;
 import org.efs.io.EfsFile.AccessMode;
 
@@ -32,6 +35,23 @@ public abstract class AbstractTestAgent
 //---------------------------------------------------------------
 // Member data.
 //
+
+    //-----------------------------------------------------------
+    // Constants.
+    //
+
+    private static final long MIN_TIME_DELTA = 100_000L;
+    private static final long MAX_TIME_DELTA = 5_000_000L;
+
+    //-----------------------------------------------------------
+    // Statics.
+    //
+
+    /**
+     * Used to generate random prices, sizes, and trade delays.
+     */
+    protected static final Random sRandomizer =
+        ThreadLocalRandom.current();
 
     //-----------------------------------------------------------
     // Locals.
@@ -56,6 +76,11 @@ public abstract class AbstractTestAgent
      * Agent connect to trade file.
      */
     protected EfsFileConnection<TradeEvent> mTradeConnection;
+
+    /**
+     * Test clock always updated to latest publish timestamp.
+     */
+    protected Clock mTestClock;
 
 //---------------------------------------------------------------
 // Member methods.
@@ -124,6 +149,14 @@ public abstract class AbstractTestAgent
     public void close()
     {
         mTradeConnection.close();
-        EfsDispatcher.deregister(this);
     } // end of close()
+
+    protected Duration generateTimeDelta()
+    {
+        final long nanodelta =
+            sRandomizer.nextLong(
+                MIN_TIME_DELTA, MAX_TIME_DELTA);
+
+        return (Duration.ofNanos(nanodelta));
+    } // end of generateTimeDelta()
 } // end of class AbstractTestAgent

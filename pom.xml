@@ -24,7 +24,7 @@ limitations under the License.
 
   <groupId>io.github.cwrapp</groupId>
   <artifactId>efs-parent</artifactId>
-  <version>0.7.1</version>
+  <version>0.7.2</version>
 
   <packaging>pom</packaging>
 
@@ -399,6 +399,7 @@ limitations under the License.
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
         <configuration>
+          <forkCount>1</forkCount>
           <!-- argLine in properties -->
         </configuration>
       </plugin>

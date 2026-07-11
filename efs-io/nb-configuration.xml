@@ -34,6 +34,7 @@ Without this configuration present, some functionality in the IDE may be limited
         <word>homogenous</word>
         <word>iterable</word>
         <word>javadoc</word>
+        <word>lifecycle</word>
         <word>nullable</word>
         <word>programmatically</word>
         <word>typesafe</word>
