@@ -65,6 +65,7 @@ public class InternalEventTests
     //
 
     @BeforeAll
+    @SuppressWarnings ("unchecked")
     public static void setUpClass()
     {
         final ZoneId tz = ZoneId.systemDefault();
@@ -92,9 +93,10 @@ public class InternalEventTests
             new SampleEvent(
                 EVENT_TEXT, EVENT_NUMBER, sTimestamp);
         final AddInternalEvent<SampleEvent> addEvent =
-            new AddInternalEvent<>(sTimestamp, event);
+            new AddInternalEvent<>(
+                sTimestamp, EfsFile.NO_TAGS, event);
         final String text =
-            String.format("[timestamp=%s, event=%s]",
+            String.format("[timestamp=%s, tags=, event=%s]",
                           sTimestamp,
                           event);
 
@@ -142,6 +144,8 @@ public class InternalEventTests
         assertThat(event.request()).isSameAs(sRetrieval);
         assertThat(event.toString()).isEqualTo(text);
     } // end of cancelInternalEventTest()
+
+
 
     //
     // end of JUnit Tests.

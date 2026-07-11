@@ -1,3 +1,15 @@
+# 0.7.2: July 11, 2026
+
+  - Added `Set<Integer>` tags to `EfsRow`. These tags are set
+    when row is added to `EfsFile` and cannot be modified
+    afterwards.
+  - Added `EfsFileConnection.retrieve(int, Consumer, Consumer)`
+    method for retrieving event rows based on event tag. Unlike
+    interval retrievals, retrieval-by-tag cannot be canceled and
+    is matched only against historic rows.
+  - Continue to improve unit test coverage and javadoc
+    documentation.
+
 # 0.7.1: July 1, 2026
 
   - Added class `EfsFileConnection` which contains method to add

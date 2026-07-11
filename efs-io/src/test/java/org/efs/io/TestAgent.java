@@ -21,7 +21,6 @@ import java.util.concurrent.CountDownLatch;
 import org.efs.io.EfsFile.AccessMode;
 import org.efs.io.EfsFileConnection.Retrieval;
 
-
 /**
  * Test agent
  *

@@ -16,16 +16,20 @@
 
 package org.efs.io;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.googlecode.cqengine.query.Query;
 import static com.googlecode.cqengine.query.QueryFactory.and;
 import com.googlecode.cqengine.query.option.QueryOptions;
 import jakarta.annotation.Nonnull;
 import jakarta.annotation.Nullable;
 import java.time.Instant;
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -39,9 +43,247 @@ import org.efs.logging.AsyncLoggerFactory;
 import org.slf4j.Logger;
 
 /**
- * TODO
+ * Provides read and/or write access to events in an
+ * {@link EfsFile}.
  *
- * @param <E> efs event type.
+ * <p>
+ * An {@code EfsFileConnection} is obtained by calling
+ * {@link EfsFile#connect(EfsFile.AccessMode, IEfsAgent)} and
+ * represents a single agent's connection to the file. This
+ * connection enforces access permissions (read-only, write-only,
+ * or read-write) and manages the lifecycle of event additions
+ * and retrieval subscriptions for that agent.
+ * </p>
+ *
+ * <h2>Core Operations</h2>
+ * <ul>
+ *   <li>
+ *     <strong>Add events:</strong> Use {@link #add(IEfsEvent)}
+ *     to append a new event to the file (requires write
+ *     permission). Returns the publish {@link Instant timestamp}
+ *     assigned by the file.
+ *   </li>
+ *   <li>
+ *     <strong>Retrieve events:</strong> Use
+ *     {@link #retrieve(EfsInterval, Query, Consumer, Consumer)}
+ *     to subscribe to events matching an interval and CQEngine
+ *     query. Optionally continues delivering future matching
+ *     events until the interval ends or the subscription is
+ *     cancelled.
+ *   </li>
+ *   <li>
+ *     <strong>Close:</strong> Use {@link #close()} to doClose
+    connection and cancel all active retrieval subscriptions.
+  </li>
+ * </ul>
+ *
+ * <h2>Threading and Dispatch</h2>
+ * <p>
+ * All file operations ({@code add}, {@code retrieve}, event
+ * delivery, and completion notifications) are handed off to the
+ * file's dispatcher thread via {@link EfsDispatcher#dispatch}.
+ * This ensures that all activity on the file appears to be
+ * single-threaded from the file's perspective, regardless of the
+ * number of connections or agents.
+ * </p>
+ *
+ * <h2>Access Control</h2>
+ * <p>
+ * The connection's {@link EfsFile.AccessMode} determines what
+ * operations are allowed:
+ * </p>
+ * <ul>
+ *   <li>
+ *     {@code READ_ONLY}: only {@code retrieve} is allowed;
+ *     {@code add} throws {@link IllegalStateException}.
+ *   </li>
+ *   <li>
+ *     {@code WRITE_ONLY}: only {@code add} is allowed;
+ *     {@code retrieve} throws {@link IllegalStateException}.
+ *   </li>
+ *   <li>
+ *     {@code READ_WRITE}: both {@code add} and {@code retrieve}
+ *     are allowed.
+ *   </li>
+ * </ul>
+ *
+ * <h2>Usage Example</h2>
+ * <pre>{@code
+ * import org.efs.event.EfsTopicKey;
+import org.efs.io.EfsFile;
+import org.efs.io.EfsFileConnection;
+import org.efs.io.EfsInterval;
+import org.efs.io.EfsDurationEndpoint;
+import org.efs.io.EfsIntervalEndpoint.Clusivity;
+import com.googlecode.cqengine.query.Query;
+import static com.googlecode.cqengine.query.QueryFactory.all;
+import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
+
+public class TradeEventExample {
+    // 1) Assume dispatcher "tradeDispatcher" exists and is started.
+    //    (See EfsDispatcher.Builder example)
+
+    public static void main(String[] args) throws Exception {
+        // 2) Create or retrieve topic key for TradeEvent type
+        EfsTopicKey<TradeEvent> key = EfsTopicKey.getKey(TradeEvent.class, "trades");
+
+        // 3) Create the event file and assign it to the dispatcher
+        EfsFile<TradeEvent> file = EfsFile.createEventFile(key, "tradeDispatcher");
+
+        // 4) Create and register a writer agent
+        WriterAgent writerAgent = new WriterAgent("tradeWriter");
+        EfsDispatcher.register(writerAgent, "tradeDispatcher");
+
+        // 5) Create and register a reader agent
+        ReaderAgent readerAgent = new ReaderAgent("tradeReader");
+        EfsDispatcher.register(readerAgent, "tradeDispatcher");
+
+        // 6) Writer agent connects with write access and adds trades
+        EfsFileConnection<TradeEvent> writeConn =
+            file.connect(EfsFile.AccessMode.WRITE_ONLY, writerAgent);
+
+        // Simulate adding trades
+        for (int i = 0; i < 10; i++) {
+            TradeEvent trade = new TradeEvent("AAPL", 150.0 + i, 1000L);
+            Instant publishedAt = writeConn.add(trade);
+            System.out.println("Added trade at " + publishedAt);
+        }
+
+        // 7) Reader agent connects with read access and retrieves trades
+        EfsFileConnection<TradeEvent> readConn =
+            file.connect(EfsFile.AccessMode.READ_ONLY, readerAgent);
+
+        // 8) Build retrieval interval (last 1 hour)
+        EfsInterval interval = EfsInterval.builder()
+            .beginning(EfsDurationEndpoint.builder()
+                .timeOffset(Duration.ofHours(-1), Clusivity.INCLUSIVE)
+                .build())
+            .ending(EfsDurationEndpoint.builder()
+                .now(Clusivity.INCLUSIVE)
+                .build())
+            .build();
+
+        // 9) Create a CQEngine query to match all trades (or customize to filter)
+        Query<EfsRow<TradeEvent>> query = all(TradeEvent.class);
+
+        // 10) Set up latches for synchronization
+        CountDownLatch eventLatch = new CountDownLatch(10);
+        CountDownLatch completionLatch = new CountDownLatch(1);
+
+        // 11) Retrieve and subscribe to matching trades
+        EfsFileConnection.Retrieval<TradeEvent> retrieval = readConn.retrieve(
+            interval,
+            query,
+            row -> {
+                // Event callback: handle each matching trade
+                TradeEvent trade = row.getEvent();
+                System.out.println("Retrieved trade at row " + row.getRowIndex() +
+                    ": " + trade.symbol() + " @ $" + trade.price());
+                eventLatch.countDown();
+            },
+            completion -> {
+                // Completion callback: handle end of retrieval
+                System.out.println("Retrieval completed: " +
+                    completion.completionType());
+                completionLatch.countDown();
+            }
+        );
+
+        // 12) Wait for all events to be delivered and retrieval to complete
+        eventLatch.await();
+        completionLatch.await();
+        System.out.println("All trades retrieved and processed.");
+
+        // 13) Cancel retrieval and doClose connections
+        retrieval.doClose();  // Cancels if still active; idempotent
+        readConn.doClose();
+        writeConn.doClose();
+        file.doClose();
+    }
+}
+
+// Simple trade event POJO
+static class TradeEvent implements org.efs.event.IEfsEvent {
+    private final String symbol;
+    private final double price;
+    private final long quantity;
+
+    TradeEvent(String symbol, double price, long quantity) {
+        this.symbol = symbol;
+        this.price = price;
+        this.quantity = quantity;
+    }
+
+    public String symbol() { return symbol; }
+    public double price() { return price; }
+    public long quantity() { return quantity; }
+}
+
+// Writer agent that publishes trades
+static class WriterAgent implements org.efs.dispatcher.IEfsAgent {
+    private final String mName;
+
+    WriterAgent(String name) { mName = name; }
+
+    @Override
+    public String name() { return mName; }
+}
+
+// Reader agent that consumes trades
+static class ReaderAgent implements org.efs.dispatcher.IEfsAgent {
+    private final String mName;
+
+    ReaderAgent(String name) { mName = name; }
+
+    @Override
+    public String name() { return mName; }
+}
+}</pre>
+ *
+ * <h2>Key Points</h2>
+ * <ul>
+ *   <li>
+ *     All callbacks (event and completion) are dispatched to the
+ *     agent on its dispatcher thread, not invoked synchronously.
+ *   </li>
+ *   <li>
+ *     Retrieval subscriptions are cancellable via
+ *     {@link Retrieval#close()} and implement
+ *     {@link java.lang.AutoCloseable} for try-with-resources.
+ *   </li>
+ *   <li>
+ *     Multiple connections (from different agents) may be open
+ *     on the same {@code EfsFile} simultaneously; the file
+ *     ensures all their operations appear single-threaded.
+ *   </li>
+ *   <li>
+    Closing a connection marks it as closed but does not
+    immediately doClose the file; the file remains open until
+    {@link EfsFile#close()} is called.
+ *   </li>
+ * </ul>
+ *
+ * <h2>Exception Handling</h2>
+ * <ul>
+ *   <li>
+ *     {@link NullPointerException} if any required argument is
+ *     {@code null}.
+ *   </li>
+ *   <li>
+ *     {@link IllegalStateException} if attempting to add on a
+ *     read-only connection, retrieve on a write-only connection,
+ *     or use a closed connection.
+ *   </li>
+ * </ul>
+ *
+ * @param <E> the event type stored and retrieved (must implement
+ * {@link IEfsEvent}).
+ *
+ * @see EfsFile
+ * @see EfsFile.AccessMode
+ * @see Retrieval
+ * @see org.efs.dispatcher.EfsDispatcher
  *
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
@@ -72,8 +314,22 @@ public final class EfsFileConnection<E extends IEfsEvent>
     public static final String NULL_EVENT = "event is null";
 
     /**
+     * A {@code null} events tags set results in a
+     * {@code NullPointerException} with message {@value}.
+     */
+    public static final String NULL_TAGS = "tags is null";
+
+    /**
+     * An event tags set containing a {@code null} value results
+     * in an {@code IllegalArgumentException} with message
+     * {@value}.
+     */
+    public static final String TAGS_CONTAINS_NULL =
+        "tags contains a null value";
+
+    /**
      * If agent attempts to add an event with read-only connect
-results in a {@code IllegalStateException} with message
+     * results in a {@code IllegalStateException} with message
      * {@value}.
      */
     public static final String READ_ONLY_ACCESS =
@@ -81,7 +337,7 @@ results in a {@code IllegalStateException} with message
 
     /**
      * If agent attempts to retrieve events with write-only
-connect results in a {@code IllegalStateException} with
+     * connect results in a {@code IllegalStateException} with
      * message {@value}.
      */
     public static final String WRITE_ONLY_ACCESS =
@@ -115,10 +371,27 @@ connect results in a {@code IllegalStateException} with
         "completion callback is null";
 
     /**
-     * Attempting to connect event file when closed results in an
-{@code IllegalArgumentException} with message {@value}.
+     * Attempting to use event file connection when closed
+     * results in an {@code IllegalArgumentException} with
+     * message {@value}.
      */
-    public static final String CLOSED_FILE = "\"%s\" is closed";
+    public static final String CLOSED_CONNECTION =
+        "\"%s\" event file connection is closed";
+
+    /**
+     * Attempting to connect event file when closed results in an
+     * {@code IllegalArgumentException} with message {@value}.
+     */
+    public static final String CLOSED_FILE =
+        "\"%s\" event file is closed";
+
+    /**
+     * If attempt to postRow event to an {@code EfsFile}, then
+     * an {@code IllegalStateException} is thrown with message
+     * {@value}.
+     */
+    public static final String DISPATCH_FAILURE =
+       "failed to dispatch %s event to \"%s\"";
 
     //-----------------------------------------------------------
     // Statics.
@@ -158,10 +431,11 @@ connect results in a {@code IllegalStateException} with
 
     /**
      * Active retrieval requests looking to match future events.
+     * Retrieval identifier is used as key.
      * This data member is only accessed within the dispatcher
-     * thread, so it does not need to be a concurrent list.
+     * thread, so it does not need to be a concurrent map.
      */
-    private final List<Retrieval<E>> mActiveRequests;
+    private final Map<Integer, Retrieval<E>> mActiveRequests;
 
     /**
      * Set to {@code true} if this event file connection is open
@@ -178,7 +452,11 @@ connect results in a {@code IllegalStateException} with
     //
 
     /**
-     * Creates a new efs event file instance
+     * Creates a new efs event file connection to given event
+     * file, agent, and access mode.
+     * @param eventFile connected to this event file.
+     * @param agent agent connecting to event file.
+     * @param accessMode connection access mode.
      */
     /* package */ EfsFileConnection(final EfsFile<E> eventFile,
                                     final IEfsAgent agent,
@@ -187,7 +465,7 @@ connect results in a {@code IllegalStateException} with
         mEventFile = eventFile;
         mAgent = agent;
         mAccessMode = accessMode;
-        mActiveRequests = new ArrayList<>();
+        mActiveRequests = new HashMap<>();
         mOpenFlag = new AtomicBoolean(true);
     } // end of EfsFileConnection(EfsFile, IEfsAgent, AccessMode)
 
@@ -254,8 +532,12 @@ connect results in a {@code IllegalStateException} with
     //
 
     /**
-     * Marks this connection as closed. Method called by
-     * {@code EfsFile} when file is closed.
+     * Marks this connection as closed. Invoked by
+     * {@link EfsFile#onClose()} when underlying file is closing.
+     * Does not cancel active retrievals; that is handled
+     * separately by {@link EfsFile}.
+     *
+     * @see EfsFile#close()
      */
     /* package */ void markClosed()
     {
@@ -267,69 +549,678 @@ connect results in a {@code IllegalStateException} with
     //-----------------------------------------------------------
 
     /**
-     * Appends given event to event file.
-     * @param event event added to efs file.
-     * @return efs event retrieval subscription.
+     * Asynchronously appends given event to underlying
+     * {@link EfsFile}, assigning it a publish
+     * {@link Instant timestamp} and a monotonic row index.
+     * <p>
+     * This append is performed as follows:
+     * </p>
+     * <ol>
+     *   <li>
+     *     Validates that the event is not {@code null}.
+     *   </li>
+     *   <li>
+     *     Checks that this connection's
+     *     {@link EfsFile.AccessMode access mode} is compatible
+     *     with {@code WRITE_ONLY} (i.e., {@code WRITE_ONLY} or
+     *     {@code READ_WRITE}); if not, throws
+     *     {@link IllegalStateException}.
+     *   </li>
+     *   <li>
+     *     Checks that both this connection and underlying file
+     *     are still open; if not, throws
+     *    {@code IllegalStateException}.
+     *   </li>
+     *   <li>
+     *     Obtains the current system time from the underlying
+     *     file's clock.
+     *   </li>
+     *   <li>
+     *     Wraps the event and timestamp in an
+     *     {@link AddInternalEvent} and dispatches it to the
+     *     file's dispatcher thread via
+     *     {@link EfsDispatcher#dispatch}, passing the file's
+     *     {@link EfsFile#onAdd(AddInternalEvent)} handler.
+     *   </li>
+     *   <li>
+     *     Returns the publish {@link Instant timestamp} assigned
+     *     to event.
+     *   </li>
+     *   <li>
+     *     No user-defined integer tags are associated with this
+     *     event.
+     *   </li>
+     * </ol>
+     * <br>
+     *
+     * <dl>
+     * <dt><span style="font-size: 14px"><strong>Threading Model</strong></span></dt>
+     * </dl>
+     * <p>
+     * Although this method returns immediately with the publish
+     * timestamp, the actual row insertion into the file occurs
+     * asynchronously on the file's dispatcher thread. This
+     * means:
+     * </p>
+     * <ul>
+     *   <li>
+     *     Multiple calls to {@code add} from the same or
+     *     different agents will be processed serially on the
+     *     dispatcher thread in the order posted to event file's
+     *     event queue.
+     *   </li>
+     *   <li>
+     *     The returned publish timestamp is not guaranteed to be
+     *     unique; events added in quick succession may receive
+     *     the same timestamp (the file's clock resolution may be
+     *     coarser than call frequency).
+     *   </li>
+     *   <li>
+     *     Row indices are guaranteed to be strictly monotonic
+     *     and unique.
+     *   </li>
+     *   <li>
+     *     Active retrieval subscriptions (see {@link #retrieve})
+     *     will receive matching rows as soon as they are
+     *     inserted, without blocking the caller of this method.
+     *   </li>
+     * </ul>
+     * <br>
+     *
+     * <dl>
+     * <dt><span style="font-size: 14px"><strong>Event Ordering</strong></span></dt>
+     * </dl>
+     * <p>
+     * Events added via {@code add} are guaranteed to maintain
+     * call order in the file: event <em>E0</em> added before
+     * event <em>E1</em> will receive a smaller row index and
+     * (generally) an equal or earlier publish timestamp.
+     * </p>
+     *
+     * <dl>
+     * <dt><span style="font-size: 14px"><strong>Access Control</strong></span></dt>
+     * </dl>
+     * <p>
+     * This method requires the connection to have been opened
+     * with write access ({@code WRITE_ONLY} or
+     * {@code READ_WRITE}). Attempting to add on a
+     * {@code READ_ONLY} connection throws
+     * {@code IllegalStateException}.
+     * </p>
+     *
+     * <dl>
+     * <dt><span style="font-size: 14px"><strong>Error Handling</strong></span></dt>
+     * </dl>
+     * <p>
+     * Event insertion failures on the dispatcher thread (for
+     * example, failure to allocate a row or retrieve time) are
+     * not reported back to the caller and do not throw
+     * exceptions from this method. The method assumes the
+     * dispatcher will log such errors via the file's logger.
+     * </p>
+     *
+     * <dl>
+     * <dt><span style="font-size: 14px"><strong>Example</strong></span></dt>
+     * </dl>
+     * <pre>{@code
+     * // Assuming 'connection' is an open EfsFileConnection<TradeEvent> with write access
+     * TradeEvent trade = new TradeEvent("AAPL", 150.25, 1000L);
+     *
+     * try {
+     *     Instant publishedAt = connection.add(trade);
+     *     System.out.println("Trade added at " + publishedAt);
+     * } catch (IllegalStateException e) {
+     *     System.err.println("Cannot add: " + e.getMessage());
+     * } catch (NullPointerException e) {
+     *     System.err.println("Trade must not be null");
+     * }
+     * }</pre>
+     *
+     * @param event the event to append to the file; must not be
+     * {@code null} and must be an instance of type {@code E}.
+     * @return publish {@link Instant timestamp} assigned to
+     * event by event file's clock.
      * @throws NullPointerException
      * if {@code event} is {@code null}.
      * @throws IllegalStateException
-     * if this event file is not open for writing or event file
-     * is closed.
+     * if this connection does not have write access (opened with
+     * {@code READ_ONLY} mode), or if this connection is closed,
+     * or if underlying event file is closed. Also thrown if
+     * attempt to postRow retrieval request to {@code EfsFile}
+     * fails. In all cases, event is <em>not</em> added to event
+     * file.
      *
+     * @see EfsFile.AccessMode
      * @see #retrieve(EfsInterval, Query, Consumer, Consumer)
+     * @see EfsFile#onAdd(AddInternalEvent)
+     * @see EfsDispatcher#dispatch
      */
     @Nonnull
     public Instant add(@Nonnull final E event)
     {
-        Objects.requireNonNull(event, NULL_EVENT);
-
-        // Is this agent able to add events to efs file?
-        if (!mAccessMode.isCompatible(AccessMode.WRITE_ONLY))
-        {
-            // No, not allowed to write.
-            throw (
-                new IllegalStateException(
-                    String.format(
-                        READ_ONLY_ACCESS, mEventFile.name())));
-        }
-
-        // Is this file connection open?
-        // Is event file open?
-        if (!mOpenFlag.get() || !mEventFile.isOpen())
-        {
-            // No.
-            throw (
-                new IllegalStateException(
-                    String.format(
-                        CLOSED_FILE, mEventFile.name())));
-        }
-
-        final Instant pubTime = mEventFile.instant();
-        final AddInternalEvent<E> addEvent =
-            new AddInternalEvent<>(pubTime, event);
-
-        EfsDispatcher.dispatch(
-            mEventFile::onAdd, addEvent, mEventFile);
-
-        return (pubTime);
+        return (add(EfsFile.NO_TAGS, event));
     } // end of add(E)
 
     /**
-     * TODO
-     * @param interval forward only those events within this
-     * interval.
-     * @param query forward only those events which match
-     * this condition.
-     * @param eventCB forward matching events to this callback.
-     * @param completionCB when retrieval is complete, post
-     * {@link RetrievalCompleteEvent} to this callback.
-     * @return returns an event retrieval subscription.
-     * @throws NullPointerException
-     * if any of the arguments is {@code null}.
-     * @throws IllegalStateException
-     * if this event file is not open for reading or event file
-     * is closed.
+     * Asynchronously appends given event to underlying
+     * {@link EfsFile}, assigning it a publish
+     * {@link Instant timestamp} and a monotonic row index.
+     * <p>
+     * This append is performed as follows:
+     * </p>
+     * <ol>
+     *   <li>
+     *     Validates that the event are tags are not
+     *     {@code null} or that tags contains no {@code null}
+     *     values.
+     *   </li>
+     *   <li>
+     *     Checks that this connection's
+     *     {@link EfsFile.AccessMode access mode} is compatible
+     *     with {@code WRITE_ONLY} (i.e., {@code WRITE_ONLY} or
+     *     {@code READ_WRITE}); if not, throws
+     *     {@link IllegalStateException}.
+     *   </li>
+     *   <li>
+     *     Checks that both this connection and underlying file
+     *     are still open; if not, throws
+     *    {@code IllegalStateException}.
+     *   </li>
+     *   <li>
+     *     Obtains the current system time from the underlying
+     *     file's clock.
+     *   </li>
+     *   <li>
+     *     Wraps the event and timestamp in an
+     *     {@link AddInternalEvent} and dispatches it to the
+     *     file's dispatcher thread via
+     *     {@link EfsDispatcher#dispatch}, passing the file's
+     *     {@link EfsFile#onAdd(AddInternalEvent)} handler.
+     *   </li>
+     *   <li>
+     *     Returns the publish {@link Instant timestamp} assigned
+     *     to event.
+     *   </li>
+     * </ol>
+     * <br>
      *
+     * <dl>
+     * <dt><span style="font-size: 14px"><strong>Threading Model</strong></span></dt>
+     * </dl>
+     * <p>
+     * Although this method returns immediately with the publish
+     * timestamp, the actual row insertion into the file occurs
+     * asynchronously on the file's dispatcher thread. This
+     * means:
+     * </p>
+     * <ul>
+     *   <li>
+     *     Multiple calls to {@code add} from the same or
+     *     different agents will be processed serially on the
+     *     dispatcher thread in the order posted to event file's
+     *     event queue.
+     *   </li>
+     *   <li>
+     *     The returned publish timestamp is not guaranteed to be
+     *     unique; events added in quick succession may receive
+     *     the same timestamp (the file's clock resolution may be
+     *     coarser than call frequency).
+     *   </li>
+     *   <li>
+     *     Row indices are guaranteed to be strictly monotonic
+     *     and unique.
+     *   </li>
+     *   <li>
+     *     Active retrieval subscriptions (see {@link #retrieve})
+     *     will receive matching rows as soon as they are
+     *     inserted, without blocking the caller of this method.
+     *   </li>
+     * </ul>
+     * <br>
+     *
+     * <dl>
+     * <dt><span style="font-size: 14px"><strong>Event Ordering</strong></span></dt>
+     * </dl>
+     * <p>
+     * Events added via {@code add} are guaranteed to maintain
+     * call order in the file: event <em>E0</em> added before
+     * event <em>E1</em> will receive a smaller row index and
+     * (generally) an equal or earlier publish timestamp.
+     * </p>
+     *
+     * <dl>
+     * <dt><span style="font-size: 14px"><strong>Access Control</strong></span></dt>
+     * </dl>
+     * <p>
+     * This method requires the connection to have been opened
+     * with write access ({@code WRITE_ONLY} or
+     * {@code READ_WRITE}). Attempting to add on a
+     * {@code READ_ONLY} connection throws
+     * {@code IllegalStateException}.
+     * </p>
+     *
+     * <dl>
+     * <dt><span style="font-size: 14px"><strong>Error Handling</strong></span></dt>
+     * </dl>
+     * <p>
+     * Event insertion failures on the dispatcher thread (for
+     * example, failure to allocate a row or retrieve time) are
+     * not reported back to the caller and do not throw
+     * exceptions from this method. The method assumes the
+     * dispatcher will log such errors via the file's logger.
+     * </p>
+     *
+     * <dl>
+     * <dt><span style="font-size: 14px"><strong>Example</strong></span></dt>
+     * </dl>
+     * <pre>{@code
+     * // Assuming 'connection' is an open EfsFileConnection<TradeEvent> with write access
+     * Set<Integer> tags = new TreeSet<>(List.of(FIRST_TRADE_OF_THE_DAY));
+     * TradeEvent trade = new TradeEvent("AAPL", 150.25, 1000L);
+     *
+     * try {
+     *     Instant publishedAt = connection.add(tags, trade);
+     *     System.out.println("Trade added at " + publishedAt);
+     * } catch (IllegalStateException e) {
+     *     System.err.println("Cannot add: " + e.getMessage());
+     * } catch (NullPointerException e) {
+     *     System.err.println("Trade must not be null");
+     * }
+     * }</pre>
+     *
+     * @param tags user-defined tags associated with event; must
+     * not be {@code null} or contain {@code null} values. The
+     * reason tags are integers and not strings is for faster
+     * value comparison.
+     * @param event the event to append to the file; must not be
+     * {@code null} and must be an instance of type {@code E}.
+     * @return publish {@link Instant timestamp} assigned to
+     * event by event file's clock.
+     * @throws NullPointerException
+     * if either {@code tags} or {@code event} is {@code null}.
+     * @throws IllegalStateException
+     * if this connection does not have write access (opened with
+     * {@code READ_ONLY} mode), or if this connection is closed,
+     * or if underlying event file is closed. Also thrown if
+     * attempt to postRow retrieval request to {@code EfsFile}
+     * fails. In all cases, event is <em>not</em> added to event
+     * file.
+     *
+     * @see EfsFile.AccessMode
+     * @see #retrieve(EfsInterval, Query, Consumer, Consumer)
+     * @see EfsFile#onAdd(AddInternalEvent)
+     * @see EfsDispatcher#dispatch
+     */
+    @Nonnull
+    public Instant add(@Nonnull final Set<Integer> tags,
+                       @Nonnull final E event)
+    {
+        Objects.requireNonNull(tags, NULL_TAGS);
+        Objects.requireNonNull(event, NULL_EVENT);
+
+        // Validate that agent has proper access and that
+        // connection and file are open.
+        validateState(AccessMode.WRITE_ONLY, READ_ONLY_ACCESS);
+
+        final Instant pubTime = mEventFile.instant();
+        final Set<Integer> tagscopy = ImmutableSet.copyOf(tags);
+        final AddInternalEvent<E> addEvent =
+            new AddInternalEvent<>(pubTime, tagscopy, event);
+
+        try
+        {
+            EfsDispatcher.dispatch(
+                mEventFile::onAdd, addEvent, mEventFile);
+        }
+        catch (IllegalStateException statex)
+        {
+            throw (
+                new IllegalStateException(
+                    String.format(
+                        DISPATCH_FAILURE,
+                        "add",
+                        mEventFile.name())));
+        }
+
+        return (pubTime);
+    } // end of add(Set<>, E)
+
+    /**
+     * Initiates a retrieval of events from the underlying
+     * {@link EfsFile} matching the specified interval and
+     * CQEngine query, with optional subscription to future
+     * matching events.
+     * <p>
+     * This method performs the following:
+     * </p>
+     * <ol>
+     *   <li>
+     *     Validates that all arguments ({@code interval},
+     *     {@code query}, {@code eventCB}, {@code completionCB})
+     *     are not {@code null}; throws
+     *     {@code NullPointerException} if any is {@code null}.
+     *   </li>
+     *   <li>
+     *     Checks that this connection's
+     *     {@link EfsFile.AccessMode access mode} is compatible
+     *     with {@code READ_ONLY} (i.e., {@code READ_ONLY} or
+     *     {@code READ_WRITE}); if not, throws
+     *     {@code IllegalStateException}.
+     *   </li>
+     *   <li>
+     *     Checks that both this connection and the underlying
+     *     file are still open; if not, throws
+     *     {@code IllegalStateException}.
+     *   </li>
+     *   <li>
+     *     Creates a new {@link Retrieval} instance encapsulating
+     *     interval, query, callbacks, and agent.
+     *   </li>
+     *   <li>
+     *     Wraps the {@code Retrieval} in a
+     *     {@link RetrievalInternalEvent} and dispatches it to
+     *     event file's dispatcher thread via
+     *    {@link EfsDispatcher#dispatch}, passing the file's
+     *    {@link EfsFile#onRetrieve(RetrievalInternalEvent)}
+     *    handler.
+     *   </li>
+     *   <li>
+     *     Adds the {@code Retrieval} to this connection's active
+     *     retrieval list for cancellation tracking.
+     *   </li>
+     *   <li>
+     *     Returns {@code Retrieval} instance to the caller so
+     *     events and completion can be received via callbacks,
+     *     and the retrieval can be cancelled via
+     *     {@link Retrieval#close()}.
+     *   </li>
+     * </ol>
+     * <br>
+     *
+     * <dl>
+     * <dt><span style="font-size: 14px"><strong>Threading Model</strong></span></dt>
+     * </dl>
+     * <p>
+     * Although this method returns immediately with a
+     * {@code Retrieval} subscription, the actual query execution
+     * and event matching occur asynchronously on the file's
+     * dispatcher thread. This means:
+     * </p>
+     * <ul>
+     *   <li>
+     *     The {@code eventCB} and {@code completionCB} callbacks
+     *     are invoked on the retrieval's agent's dispatcher
+     *     thread, <em>not</em> from the caller's thread.
+     *   </li>
+     *   <li>
+     *     Events matching the interval and query are delivered
+     *     to {@code eventCB} serially and in ascending row-index
+     *     order.
+     *   </li>
+     *   <li>
+     *     If the interval includes future events, the retrieval
+     *     remains active and continues to receive newly inserted
+     *     events that match the query.
+     *   </li>
+     *   <li>
+     *     When the interval's ending is reached (or retrieval is
+     *     cancelled), {@code completionCB} is invoked exactly
+     *     once with a {@link RetrievalCompleteEvent} describing
+     *     when the retrieval completed and completion reason.
+     *   </li>
+     * </ul>
+     * <br>
+     *
+     * <dl>
+     * <dt><span style="font-size: 14px"><strong>Interval and Query Semantics</strong></span></dt>
+     * </dl>
+     * <p>
+     * The retrieval matches rows from the file as follows:
+     * </p>
+     * <ul>
+     *   <li>
+     *     <strong>Interval:</strong> Defines the begin and end
+     *     points for row retrieval. Points may be specified by
+     *     row index, fixed timestamp, or duration offset from
+     *     current time. See {@link EfsInterval} and
+     *     {@link EfsIntervalEndpoint} for endpoint types and
+     *     clusivity (inclusive/exclusive).
+     *   </li>
+     *   <li>
+     *     <strong>Query:</strong> A CQEngine {@link Query} that
+     *     further filters rows. Construct queries using
+     *     CQEngine's
+     *     {@link com.googlecode.cqengine.query.QueryFactory}
+     *     methods and obtain
+     *     field attributes via {@link EfsFile#attribute(String)}
+     *     for the event's fields. A query matching all rows can
+     *     be created with {@code QueryFactory.all(eventClass)}.
+     *   </li>
+     *   <li>
+     *     <strong>Combined effect:</strong> Only rows falling
+     *     within the interval <em>and</em> matching the query
+     *     are delivered to {@code eventCB}.
+     *   </li>
+     * </ul>
+     * <br>
+     *
+     * <dl>
+     * <dt><span style="font-size: 14px"><strong>Retrieval Lifecycle</strong></span></dt>
+     * </dl>
+     * <ul>
+     *   <li>
+     *     <strong>Historical events:</strong> Rows which exist
+     *     at the time of retrieval and match the interval and
+     *     query are delivered first, in increasing row index
+     *     order.
+     *   </li>
+     *   <li>
+     *     <strong>Future events:</strong> If the interval
+     *     extends beyond the current time (see
+     *     {@link EfsInterval#isFutureInterval}), the retrieval
+     *     is registered with the file in order to receive newly
+     *     added matching rows as they arrive.
+     *   </li>
+     *   <li>
+     *     <strong>Completion:</strong> The retrieval completes
+     *     when:
+     *     <ul>
+     *       <li>
+     *         All historical rows within the interval have been
+     *         delivered and the interval does not extend into
+     *         the future.
+     *       </li>
+     *       <li>
+     *         The retrieval interval's ending point is reached
+     *         (current time moves past the interval's end).
+     *       </li>
+     *       <li>
+     *         The retrieval is cancelled by the caller via
+     *         {@link Retrieval#close()}.
+     *       </li>
+     *       <li>
+     *         The underlying file is closed.
+     *       </li>
+     *       <li>
+     *         This connection is closed.
+     *       </li>
+     *     </ul>
+     *   </li>
+     *   <li>
+     *     <strong>Completion notification:</strong> Upon
+     *     completion, {@code completionCB} is invoked exactly
+     *     once with a {@link RetrievalCompleteEvent} specifying
+     *     completion time and  completion type (e.g.,
+     *     {@link RetrievalCompleteEvent.CompletionType#RETRIEVAL_COMPLETED},
+     *     {@link RetrievalCompleteEvent.CompletionType#USER_CANCEL},
+     *     {@link RetrievalCompleteEvent.CompletionType#FILE_CLOSED},
+     *     or
+     *     {@link RetrievalCompleteEvent.CompletionType#CONNECTION_CLOSED}).
+     *   </li>
+     * </ul>
+     * <br>
+     *
+     * <dl>
+     * <dt><span style="font-size: 14px"><strong>Access Control</strong></span></dt>
+     * </dl>
+     * <p>
+     * This method requires the connection to have been opened
+     * with read access ({@code READ_ONLY} or {@code READ_WRITE}).
+     * Attempting to retrieve on a {@code WRITE_ONLY} connection
+     * throws {@link IllegalStateException}.
+     * </p>
+     *
+     * <dl>
+     * <dt><span style="font-size: 14px"><strong>Callback Guarantees</strong></span></dt>
+     * </dl>
+     * <ul>
+     *   <li>
+     *     If {@code eventCB} throws an exception, the exception
+     *     is logged but does not interrupt the retrieval; other
+     *     matching events continue to be processed.
+     *   </li>
+     *   <li>
+     *     If {@code completionCB} throws an exception, the
+     *     exception is logged but does not prevent the retrieval
+     *     from closing.
+     *   </li>
+     *   <li>
+     *     Both callbacks are guaranteed to be invoked on agent's
+     *     dispatcher thread in a single-threaded manner (no
+     *     concurrent invocations for the same agent).
+     *   </li>
+     * </ul>
+     * <br>
+     *
+     * <dl>
+     * <dt><span style="font-size: 14px"><strong>Cancellation</strong></span></dt>
+     * </dl>
+     * <p>
+     * The returned {@code Retrieval} is {@link AutoCloseable},
+     * allowing try-with-resources usage. Call
+     * {@link Retrieval#close()} or use try-with-resources to
+     * cancel an active retrieval. Cancellation is idempotent:
+     * calling {@code doClose()} on an already-completed retrieval
+     * has no effect.
+     * </p>
+     * <p style="background-color:#ffcccc;padding:5px;border: 2px solid darkred;">
+     * <strong>WARNING!</strong> Because events are retrieved
+     * asynchronously, placing a {@code Retrieval} instance
+     * within a try-with-resources requires the current thread to
+     * block until the retrieval completes (effectively turning
+     * the asynchronous retrieval into synchronous). Failure to
+     * do this results in the retrieval request being closed
+     * before the request is processed by the event file.
+     * </p>
+     *
+     * <dl>
+     * <dt><span style="font-size: 14px"><strong>Example: Retrieve Historical Events</strong></span></dt>
+     * </dl>
+     * <pre>{@code // Retrieve all trades from the last hour
+EfsInterval interval = EfsInterval.builder()
+    .beginning(EfsDurationEndpoint.builder()
+        .timeOffset(Duration.ofHours(-1), Clusivity.INCLUSIVE)
+        .build())
+    .ending(EfsDurationEndpoint.builder()
+        .now(Clusivity.INCLUSIVE)
+        .build())
+    .build();
+
+// Create a query that matches trades with price > 150
+Query<EfsRow<TradeEvent>> query =
+    QueryFactory.greaterThan(file.attribute("price"), 150.0);
+
+try (EfsFileConnection.Retrieval<TradeEvent> retrieval =
+    connection.retrieve(
+        interval,
+        query,
+        row -> {
+            // Event callback
+            TradeEvent trade = row.getEvent();
+            System.out.println("Trade: " + trade.symbol() + " @ $" + trade.price());
+        },
+        completion -> {
+            // Completion callback
+            System.out.println("Retrieval done: " + completion.completionType());
+        }
+    )) {
+    // Retrieval is active here; callbacks may still be in flight.
+    // Try-with-resources will cancel the retrieval when exiting the block.
+    // Therefore  a lock-and-condition must be used to prevent retrieval
+    // from being canceled.
+}
+}</pre>
+     *
+     * <dl>
+     * <dt><span style="font-size: 14px"><strong>Example: Subscribe to Future Events</strong></span></dt>
+     * </dl>
+     * <pre>{@code // Subscribe to all trades starting now and ongoing indefinitely
+EfsInterval interval = EfsInterval.builder()
+    .beginning(EfsDurationEndpoint.builder()
+        .now(Clusivity.INCLUSIVE)
+        .build())
+    .ending(EfsDurationEndpoint.builder()
+        .endNever()  // Interval never ends
+        .build())
+    .build();
+
+Query<EfsRow<TradeEvent>> query = QueryFactory.all(TradeEvent.class);
+
+EfsFileConnection.Retrieval<TradeEvent> subscription =
+    connection.retrieve(
+        interval,
+        query,
+        row -> System.out.println("New trade: " + row.getEvent()),
+        completion -> System.out.println("Subscription ended: " + completion.completionType())
+    );
+
+// Subscription is now active and will receive all new trades.
+// Later, cancel when done:
+subscription.doClose();
+}</pre>
+     *
+     * @param interval the time or index interval defining the
+     * range of rows to retrieve; must not be {@code null}. See
+     * {@link EfsInterval} for details on building intervals.
+     * @param query a CQEngine {@link Query} that further filters
+     * which rows are delivered; must not be {@code null}. Use
+     * {@link com.googlecode.cqengine.query.QueryFactory} methods
+     * and {@link EfsFile#attribute(String)} to construct
+     * queries.
+     * @param eventCB a {@link Consumer} invoked on the agent's
+     * dispatcher thread for each matching {@link EfsRow}; must
+     * not be {@code null}. The callback receives rows in
+     * ascending row-index order. Exceptions thrown by this
+     * callback are logged but do not interrupt retrieval.
+     * @param completionCB a {@link Consumer} invoked exactly
+     * once when retrieval completes (either successfully,
+     * cancelled, or due to file/connection closure); must not be
+     * {@code null}. Receives a {@link RetrievalCompleteEvent}
+     * providing completion time and reason. Invoked on agent's
+     * dispatcher thread. Exceptions thrown by this callback are
+     * logged but do not prevent the retrieval from closing.
+     * @return a {@link Retrieval} subscription that can be
+     * queried for status or cancelled via
+     * {@link Retrieval#close()}; never {@code null}.
+     * @throws NullPointerException
+     * if any of {@code interval}, {@code query}, {@code eventCB},
+     * or {@code completionCB} is {@code null}.
+     * @throws IllegalStateException
+     * if this connection does not have read access
+     * (opened with {@code WRITE_ONLY} mode), if this connection
+     * is closed, or if underlying file is closed. Also thrown
+     * if attempt to postRow retrieval request to
+     * {@code EfsFile} fails. In all cases, no events are
+     * retrieved from event file.
+     *
+     * @see EfsInterval
+     * @see EfsIntervalEndpoint
+     * @see com.googlecode.cqengine.query.QueryFactory
+     * @see EfsFile#attribute(String)
+     * @see Retrieval
+     * @see RetrievalCompleteEvent
+     * @see EfsFile#onRetrieve(RetrievalInternalEvent)
+     * @see EfsDispatcher#dispatch
      * @see #add(IEfsEvent)
      */
     @Nonnull
@@ -346,24 +1237,9 @@ connect results in a {@code IllegalStateException} with
         Objects.requireNonNull(eventCB, NULL_EVENT_CALLBACK);
         Objects.requireNonNull(completionCB, NULL_DONE_CALLBACK);
 
-        // Is this agent able to retrieve events from efs file?
-        if (!mAccessMode.isCompatible(AccessMode.READ_ONLY))
-        {
-            throw (
-                new IllegalStateException(
-                    String.format(
-                        WRITE_ONLY_ACCESS, mEventFile.name())));
-        }
-
-        // Is this file connection open?
-        // Is event file open?
-        if (!mOpenFlag.get() || !mEventFile.isOpen())
-        {
-            throw (
-                new IllegalStateException(
-                    String.format(
-                        CLOSED_FILE, mEventFile.name())));
-        }
+        // Validate that agent has proper access and that
+        // connection and file are open.
+        validateState(AccessMode.READ_ONLY, WRITE_ONLY_ACCESS);
 
         retval = new Retrieval<>(sRetrieveIds.getAndIncrement(),
                                  this,
@@ -373,7 +1249,7 @@ connect results in a {@code IllegalStateException} with
                                  eventCB,
                                  completionCB);
 
-        sLogger.info(
+        sLogger.debug(
             "{}: {} retrieving events over interval {}, query {}.",
             mEventFile.name(),
             mAgent.name(),
@@ -381,64 +1257,496 @@ connect results in a {@code IllegalStateException} with
             query);
 
         // Do actual row retrieval on dispatcher thread.
-        EfsDispatcher.dispatch(
-            mEventFile::onRetrieve,
-            new RetrievalInternalEvent<>(retval),
-            mEventFile);
-        mActiveRequests.add(retval);
+        try
+        {
+            EfsDispatcher.dispatch(
+                mEventFile::onRetrieve,
+                new RetrievalInternalEvent<>(retval),
+                mEventFile);
+            mActiveRequests.put(retval.id(), retval);
+        }
+        catch (Exception jex)
+        {
+            throw (
+                new IllegalStateException(
+                    String.format(
+                        DISPATCH_FAILURE,
+                        "retrieve",
+                        mEventFile.name())));
+        }
 
         return (retval);
     } // end of retrieve(...)
 
     /**
+     * TODO
+     * @param tag retrieve events with this user-defined event
+     * tag.
+     * @param eventCB a {@link Consumer} invoked on the agent's
+     * dispatcher thread for each matching {@link EfsRow}; must
+     * not be {@code null}. The callback receives rows in
+     * ascending row-index order. Exceptions thrown by this
+     * callback are logged but do not interrupt retrieval.
+     * @param completionCB a {@link Consumer} invoked exactly
+     * once when retrieval completes (either successfully,
+     * cancelled, or due to file/connection closure); must not be
+     * {@code null}. Receives a {@link RetrievalCompleteEvent}
+     * providing completion time and reason. Invoked on agent's
+     * dispatcher thread. Exceptions thrown by this callback are
+     * logged but do not prevent the retrieval from closing.
+     * @throws NullPointerException
+     * if either {@code eventCB} or {@code completionCB} is
+     * {@code null}.
+     * @throws IllegalStateException
+     * if this connection does not have read access
+     * (opened with {@code WRITE_ONLY} mode), if this connection
+is closed, or if underlying file is closed. Also thrown
+if attempt to postRow retrieval request to
+{@code EfsFile} fails. In all cases, no events are
+     * retrieved from event file.
+     */
+    public void retrieve(final int tag,
+                         @Nonnull final Consumer<EfsRow<E>> eventCB,
+                         @Nonnull final Consumer<RetrievalCompleteEvent<E>> completionCB)
+    {
+        // Validate arguments.
+        Objects.requireNonNull(eventCB, NULL_EVENT_CALLBACK);
+        Objects.requireNonNull(completionCB, NULL_DONE_CALLBACK);
+
+        // Validate that agent has proper access and that
+        // connection and file are open.
+        validateState(AccessMode.READ_ONLY, WRITE_ONLY_ACCESS);
+
+        sLogger.debug("{}: {} retrieving events with {} tag.",
+                      mEventFile.name(),
+                      mAccessMode.name(),
+                      tag);
+
+        try
+        {
+            final TagRetrieveInternalEvent<E> event =
+                new TagRetrieveInternalEvent<>(tag,
+                                               mAgent,
+                                               eventCB,
+                                               completionCB);
+
+            EfsDispatcher.dispatch(
+                mEventFile::onRetrieve, event, mEventFile);
+        }
+        catch (Exception jex)
+        {
+            throw (
+                new IllegalStateException(
+                    String.format(
+                        DISPATCH_FAILURE,
+                        "retrieve",
+                        mEventFile.name())));
+        }
+    } // end of retrieve(int, Consumer, Consumer)
+
+    /**
      * Closes all active retrieval requests. If this event file
-     * is already closed, then does nothing.
+     * is already closed, then does nothing (idempotent).
+     * <p>
+     * This method is asynchronous: it marks the connection as
+     * closed and dispatches cancellation events to the file.
+     * After this call, no new event adds or retrievals may be
+     * created via this connection, but in-flight callbacks may
+     * still be processed. Completion callbacks for active
+     * retrievals are invoked on the agent's dispatcher thread.
+     * </p>
      */
     public void close()
     {
         if (mOpenFlag.compareAndSet(true, false))
         {
             final List<Retrieval<E>> copy =
-                ImmutableList.copyOf(mActiveRequests);
+                ImmutableList.copyOf(mActiveRequests.values());
 
-            for (Retrieval<E> r : copy)
-            {
-                try
-                {
-                    r.close(mEventFile.instant(),
-                            CompletionType.CONNECTION_CLOSED);
-                }
-                catch (Exception jex)
-                {
-                    // Ignore.
-                }
-            }
+            mActiveRequests.clear();
 
-            EfsDispatcher.dispatch(
-                mEventFile::onDisconnect,
-                new DisconnectInternalEvent<>(this),
+            // Close retrievals on event file dispatcher thread.
+            EfsDispatcher.dispatch(() ->
+                {
+                    for (Retrieval<E> r : copy)
+                    {
+                        try
+                        {
+                            r.doClose(mEventFile.instant(),
+                                    CompletionType.CONNECTION_CLOSED);
+                        }
+                        catch (Exception jex)
+                        {
+                            sLogger.warn(
+                                "Error closing retrieval {}",
+                                r.id(),
+                                jex);
+                        }
+                    }
+                },
                 mEventFile);
+
+            // Since connections are added to the efs event
+            // file's set on the callers thread and not on the
+            // event file's dispatcher thread, remove connection
+            // on the caller's thread as well.
+            mEventFile.onDisconnect(this);
         }
-    } // end of close()
+    } // end of doClose()
 
     /**
-     * Removes a completed retrieval from active requests
-     * list.
+     * Removes a completed retrieval from active requests list.
+     * Invoked by {@link Retrieval#markCompleted(Instant)} or
+     * {@link Retrieval#doClose(Instant, CompletionType)} when a
+     * retrieval transitions to the completed state.
      * @param retrieval remove this request from active requests.
+     *
+     * @see Retrieval#markCompleted(Instant)
+     * @see Retrieval#doClose(Instant, CompletionType)
      */
     /* package */ void retrievalComplete(final Retrieval<E> retrieval)
     {
-        mActiveRequests.remove(retrieval);
+        final int rId = retrieval.id();
+
+        if (!mActiveRequests.containsKey(rId))
+        {
+            sLogger.warn(
+                "{} connection: retrieval {} not found in active requests.",
+                mEventFile.name(),
+                rId);
+        }
+        else
+        {
+            mActiveRequests.remove(rId);
+        }
     } // end of retrievalComplete(Retrieval)
+
+    /**
+     * Validates that connect mode allows for specified action
+     * and that {@code this} connection and underlying event file
+     * are open.
+     * <p>
+     * This method is called for effect only.
+     * </p>
+     * @param mode required access mode.
+     * @param format exception message format for invalid access
+     * mode.
+     * @throws IllegalStateException
+     * if {@code mode} is not compatible with connection mode,
+     * {@code this} connection is closed, or underlying event
+     * file is closed.
+     */
+    private void validateState(final AccessMode mode,
+                               final String format)
+    {
+        // Is this agent able to retrieve events from efs file?
+        if (!mAccessMode.isCompatible(mode))
+        {
+            throw (
+                new IllegalStateException(
+                    String.format(format, mEventFile.name())));
+        }
+
+        // Is this file connection open?
+        if (!mOpenFlag.get())
+        {
+            throw (
+                new IllegalStateException(
+                    String.format(
+                        CLOSED_CONNECTION, mEventFile.name())));
+        }
+
+        // NOTE: Closing an event file results in all extant
+        // connections being closed. So if the underlying event
+        // file is closed, then this connection is closed.
+    } // end of validateState(final AccessMode mode)
 
 //---------------------------------------------------------------
 // Inner classes.
 //
 
     /**
-     * Acts as a subscription to future events added to ef file.
-     * TODO
-     * @param <E> efs event type.
+     * Represents an active or completed event retrieval
+     * subscription from an {@link EfsFileConnection}.
+     * <p>
+     * A {@code Retrieval} encapsulates a single agent's
+     * subscription to events within a specified
+     * {@link EfsInterval} and matching a CQEngine {@link Query}.
+     * It manages the delivery of matching historical events
+     * and/or future events, along with completion notification.
+     * </p>
+     * <p>
+     * Instances are created internally by
+     * {@link EfsFileConnection#retrieve} and can not be
+     * instantiated directly.
+     * </p>
+     * <h2>Lifecycle</h2>
+     * <p>
+     * A {@code Retrieval} progresses through the following
+     * states:
+     * </p>
+     * <ul>
+     *   <li>
+     *     <strong>Active:</strong> Created by
+     *     {@code retrieve()}, the subscription is waiting for or
+     *     is receiving events. Query {@link #isCompleted()} to
+     *     check if still active.
+     *   </li>
+     *   <li>
+     *     <strong>Completed:</strong> Reached when:
+     *     <ul>
+     *       <li>
+     *         All historical events within the interval have
+     *         been delivered and the interval does not extend
+     *         into the future.
+     *       </li>
+     *       <li>
+     *         Current time moves past the interval's ending
+     *         point.
+     *       </li>
+     *       <li>
+     *         Retrieval is cancelled by the caller via
+     *         {@link #close()}.
+     *       </li>
+     *       <li>
+     *         Underlying {@link EfsFileConnection} is closed.
+     *       </li>
+     *       <li>
+     *         Underlying {@link EfsFile} is closed.
+     *       </li>
+     *     </ul>
+     *   </li>
+     *   <li>
+     *     <strong>Completion notification:</strong> Upon
+     *     transition to completed, the completion callback
+     *     provided to {@code retrieve()} is invoked exactly once
+     *     on the agent's dispatcher thread with a
+     *     {@link RetrievalCompleteEvent} specifying
+     *     completion time and type (e.g.,
+     *     {@link RetrievalCompleteEvent.CompletionType#RETRIEVAL_COMPLETED},
+     *     {@link RetrievalCompleteEvent.CompletionType#USER_CANCEL},
+     *     {@link RetrievalCompleteEvent.CompletionType#FILE_CLOSED}, or
+     *     {@link RetrievalCompleteEvent.CompletionType#CONNECTION_CLOSED}).
+     *   </li>
+     * </ul>
+     *
+     * <h2>Event Delivery</h2>
+     * <p>
+     * Matching events are delivered in ascending row-index order
+     * via the event callback provided to
+     * {@link EfsFileConnection#retrieve}. All delivery occurs
+     * asynchronously on the agent's dispatcher thread, not on
+     * the caller's thread. The callback receives {@link EfsRow}
+     * instances; access the stored event via
+     * {@link EfsRow#getEvent()}, the publish timestamp via
+     * {@link EfsRow#getPublishTimestamp()}, and the row index via
+     * {@link EfsRow#getRowIndex()}.
+     * </p>
+     *
+     * <h2>Cancellation</h2>
+     * <p>
+     * Call {@link #close()} to cancel an active retrieval. The
+     * method implements {@link AutoCloseable}, enabling
+     * try-with-resources usage:
+     * <pre>{@code
+     * try (Retrieval<MyEvent> sub = connection.retrieve(...)) {
+    // Subscription is active
+}  // doClose() is automatically called, cancelling the subscription
+}</pre>
+     * <p>
+     * Cancellation is idempotent: calling {@code doClose()} on an
+     * already-completed retrieval has no effect. The completion
+     * callback is invoked with
+     * {@link RetrievalCompleteEvent.CompletionType#USER_CANCEL}
+     * if cancellation succeeds.
+     * </p>
+     * <p style="background-color:#ffcccc;padding:5px;border: 2px solid darkred;">
+     * <strong>WARNING!</strong> Because events are retrieved
+     * asynchronously, placing a {@code Retrieval} instance
+     * within a try-with-resources requires the current thread to
+     * block until the retrieval completes (effectively turning
+     * the asynchronous retrieval into synchronous). Failure to
+     * do this results in the retrieval request being closed
+     * before the request is processed by the event file.
+     * </p>
+     *
+     * <h2>Status and Information</h2>
+     * <ul>
+     *   <li>
+     *     {@link #isCompleted()}: Returns {@code true} if the
+     *     retrieval has reached completion (either naturally or
+     *     via cancellation).
+     *   </li>
+     *   <li>
+     *     {@link #completionType()}: Returns the
+     *     {@link RetrievalCompleteEvent.CompletionType} if
+     *     completed; {@code null} if still active.
+     *   </li>
+     *   <li>
+     *     {@link #id()}: Returns a unique JVM-wide retrieval
+     *     identifier.
+     *   </li>
+     *   <li>
+     *     {@link #agent()}: Returns the {@link IEfsAgent} owning
+     *     this retrieval.
+     *   </li>
+     *   <li>
+     *     {@link #interval()}: Returns the {@link EfsInterval}
+     *     specified when the retrieval was created.
+     *   </li>
+     *   <li>
+     *     {@link #toString()}: Returns a human-readable summary
+     *     of the retrieval including ID, agent name, interval,
+     *     and query.
+     *   </li>
+     * </ul>
+     *
+     * <h2>Threading Model</h2>
+     * <p>
+     * All {@code Retrieval} operations are thread-safe. Status
+     * queries ({@link #isCompleted()},
+     * {@link #completionType()}, etc.) can be called from any
+     * thread and return atomic snapshots. Event delivery and
+     * cancellation are coordinated by the underlying file's
+     * dispatcher thread, ensuring consistent state transitions.
+     * </p>
+     *
+     * <h2>Integration with EfsFile</h2>
+     * <p>
+     * Active retrievals are registered with the underlying
+     * {@link EfsFile} in order to receive matching new rows as
+     * they are added (if the interval extends into the future).
+     * The file invokes package-private methods
+     * ({@link #matches(EfsRow)}, {@link #isAtEnd(EfsRow)},
+     * {@link #postRow(EfsRow)},
+     * {@link #doClose(Instant, CompletionType)}) to match
+     * incoming events and notify the retrieval of completion.
+     * </p>
+     *
+     * <h2>Example: Historical Retrieval with Cancellation</h2>
+     * <pre>{@code
+     * // Retrieve trades from the last 30 minutes
+EfsInterval interval = EfsInterval.builder()
+    .beginning(EfsDurationEndpoint.builder()
+        .timeOffset(Duration.ofMinutes(-30), Clusivity.INCLUSIVE)
+        .build())
+    .ending(EfsDurationEndpoint.builder()
+        .now(Clusivity.INCLUSIVE)
+        .build())
+    .build();
+
+Query<EfsRow<TradeEvent>> query = QueryFactory.all(TradeEvent.class);
+
+Retrieval<TradeEvent> retrieval = connection.retrieve(
+    interval,
+    query,
+    row -> {
+        System.out.println("Trade: " + row.getEvent().symbol()
+            + " at row " + row.getRowIndex());
+    },
+    completion -> {
+        System.out.println("Retrieval complete: " + completion.completionType());
+    }
+);
+
+// Check status
+if (!retrieval.isCompleted()) {
+    System.out.println("Retrieval " + retrieval.id() + " is active");
+}
+
+// Later, cancel if still active
+if (!retrieval.isCompleted()) {
+    retrieval.doClose();
+}
+}</pre>
+     *
+     * <h3>Example: Future Subscription</h3>
+     * <pre>{@code
+     * // Subscribe to all future trades
+EfsInterval interval = EfsInterval.builder()
+    .beginning(EfsDurationEndpoint.builder()
+        .now(Clusivity.INCLUSIVE)
+        .build())
+    .ending(EfsDurationEndpoint.builder()
+        .endNever()  // No end time
+        .build())
+    .build();
+
+// Filter for high-value trades
+Query<EfsRow<TradeEvent>> query = QueryFactory.greaterThan(
+    file.attribute("quantity"), 5000L);
+
+try (Retrieval<TradeEvent> subscription = connection.retrieve(
+    interval,
+    query,
+    row -> System.out.println("Large trade: " + row.getEvent()),
+    completion -> System.out.println("Subscription ended")
+)) {
+    // Subscription is active and will receive all matching future trades
+    Thread.sleep(60_000);  // Run for 1 minute
+}  // doClose() is automatically called
+}</pre>
+     *
+     * <h2>Error Handling</h2>
+     * <ul>
+     *   <li>
+     *     Exceptions thrown by the event callback are logged but
+     *     do not interrupt the retrieval or prevent other events
+     *     from being delivered.
+     *   </li>
+     *   <li>
+     *     Exceptions thrown by the completion callback are
+     *     logged but do not prevent the retrieval from
+     *     transitioning to completed.
+     *   </li>
+     *   <li>
+     *     If {@link #close()} is called on an already-completed
+     *     retrieval, it simply returns without error
+     *     (idempotent).
+     *   </li>
+     * </ul>
+     *
+     * <h2>Package-Private Implementation Details</h2>
+     * <p>
+     * The following package-private methods are invoked by
+     * {@link EfsFile} on the dispatcher thread and should not be
+     * called directly:
+     * </p>
+     * <ul>
+     *   <li>
+     *     {@link #matches(EfsRow)}: Evaluates whether a newly
+     *     inserted row satisfies both the interval and user
+     *     query.
+     *   </li>
+     *   <li>
+     *     {@link #isAtEnd(EfsRow)}: Checks if a row has moved
+     *     past the interval's ending point.
+     *   </li>
+     *   <li>
+     *     {@link #postRow(EfsRow)}: Dispatches a matching row
+     *     to the event callback on the agent's thread.
+     *   </li>
+     *   <li>
+     *     {@link #doClose(Instant, CompletionType)}: Marks
+     *     retrieval as completed (if not already) and invokes
+     *     completion callback.
+     *   </li>
+     *   <li>
+     *     {@link #intervalQuery(Query, Query)}: Combines
+     *      beginning, ending, and user queries into a final
+     *      composite query used for event matching.
+     *   </li>
+     * </ul>
+     *
+     * @param <E> the event type retrieved (must implement
+     * {@link IEfsEvent})
+     *
+     * @see EfsFileConnection
+     * @see EfsFileConnection#retrieve
+     * @see EfsFile
+     * @see EfsInterval
+     * @see RetrievalCompleteEvent
+     * @see org.efs.dispatcher.EfsDispatcher
      */
     public static final class Retrieval<E extends IEfsEvent>
         implements AutoCloseable
@@ -541,13 +1849,14 @@ connect results in a {@code IllegalStateException} with
          * @param completionCB report retrieval completion on
          * this callback.
          */
-        private Retrieval(final int id,
-                          final EfsFileConnection<E> file,
-                          final IEfsAgent agent,
-                          final EfsInterval interval,
-                          final Query<EfsRow<E>> userQuery,
-                          final Consumer<EfsRow<E>> eventCB,
-                          final Consumer<RetrievalCompleteEvent<E>> completionCB)
+        @VisibleForTesting
+        /* package */ Retrieval(final int id,
+                                final EfsFileConnection<E> file,
+                                final IEfsAgent agent,
+                                final EfsInterval interval,
+                                final Query<EfsRow<E>> userQuery,
+                                final Consumer<EfsRow<E>> eventCB,
+                                final Consumer<RetrievalCompleteEvent<E>> completionCB)
         {
             mId = id;
             mEventFile = file;
@@ -581,7 +1890,7 @@ connect results in a {@code IllegalStateException} with
             throws Exception
         {
             // Is this file connection open?
-            if (close((mEventFile.mEventFile).instant(),
+            if (doClose(mEventFile.instant(),
                       CompletionType.USER_CANCEL))
             {
                 final EfsFile<E> file = mEventFile.eventFile();
@@ -597,7 +1906,7 @@ connect results in a {@code IllegalStateException} with
                         this),
                     mAgent);
             }
-        } // end of close()
+        } // end of doClose()
 
         //
         // end of AutoCloseable Interface Implementation.
@@ -612,9 +1921,12 @@ connect results in a {@code IllegalStateException} with
         {
             return (
                 String.format(
-                    "[id=%d, agent=%s, interval=%s, query=%s]",
+                    "[id=%d, agent=%s, status=%s, interval=%s, query=%s]",
                     mId,
                     mAgent.name(),
+                    (isCompleted() ?
+                     "completed (" + mCompletionType + ")" :
+                     "active"),
                     mInterval,
                     mUserQuery));
         } // end of toString()
@@ -711,8 +2023,8 @@ connect results in a {@code IllegalStateException} with
          * @param beginQuery beginning interval query.
          * @param endQuery ending interval query.
          */
-        /* package */ Query<EfsRow<E>>intervalQuery(final Query<EfsRow<E>> beginQuery,
-                                                    final Query<EfsRow<E>> endQuery)
+        /* package */ Query<EfsRow<E>> intervalQuery(final Query<EfsRow<E>> beginQuery,
+                                                     final Query<EfsRow<E>> endQuery)
         {
             mIntervalEndQuery = endQuery;
 
@@ -720,30 +2032,6 @@ connect results in a {@code IllegalStateException} with
 
             return (mRowQuery);
         } // end of intervalQuery(Query, Query)
-
-        /**
-         * Returns {@code true} if retrieval request was not
-         * previously canceled and so is now completed due to all
-         * requested rows being retrieved.
-         * @param timestamp time retrieval reached completion.
-         * @return {@code true} if retrieval request successfully
-         * reached completion.
-         */
-        /* package */ boolean markCompleted(final Instant timestamp)
-        {
-            final boolean retcode =
-                close(timestamp,
-                      CompletionType.RETRIEVAL_COMPLETED);
-
-            // Is this retrieval now completed?
-            if (retcode)
-            {
-                // Yes. Remove from agent's list.
-                mEventFile.retrievalComplete(this);
-            }
-
-            return (retcode);
-        } // end of markCompleted(Instant)
 
         //
         // end of Set Methods.
@@ -766,12 +2054,23 @@ connect results in a {@code IllegalStateException} with
 
         /**
          * Dispatches event row to retrieval agent.
-         * @param row dispatch this row to agent.
+         * @param row postRow this row to agent.
          */
-        /* package */ void dispatch(final EfsRow<E> row)
+        /* package */ void postRow(final EfsRow<E> row)
         {
-            EfsDispatcher.dispatch(mEventCB, row, mAgent);
-        } // end of dispatch(EfsRow)
+            try
+            {
+                EfsDispatcher.dispatch(mEventCB, row, mAgent);
+            }
+            catch (Exception jex)
+            {
+                        sLogger.warn(
+                            "{}: attempt to post row {} to agent {} failed; event queue full.",
+                            (mEventFile.mEventFile).topicKey(),
+                            row,
+                            mAgent.name());
+            }
+        } // end of postRow(EfsRow)
 
         /**
          * Returns {@code true} if this retrieval was closed and
@@ -783,8 +2082,8 @@ connect results in a {@code IllegalStateException} with
          * subsequently closed.
          */
         @SuppressWarnings ("unchecked")
-        /* package */ boolean close(final Instant timestamp,
-                                    final CompletionType completionType)
+        /* package */ boolean doClose(final Instant timestamp,
+                                      final CompletionType completionType)
         {
             final boolean retcode =
                 mCompletionFlag.compareAndSet(false, true);
@@ -792,9 +2091,9 @@ connect results in a {@code IllegalStateException} with
             // Is this retrieval request completed?
             if (retcode)
             {
-                sLogger.info("Retrieval {}: completed, {}",
-                             mId,
-                             completionType);
+                sLogger.debug("Retrieval {}: completed, {}",
+                              mId,
+                              completionType);
 
                 // No, mark this request as completed and have
                 // the event file cancel this request.
@@ -805,14 +2104,23 @@ connect results in a {@code IllegalStateException} with
 
                 // Let the agent know this retrieval is
                 // completed.
-                EfsDispatcher.dispatch(
-                    mCompletionCB,
-                    new RetrievalCompleteEvent(
-                        completionType, timestamp, this),
-                    mAgent);
+                try
+                {
+                    EfsDispatcher.dispatch(
+                        mCompletionCB,
+                        new RetrievalCompleteEvent(
+                            completionType, timestamp, this),
+                        mAgent);
+                }
+                catch (Exception jex)
+                {
+                    sLogger.warn(
+                        "Failed to dispatch retrieval completion to agent {}",
+                        mAgent.name());
+                }
             }
 
             return (retcode);
-        } // end of close(Instant, CompletionType)
+        } // end of doClose(Instant, CompletionType)
     } // end of class Retrieval
 } // end of class EfsFileConnection

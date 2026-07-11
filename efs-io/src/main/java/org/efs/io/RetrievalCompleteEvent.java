@@ -16,6 +16,7 @@
 
 package org.efs.io;
 
+import jakarta.annotation.Nullable;
 import java.time.Instant;
 import org.efs.event.IEfsEvent;
 import org.efs.io.EfsFileConnection.Retrieval;
@@ -38,7 +39,8 @@ public final class RetrievalCompleteEvent<E extends IEfsEvent>
 
     /**
      * A retrieval request ends either due to it reaching its
-     * ending point or user cancellation.
+     * ending point, user cancellation, {@link EfsFileConnection}
+     * closing, or {@link EfsFile} closing.
      */
     public enum CompletionType
     {
@@ -100,11 +102,12 @@ public final class RetrievalCompleteEvent<E extends IEfsEvent>
      * request and reason why it ended.
      * @param type how retrieval ended.
      * @param endTime when retrieval ended.
-     * @param retrieval retrieval request.
+     * @param retrieval retrieval request. Is {@code null} for
+     * tag retrieval events.
      */
     /* package */ RetrievalCompleteEvent(final CompletionType type,
                                          final Instant endTime,
-                                         final Retrieval<E> retrieval)
+                                         @Nullable final Retrieval<E> retrieval)
     {
         mCompletionType = type;
         mCompletionTime = endTime;
@@ -138,9 +141,11 @@ public final class RetrievalCompleteEvent<E extends IEfsEvent>
     } // end of completionTime()
 
     /**
-     * Returns now completed retrieval request.
+     * Returns now completed retrieval request; returns
+     * {@code null} if this is a tag retrieval request.
      * @return completed retrieval request.
      */
+    @Nullable
     public Retrieval<E> retrieval()
     {
         return (mRetrieval);
