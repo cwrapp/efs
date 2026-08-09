@@ -107,7 +107,7 @@ public final class PingAgent
      * when pinger is started due to it containing a reference
      * back to this pinger instance.
      */
-    private EfsDispatchTarget<PerformanceEvent> mReply;
+    private EfsDispatchTarget<EfsEnvelope<PerformanceEvent>> mReply;
 
     /**
      * When this timer expires, publish on pinger topic.
@@ -287,11 +287,13 @@ public final class PingAgent
         }
     } // end of onPublishStatus(EfsPublishStatus)
 
-    private void onEvent(final PerformanceEvent event)
+    private void onEvent(final EfsEnvelope<PerformanceEvent> event)
     {
         final long timestamp = System.nanoTime();
+        final PerformanceEvent pEvent = event.event();
         final int deltaCount =
-            mLatencyTracker.addDelta(timestamp - event.nanotime);
+            mLatencyTracker.addDelta(
+                timestamp - pEvent.nanotime);
 
         if (deltaCount < mTotalEventCount)
         {

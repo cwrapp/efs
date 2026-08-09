@@ -16,6 +16,9 @@
 
 package org.efs.bus;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import org.efs.dispatcher.EfsDispatchTarget;
 import org.efs.event.EfsTopicKey;
 import org.efs.logging.AsyncLoggerFactory;
@@ -42,6 +45,13 @@ public final class ReplyAgent
     private static final Logger sLogger =
         AsyncLoggerFactory.getLogger(ReplyAgent.class);
 
+    //-----------------------------------------------------------
+    // Locals.
+    //
+
+    private Clock mWallClock;
+    private long mLogicalClock;
+
 //---------------------------------------------------------------
 // Member methods.
 //
@@ -54,13 +64,16 @@ public final class ReplyAgent
                       final EfsEventBus bus,
                       final int totalEventCount,
                       final EfsTopicKey<PerformanceEvent> pingKey,
-                      final EfsTopicKey<PerformanceEvent> pongKey)
+                      final EfsTopicKey<PerformanceEvent> pongKey,
+                      final Clock wallClock)
     {
         super (agentName,
                bus,
                totalEventCount,
                pingKey,
                pongKey);
+
+        mLogicalClock = 0L;
     } // end of ReplyAgent()
 
     //
@@ -72,14 +85,15 @@ public final class ReplyAgent
     //
 
     @Override
-    protected void onEvent(final PerformanceEvent event)
+    protected void onEvent(final EfsEnvelope<PerformanceEvent> event)
     {
         final long timestamp = System.nanoTime();
-        final int eventIndex = event.index;
-        final EfsDispatchTarget<PerformanceEvent> reply =
-            event.reply;
-        final int deltaCount =
-            mLatencyTracker.addDelta(timestamp - event.nanotime);
+        final PerformanceEvent pEvent = event.event();
+        final int eventIndex = pEvent.index;
+        final EfsDispatchTarget<EfsEnvelope<PerformanceEvent>> reply =
+            pEvent.reply;
+        final long delta = (timestamp - pEvent.nanotime);
+        final int deltaCount = mLatencyTracker.addDelta(delta);
 
         sLogger.debug("{}: received performance event {}, max {}.",
                       mAgentName,
@@ -90,13 +104,26 @@ public final class ReplyAgent
         // Is pong topic up?
         if (deltaCount < mTotalEventCount && mPongFlag)
         {
+            final PerformanceEvent pong =
+                new PerformanceEvent(
+                    eventIndex, System.nanoTime(), null);
+            final Instant pubTime =
+                (mWallClock.instant()).plusNanos(delta);
+
             sLogger.debug("{}: echoing performance event {}.",
                           mAgentName,
                           eventIndex);
 
             reply.dispatch(
-                new PerformanceEvent(
-                    eventIndex, System.nanoTime(), null));
+                new EfsEnvelope<>(mBus.busName(),
+                                  pubTime,
+                                  this,
+                                  mLogicalClock++,
+                                  pong));
+
+            mWallClock =
+                Clock.offset(
+                    mWallClock, Duration.ofNanos(delta));
         }
     } // end of onEvent(PerformanceEvent)
 

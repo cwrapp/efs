@@ -1,4 +1,4 @@
-A high-performance event processing framework for Java 21 that guarantees virtual single-threaded access to agents, eliminating synchronization overhead while delivering low-latency, reliable event persistence and delivery.
+A high-performance event-processing framework for Java 21 that guarantees virtual single-threaded access to agents, reducing synchronization overhead while supporting low-latency, reliable event persistence and delivery.
 
 ## Table of Contents
 
@@ -12,61 +12,58 @@ A high-performance event processing framework for Java 21 that guarantees virtua
 
 ## Overview
 
-efs - Event File System is _envisioned_ as a reliable, robust,
-and low-latency event persistence and delivery API from
-publishing agent to subscribing agent.
+efs - Event File System is an _evolving_ framework for reliable,
+low-latency event persistence and delivery between publishing
+and subscribing agents.
 
-"Envision" means that efs is not yet implemented to this point -
-but enough is implemented to warrant an initial release. This
-first release is the dispatcher framework used to delivery events
-to agents in a virtual single-threaded manner. Virtual
-single-threading means that while an agent may run on different
-threads over its lifespan it is guaranteed to be accessed by only
-one thread at any given moment. This means there is no need for
-synchronization/locks which can lead to a thread losing core
-while waiting to acquire a lock.
+The name "evolving" reflects the fact that the project is still
+maturing: enough functionality is already in place to justify an
+initial release, but the design and implementation continue to grow.
+This first release centers on the dispatcher framework, which delivers
+events to agents in a virtual single-threaded manner. Virtual
+single-threading means that although an agent may run on different
+threads over its lifetime, it is guaranteed to be accessed by only
+one thread at any given moment. That removes the need for most
+synchronization primitives and avoids the contention and context-switching
+penalties that often come with locking.
 
-The second component is the activator which uses dispatcher to
-start and activate agents (`IEfsActivateAgent` is an interface
-extension to `IEfsAgent`);
-Activator solves the problem where an agent is activated on one
-thread where it connects into a reactive framework but receives
-events on dispatcher threads
-_while still activating on the original thread_.
-The virtual single-threading guarantee provided by dispatcher is
-lost in this scenario. Activator has agent activation performed
-by the agent's dispatcher. Any events posted to the agent while
-activating are delivered _after_ activation is completed.
+A second key component is the activator, which uses the dispatcher to
+start and activate agents (`IEfsActivateAgent` extends `IEfsAgent`).
+Activator addresses a common problem: an agent may begin activation on one
+thread while also receiving events on dispatcher threads before that
+activation sequence has fully completed. By moving activation through the
+agent's dispatcher, efs preserves the virtual single-threading guarantee.
+Any events posted while activation is still in progress are delivered only
+after activation has completed.
 
 ## Features
 
 - **Virtual Single-Threaded Execution**: Agents are accessed by
-  only one thread at any given moment, eliminating
-  synchronization overhead
+  only one thread at any given moment, reducing synchronization overhead.
 - **Low-Latency Event Delivery**: Optimized for high-performance
-  event processing
-- **Event Persistence**: Support for historic, live, and combined
-  event streams
-- **Java 21 Native**: Built for modern Java with support for the
-  latest language features
-- **Async Logging**: Integrated async logging via `EfsDispatcher`
-  for non-blocking log operations
+  event processing.
+- **Event Persistence**: Supports historic, live, and combined
+  event streams.
+- **Java 21 Native**: Built for modern Java and its latest
+  language features.
+- **Async Logging**: Integrated asynchronous logging via `EfsDispatcher`
+  for non-blocking log operations.
 - **Flexible Configuration**: JSON-based configuration using
-  Typesafe Config
+  Typesafe Config.
 - **Activation Management**: Thread-safe agent lifecycle
-  management (stopped, standby, active states)
+  management across stopped, standby, and active states.
 
 ## Quick Start
 
 ### Installation
 
-efs is built for Java 21. Binary releases are available from
+efs requires Java 21. Binary releases are available from
 [Maven Central Repository](https://mvnrepository.com/repos/central).
 
 **Maven:**
 
 The project uses a BOM (Bill of Materials) for dependency
-management, making it easy to include all necessary components:
+management, making it easy to pull in the required components:
 
 ```xml
 <dependency>
@@ -80,7 +77,9 @@ management, making it easy to include all necessary components:
 
 ### Basic Example
 
-For a comprehensive example, explore the javadoc packages in the order listed in the [Learning efs](#learning-efs) section, starting with `org.efs.dispatcher`.
+For a more complete introduction, explore the Javadoc packages in the order
+listed in the [Learning efs](#learning-efs) section, beginning with
+`org.efs.dispatcher`.
 
 ### Release Notes
 
@@ -96,7 +95,8 @@ Complete API documentation is available at: https://cwrapp.github.io/efs
 efs package javadocs explain how to use the package together with example code. You are encouraged to explore the javadoc packages in the following order:
 
 ### 1. `org.efs.dispatcher`
-Explains the dispatcher architecture and how to use it. Compares efs dispatcher with LMAX Disruptor and SEDA (Staged Event Driven Architecture).
+Explains the dispatcher architecture and how to use it. It also compares
+the efs dispatcher with LMAX Disruptor and SEDA (Staged Event-Driven Architecture).
 
 **Key Topics:**
 - Virtual single-threading guarantee
@@ -112,9 +112,13 @@ Explains how to configure dispatchers using [Typesafe Config](https://github.com
 - Configuration best practices
 
 ### 3. `org.efs.timer`
-Contains the `EfsScheduledExecutor`, which _somewhat_ follows the `java.util.concurrent.ScheduledExecutorService` interface but does not implement it. Instead of using `ScheduledFuture`, it uses `EfsDispatcher` for timer delivery, ensuring consistent event processing semantics.
+Contains `EfsScheduledExecutor`, which _roughly_ follows the
+`java.util.concurrent.ScheduledExecutorService` interface but does not implement it.
+Instead of using `ScheduledFuture`, it uses `EfsDispatcher` for timer delivery,
+providing consistent event-processing semantics.
 
-An efs scheduled executor may be created either programmatically or by Typesafe configuration file.
+An efs scheduled executor may be created either programmatically or through a
+Typesafe configuration file.
 
 **Key Topics:**
 - Timer scheduling
@@ -138,7 +142,10 @@ Explains how to define one or more activation workflows using a Typesafe configu
 - State machine definitions
 
 ### 6. `org.efs.logging`
-Implements `org.slf4j.Logger` and `org.slf4j.LoggerFactory` with `org.efs.logging.AsyncLogger` and `org.efs.logging.AsyncLoggerFactory`. This logging uses efs dispatcher to perform the actual logging on a dispatcher thread rather than inline with application code.
+Implements `org.slf4j.Logger` and `org.slf4j.LoggerFactory` with
+`org.efs.logging.AsyncLogger` and `org.efs.logging.AsyncLoggerFactory`.
+This logging uses the efs dispatcher to perform the actual logging work on a
+dispatcher thread rather than inline with application code.
 
 **Key Topics:**
 - Async logging performance
@@ -146,10 +153,17 @@ Implements `org.slf4j.Logger` and `org.slf4j.LoggerFactory` with `org.efs.loggin
 - Non-blocking log operations
 
 ### 7. `org.efs.io`
-Provides `org.efs.io.EfsFile` which provides access to past and
-future events using [CQEngine](https://github.com/npgall/cqengine?tab=readme-ov-file) for event querying over a specified `EfsInterval`. `EfsFile` associates a publish timestamp and a monotonic, continuous index to each event posted to the event file.
-Agents access an `EfsFile` using `org.efs.io.EfsFileConnection` using an `EfsFile.AccessMode`. Automatically defines `com.googlecode.cqengine.attribute.Attribute` based on
-event field `org.efs.io.CQAttribute` annotation. Only those fields annotated with `@CQAttribute` have an CQEngine attribute generated for it.
+Provides `org.efs.io.EfsFile`, which supports access to past and future events
+using [CQEngine](https://github.com/npgall/cqengine?tab=readme-ov-file) for
+querying over a specified `EfsInterval`. `EfsFile` associates a publish
+timestamp and a monotonic, continuous index with each event posted to the event
+file.
+
+Agents access an `EfsFile` through `org.efs.io.EfsFileConnection` using an
+`EfsFile.AccessMode`. The framework automatically defines
+`com.googlecode.cqengine.attribute.Attribute` instances based on the
+`org.efs.io.CQAttribute` annotation. Only fields annotated with `@CQAttribute`
+have a CQEngine attribute generated for them.
 
 **Key Topics:**
 - Stores events for a given event class and topic.
@@ -159,7 +173,7 @@ event field `org.efs.io.CQAttribute` annotation. Only those fields annotated wit
 
 ### efs Background
 
-efs is a direct descendant of the 25-year-old [eBus](https://sourceforge.net/projects/ebus/) project. The goal is to extract the best of that work, forming a better API using Java 21 features. This work is _not_ a re-implementation of eBus but a step beyond.
+efs is a direct descendant of the 25-year-old [eBus](https://sourceforge.net/projects/ebus/) project. The goal is to preserve the best aspects of that work while forming a cleaner API that takes advantage of Java 21 features. This work is _not_ a re-implementation of eBus, but a step beyond it.
 
 efs is based on the observation that applications require:
 
@@ -169,7 +183,7 @@ efs is based on the observation that applications require:
 
 eBus started with live event distribution only. A later attempt to add historic events to eBus, designed to fit into the eBus framework, was less than satisfactory. Hence, the need for a new framework supporting both historic and live event distribution from the start.
 
-Designing a new efs event persistence and distribution API is ongoing. Release 0.6.2 provides the event delivery and processing API known as Dispatcher. It is similar to Disruptor and SEDA (Staged Event-Driven Architecture) but simpler and more focused. Dispatcher is designed to be a stand-alone API and useful in its own right.
+Designing a new efs event-persistence and distribution API is still ongoing. Release 0.6.2 introduced the event-delivery and processing API known as Dispatcher. It is similar to Disruptor and SEDA (Staged Event-Driven Architecture), but simpler and more focused. Dispatcher is designed to be a stand-alone API and useful on its own.
 
 ## Glossary
 

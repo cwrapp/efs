@@ -32,9 +32,11 @@ Without this configuration present, some functionality in the IDE may be limited
         <word>expirations</word>
         <word>heterogenous</word>
         <word>homogenous</word>
+        <word>initializer</word>
         <word>iterable</word>
         <word>javadoc</word>
         <word>lifecycle</word>
+        <word>linearization</word>
         <word>nullable</word>
         <word>programmatically</word>
         <word>typesafe</word>

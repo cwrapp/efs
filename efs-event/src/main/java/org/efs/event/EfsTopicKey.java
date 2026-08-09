@@ -22,7 +22,6 @@ import java.util.Map;
 import java.util.Objects;
 import javax.annotation.concurrent.Immutable;
 import net.sf.eBus.util.MultiKey2;
-import org.efs.event.IEfsEvent;
 
 /**
  * Immutable key containing efs event class and topic uniquely
@@ -177,7 +176,7 @@ public final class EfsTopicKey<E extends IEfsEvent>
      * Returns feed key's efs event class.
      * @return efs event class.
      */
-    public Class<? extends IEfsEvent> eventClass()
+    public Class<E> eventClass()
     {
         return (mEventClass);
     } // end of eventClass()

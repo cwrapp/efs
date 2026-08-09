@@ -38,9 +38,11 @@ import org.decimal4j.api.Decimal;
 import org.decimal4j.immutable.Decimal2f;
 import org.decimal4j.scale.Scale2f;
 import org.efs.dispatcher.EfsDispatcher;
+import org.efs.dispatcher.EfsDispatcher.DispatcherType;
 import org.efs.dispatcher.IEfsAgent;
 import org.efs.dispatcher.config.ThreadType;
 import org.efs.event.EfsTopicKey;
+import org.efs.event.IEfsEvent;
 import org.efs.io.EfsFile.AccessMode;
 import org.efs.io.EfsFileConnection.Retrieval;
 import org.efs.io.EfsIntervalEndpoint.Clusivity;
@@ -49,11 +51,11 @@ import static org.efs.io.RetrievalCompleteEvent.CompletionType.RETRIEVAL_COMPLET
 import org.efs.io.TradeEvent.PriceTrend;
 import org.efs.logging.AsyncLoggerFactory;
 import org.efs.util.DelayedExecution;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 
@@ -92,15 +94,22 @@ public final class EfsFileTest
     /* package */ static final String SYMBOL = "ACME-";
 
     /**
+     * {@link EfsFile} policy is
+     * {@link EfsFile#DEFAULT_CONNECTION_POLICY}.
+     */
+    /* package */ static final IConnectionPolicy POLICY =
+        EfsFile.DEFAULT_CONNECTION_POLICY;
+
+    /**
      * {@link EfsFile} dispatcher is named {@value}.
      */
-    private static final String FILE_DISPATCHER =
+    /* package */ static final String FILE_DISPATCHER =
         "file-dispatcher";
 
     /**
      * Agents use dispatcher named {@value}.
      */
-    private static final String AGENT_DISPATCHER =
+    /* package */ static final String AGENT_DISPATCHER =
         "agent-dispatcher";
 
     /**
@@ -133,9 +142,24 @@ public final class EfsFileTest
         "test-unregistered";
 
     /**
+     * Exhaust agent name.
+     */
+    private static final String TEST_EXHAUST = "test-exhaust";
+
+    /**
      * Event queue sizes are {@value}.
      */
-    private static final int EVENT_QUEUE_SIZE = 1_024;
+    /* package */ static final int EVENT_QUEUE_SIZE = 1_024;
+
+    /**
+     * Maximum number of simultaneous connections allowed.
+     */
+    private static final int MAX_CONNECTIONS = 128;
+
+    /**
+     * Maximum number of simultaneeous retrievals allowed.
+     */
+    private static final int MAX_RETRIEVALS = 512;
 
     //-----------------------------------------------------------
     // Statics.
@@ -145,12 +169,6 @@ public final class EfsFileTest
      * Clock used for testing purposes.
      */
     private static Clock sTestClock;
-
-    /**
-     * Original system clock. Put back in place at end of
-     * testing.
-     */
-    private static Clock sSystemClock;
 
     /**
      * Interval used for retrieval failure tests.
@@ -226,44 +244,49 @@ public final class EfsFileTest
     public static void setUpClass()
         throws IOException
     {
-        EfsDispatcher.Builder builder =
-            EfsDispatcher.builder(FILE_DISPATCHER);
+        EfsDispatcher.Builder builder;
 
-        // Create efs file dispatcher.
-        builder.threadType(ThreadType.SPINPARK)
-               .numThreads(1)
-               .priority(10)
-               .spinLimit(2_500_000L)
-               .parkTime(Duration.ofNanos(500L))
-               .dispatcherType(EfsDispatcher.DispatcherType.EFS)
-               .eventQueueCapacity(EVENT_QUEUE_SIZE)
-               .runQueueCapacity(4)
-               .maxEvents(EVENT_QUEUE_SIZE)
-               .build();
+        if (!EfsDispatcher.isDispatcher(FILE_DISPATCHER))
+        {
+            builder = EfsDispatcher.builder(FILE_DISPATCHER);
+
+            // Create efs file dispatcher.
+            builder.threadType(ThreadType.SPINPARK)
+                   .numThreads(1)
+                   .priority(10)
+                   .spinLimit(2_500_000L)
+                   .parkTime(Duration.ofNanos(500L))
+                   .dispatcherType(DispatcherType.EFS)
+                   .eventQueueCapacity(EVENT_QUEUE_SIZE)
+                   .runQueueCapacity(4)
+                   .maxEvents(EVENT_QUEUE_SIZE)
+                   .build();
+        }
 
         // Create agent dispatcher.
-        builder = EfsDispatcher.builder(AGENT_DISPATCHER);
-        builder.threadType(ThreadType.SPINPARK)
-               .numThreads(2)
-               .priority(10)
-               .spinLimit(2_500_000L)
-               .parkTime(Duration.ofNanos(500L))
-               .dispatcherType(EfsDispatcher.DispatcherType.EFS)
-               .eventQueueCapacity(EVENT_QUEUE_SIZE)
-               .runQueueCapacity(4)
-               .maxEvents(EVENT_QUEUE_SIZE)
-               .build();
+        if (!EfsDispatcher.isDispatcher(AGENT_DISPATCHER))
+        {
+            builder = EfsDispatcher.builder(AGENT_DISPATCHER);
+            builder.threadType(ThreadType.SPINPARK)
+                   .numThreads(2)
+                   .priority(10)
+                   .spinLimit(2_500_000L)
+                   .parkTime(Duration.ofNanos(500L))
+                   .dispatcherType(DispatcherType.EFS)
+                   .eventQueueCapacity(EVENT_QUEUE_SIZE)
+                   .runQueueCapacity(4)
+                   .maxEvents(EVENT_QUEUE_SIZE)
+                   .build();
+        }
 
         sTestClock = Clock.fixed(Instant.parse(TEST_TIME), GMT);
-        sSystemClock = EfsFile.getSystemClock();
-
 
         final EfsIntervalEndpoint beginEndpoint =
-            (EfsIndexEndpoint.builder())
+            (EfsIndexOffsetEndpoint.builder())
                 .indexOffset(0L, Clusivity.INCLUSIVE)
                 .build();
         final EfsIntervalEndpoint endEndpoint =
-            (EfsIndexEndpoint.builder())
+            (EfsIndexOffsetEndpoint.builder())
                 .indexOffset(1_000L, Clusivity.EXCLUSIVE)
                 .build();
 
@@ -277,24 +300,42 @@ public final class EfsFileTest
         sSymbolIndex = new AtomicInteger();
     } // end of setUpClass()
 
-    @AfterAll
-    public static void tearDownClass()
-    {
-        EfsFile.setSystemClock(sSystemClock);
-    } // end of tearDownClass()
-
     @BeforeEach
     public void setUp()
-        throws IOException
+        throws EfsFileInitializationException
     {
         final String topic;
+        final IConnectionPolicy policy =
+            (agent, accessMode) ->
+            {
+                final String agentName = agent.name();
+                final boolean retcode;
+
+                retcode =
+                    switch (agentName)
+                    {
+                        case PUBLISHER_NAME ->
+                            accessMode == AccessMode.WRITE_ONLY;
+                        case RETRIEVER_NAME ->
+                            accessMode == AccessMode.READ_ONLY;
+                        case AGENT_NAME -> true;
+                        case TAG_AGENT_NAME -> true;
+                        default -> false;
+                    };
+
+                return (retcode);
+            };
 
         mSymbol = SYMBOL + sSymbolIndex.getAndIncrement();
         topic = EXCHANGE + mSymbol;
 
         mTradeKey = EfsTopicKey.getKey(TradeEvent.class, topic);
         mTradeFile =
-            EfsFile.createEventFile(mTradeKey, FILE_DISPATCHER);
+            createEventFile(mTradeKey,
+                            policy,
+                            FILE_DISPATCHER,
+                            MAX_CONNECTIONS,
+                            MAX_RETRIEVALS);
         mPublisher =
             new TestPublisher(
                 PUBLISHER_NAME, mTradeFile, sTestClock);
@@ -312,7 +353,7 @@ public final class EfsFileTest
         mTestAgent.open();
 
         mPublisher.reset(sTestClock);
-        EfsFile.setSystemClock(sTestClock);
+        mTradeFile.setSystemClock(sTestClock);
     } // end of setUp()
 
     @AfterEach
@@ -339,1279 +380,1605 @@ public final class EfsFileTest
 
     // Failure Tests.
 
-    @Test
-    @DisplayName("Create event file with null key")
-    public void nullTopicKeyTest()
+    @Nested
+    @DisplayName("EfsFile failure tests")
+    public final class EfsFailureTests
     {
-        final EfsTopicKey<TradeEvent> key = null;
+        @Test
+        @DisplayName("Create event file with null key")
+        public void nullTopicKeyTest()
+            throws EfsFileInitializationException
+        {
+            final EfsTopicKey<TradeEvent> key = null;
 
-        assertThatThrownBy(
-            () -> EfsFile.createEventFile(key, FILE_DISPATCHER))
-            .isInstanceOf(NullPointerException.class)
-            .hasMessage(EfsFile.NULL_TOPIC_KEY);
-    } // end of nullTopicKeyTest()
+            assertThatThrownBy(
+                () -> EfsFile.builder(key))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage(EfsFile.NULL_TOPIC_KEY);
+        } // end of nullTopicKeyTest()
 
-    @Test
-    @DisplayName("Create event file with null dispatcher")
-    public void nullDispatcherTest()
-    {
-        final String dispatcher = null;
+        @Test
+        @DisplayName("Create event file with null connection policy")
+        public void nullConnectionPolicyTest()
+        {
+            final String dispatcher = FILE_DISPATCHER;
+            final IConnectionPolicy policy = null;
+            final int maxConnection = MAX_CONNECTIONS;
+            final int maxRetrievals = MAX_RETRIEVALS;
 
-        assertThatThrownBy(
-            () -> EfsFile.createEventFile(
-                mTradeKey, dispatcher))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessage(EfsFile.INVALID_DISPATCHER);
-    } // end of nullDispatcherTest()
+            assertThatThrownBy(
+                () -> createEventFile(mTradeKey,
+                                      policy,
+                                      dispatcher,
+                                      maxConnection,
+                                      maxRetrievals))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage(EfsFile.NULL_POLICY);
+        } // end of nullConnectionPolicyTest()
 
-    @Test
-    @DisplayName("Create event file with empty dispatcher")
-    public void emptyDispatcherTest()
-    {
-        final String dispatcher = "";
+        @Test
+        @DisplayName("Create event file with null dispatcher")
+        public void nullDispatcherTest()
+        {
+            final IConnectionPolicy policy = POLICY;
+            final String dispatcher = null;
+            final int maxConnection = MAX_CONNECTIONS;
+            final int maxRetrievals = MAX_RETRIEVALS;
 
-        assertThatThrownBy(
-            () -> EfsFile.createEventFile(
-                mTradeKey, dispatcher))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessage(EfsFile.INVALID_DISPATCHER);
-    } // end of emptyDispatcherTest()
+            assertThatThrownBy(
+                () -> createEventFile(mTradeKey,
+                                      policy,
+                                      dispatcher,
+                                      maxConnection,
+                                      maxRetrievals))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(EfsFile.INVALID_DISPATCHER);
+        } // end of nullDispatcherTest()
 
-    @Test
-    @DisplayName("Create event file with blank dispatcher")
-    public void blankDispatcherTest()
-    {
-        final String dispatcher = "\t";
+        @Test
+        @DisplayName("Create event file with empty dispatcher")
+        public void emptyDispatcherTest()
+        {
+            final IConnectionPolicy policy = POLICY;
+            final String dispatcher = "";
+            final int maxConnections = MAX_CONNECTIONS;
+            final int maxRetrievals = MAX_RETRIEVALS;
 
-        assertThatThrownBy(
-            () -> EfsFile.createEventFile(
-                mTradeKey, dispatcher))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessage(EfsFile.INVALID_DISPATCHER);
-    } // end of blankDispatcherTest()
+            assertThatThrownBy(
+                () -> createEventFile(mTradeKey,
+                                      policy,
+                                      dispatcher,
+                                      maxConnections,
+                                      maxRetrievals))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(EfsFile.INVALID_DISPATCHER);
+        } // end of emptyDispatcherTest()
 
-    @Test
-    @DisplayName("Create event file with unknown dispatcher")
-    public void unknownDispatcherTest()
-    {
-        final String dispatcher = "snafu";
-        final String message =
-            String.format(
-                EfsFile.UNKNOWN_DISPATCHER, dispatcher);
+        @Test
+        @DisplayName("Create event file with blank dispatcher")
+        public void blankDispatcherTest()
+        {
+            final IConnectionPolicy policy = POLICY;
+            final String dispatcher = "\t";
+            final int maxConnections = MAX_CONNECTIONS;
+            final int maxRetrievals = MAX_RETRIEVALS;
 
-        assertThatThrownBy(
-            () -> EfsFile.createEventFile(
-                mTradeKey, dispatcher))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessage(message);
-    } // end of unknownDispatcherTest()
+            assertThatThrownBy(
+                () -> createEventFile(mTradeKey,
+                                      policy,
+                                      dispatcher,
+                                      maxConnections,
+                                      maxRetrievals))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(EfsFile.INVALID_DISPATCHER);
+        } // end of blankDispatcherTest()
 
-    @Test
-    @DisplayName("Duplicate event file creation")
-    public void duplicateEventFileCreationTest()
-    {
-        final String message =
-            String.format(EfsFile.FILE_PREVIOUSLY_CREATED,
-                          mTradeKey);
+        @Test
+        @DisplayName("Create event file with unknown dispatcher")
+        public void unknownDispatcherTest()
+        {
+            final IConnectionPolicy policy = POLICY;
+            final String dispatcher = "snafu";
+            final int maxConnections = MAX_CONNECTIONS;
+            final int maxRetrievals = MAX_RETRIEVALS;
+            final String message =
+                String.format(
+                    EfsFile.UNKNOWN_DISPATCHER, dispatcher);
 
-        assertThatThrownBy(
-            () -> EfsFile.createEventFile(
-                mTradeKey, FILE_DISPATCHER))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessage(message);
-    } // end of duplicateEventFileCreationTest()
+            assertThatThrownBy(
+                () -> createEventFile(mTradeKey,
+                                      policy,
+                                      dispatcher,
+                                      maxConnections,
+                                      maxRetrievals))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(message);
+        } // end of unknownDispatcherTest()
 
-    @Test
-    @DisplayName ("get file with null topic key")
-    public void getNullTopicKey()
-    {
-        final EfsTopicKey<TradeEvent> key = null;
+        @Test
+        @DisplayName("Create event file with zero conneciton limit")
+        public void zeroConnectionLimitTest()
+        {
+            final IConnectionPolicy policy = POLICY;
+            final String dispatcher = FILE_DISPATCHER;
+            final int maxConnections = 0;
+            final int maxRetrievals = 1_024;
 
-        assertThatThrownBy(() -> EfsFile.getEventFile(key))
-            .isInstanceOf(NullPointerException.class)
-            .hasMessage(EfsFile.NULL_TOPIC_KEY);
-    } // end of getNullTopicKey()
+            assertThatThrownBy(
+                () -> createEventFile(mTradeKey,
+                                      policy,
+                                      dispatcher,
+                                      maxConnections,
+                                      maxRetrievals))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(EfsFile.INVALID_LIMIT);
+        } // end of zeroConnectionLimitTest()
 
-    @Test
-    @DisplayName ("get file with unknown key")
-    public void getUnknownTopicKey()
-    {
-        final String topic = "/foo/bar";
-        final EfsTopicKey<TradeEvent> key =
-            EfsTopicKey.getKey(TradeEvent.class, topic);
-        final String text =
-            String.format(EfsFile.NO_SUCH_FILE, key);
+        @Test
+        @DisplayName("Create event file with zero retrieval limit")
+        public void zeroRetrievalLimitTest()
+        {
+            final IConnectionPolicy policy = POLICY;
+            final String dispatcher = FILE_DISPATCHER;
+            final int maxConnections = 128;
+            final int maxRetrievals = 0;
 
-        assertThatThrownBy(() -> EfsFile.getEventFile(key))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessage(text);
-    } // end of getUnknownTopicKey()
+            assertThatThrownBy(
+                () -> createEventFile(mTradeKey,
+                                      policy,
+                                      dispatcher,
+                                      maxConnections,
+                                      maxRetrievals))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(EfsFile.INVALID_LIMIT);
+        } // end of zeroRetrievalLimitTest()
 
-    @Test
-    public void connectNullMode()
-    {
-        final AccessMode mode = null;
-        final IEfsAgent agent = mPublisher;
+        @Test
+        @DisplayName("Duplicate event file creation")
+        public void duplicateEventFileCreationTest()
+        {
+            final String message =
+                String.format(EfsFile.FILE_PREVIOUSLY_CREATED,
+                              mTradeKey);
 
-        assertThatThrownBy(() -> mTradeFile.connect(mode, agent))
-            .isInstanceOf(NullPointerException.class)
-            .hasMessage(EfsFile.NULL_ACCESS_MODE);
-    } // end of connectNullMode()
+            assertThatThrownBy(
+                () -> createEventFile(mTradeKey,
+                                      POLICY,
+                                      FILE_DISPATCHER,
+                                      MAX_CONNECTIONS,
+                                      MAX_RETRIEVALS))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(message);
+        } // end of duplicateEventFileCreationTest()
 
-    @Test
-    public void connectNullAgent()
-    {
-        final AccessMode mode = AccessMode.READ_WRITE;
-        final IEfsAgent agent = null;
+        @Test
+        @DisplayName ("get file with null topic key")
+        public void getNullTopicKey()
+        {
+            final EfsTopicKey<TradeEvent> key = null;
 
-        assertThatThrownBy(() -> mTradeFile.connect(mode, agent))
-            .isInstanceOf(NullPointerException.class)
-            .hasMessage(EfsFile.NULL_AGENT);
-    } // end of connectNullAgent()
+            assertThatThrownBy(() -> EfsFile.getEventFile(key))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage(EfsFile.NULL_TOPIC_KEY);
+        } // end of getNullTopicKey()
 
-    @Test
-    public void connectUnregisteredAgent()
-    {
-        final AccessMode mode = AccessMode.READ_WRITE;
-        final IEfsAgent agent =
-            new AbstractTestAgent(
-                UNREGISERED_NAME, mode, mTradeFile)
-            {};
-        final String message =
-            String.format(EfsFile.UNREGISTERED_AGENT,
-                          UNREGISERED_NAME);
+        @Test
+        @DisplayName ("get file with unknown key")
+        public void getUnknownTopicKey()
+        {
+            final String topic = "/foo/bar";
+            final EfsTopicKey<TradeEvent> key =
+                EfsTopicKey.getKey(TradeEvent.class, topic);
+            final String text =
+                String.format(EfsFile.NO_SUCH_FILE, key);
 
-        assertThatThrownBy(() -> mTradeFile.connect(mode, agent))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessage(message);
-    } // end of connectUnregisteredAgent()
+            assertThatThrownBy(() -> EfsFile.getEventFile(key))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(text);
+        } // end of getUnknownTopicKey()
 
-    @Test
-    @DisplayName ("connect to closed filed")
-    public void connectClosedFile()
-        throws IOException
-    {
-        final AbstractTestAgent agent = mPublisher;
-        final AccessMode mode = AccessMode.READ_WRITE;
-        final String symbol = "EQTC";
-        final String topic = EXCHANGE + symbol;
-        final EfsTopicKey<TradeEvent> key =
-            EfsTopicKey.getKey(TradeEvent.class, topic);
-        final EfsFile<TradeEvent> file =
-            EfsFile.createEventFile(key, FILE_DISPATCHER);
-        final String text =
-            String.format(EfsFile.CLOSED_FILE, key.toString());
+        @Test
+        public void connectNullMode()
+        {
+            final AccessMode mode = null;
+            final IEfsAgent agent = mPublisher;
 
-        file.close();
+            assertThatThrownBy(() -> mTradeFile.connect(mode, agent))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage(EfsFile.NULL_ACCESS_MODE);
+        } // end of connectNullMode()
 
-        assertThat(file.isOpen()).isFalse();
+        @Test
+        public void connectNullAgent()
+        {
+            final AccessMode mode = AccessMode.READ_WRITE;
+            final IEfsAgent agent = null;
 
-        assertThatThrownBy(() -> file.connect(mode, agent))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessage(text);
-    } // end of connectClosedFile()
+            assertThatThrownBy(() -> mTradeFile.connect(mode, agent))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage(EfsFile.NULL_AGENT);
+        } // end of connectNullAgent()
 
-    @Test
-    public void addNullEventTest()
-    {
-        final TradeEvent event = null;
+        @Test
+        public void connectUnregisteredAgent()
+        {
+            final AccessMode mode = AccessMode.READ_WRITE;
+            final IEfsAgent agent =
+                new AbstractTestAgent(
+                    UNREGISERED_NAME, mode, mTradeFile)
+                {};
+            final String message =
+                String.format(EfsFile.UNREGISTERED_AGENT,
+                              UNREGISERED_NAME);
 
-        assertThatThrownBy(
-            () -> mPublisher.add(event))
-            .isInstanceOf(NullPointerException.class)
-            .hasMessage(EfsFileConnection.NULL_EVENT);
-    } // end of addNullEventTest()
+            assertThatThrownBy(() -> mTradeFile.connect(mode, agent))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(message);
+        } // end of connectUnregisteredAgent()
 
-    @Test
-    public void addInvalidAccess()
-    {
-        final TradeEvent trade =
-            (TradeEvent.builder()).symbol(mSymbol)
-                                  .price(Decimal2f.valueOf(1.23d))
-                                  .size(1_000)
-                                  .priceTrend(PriceTrend.DOWN)
-                                  .volume(4_300_000)
-                                  .build();
-        final String message =
-            String.format(EfsFileConnection.READ_ONLY_ACCESS,
-                          mTradeFile.name());
+        @Test
+        @DisplayName("Agent, access mode connection not allowed")
+        public void connectPolicyFailure()
+            throws EfsFileInitializationException
+        {
+            final String dispatcher = FILE_DISPATCHER;
+            final IConnectionPolicy policy =
+                (agent, accessMode) -> false;
+            final int maxConnection = MAX_CONNECTIONS;
+            final int maxRetrievals = MAX_RETRIEVALS;
+            final String agentName = "snafu";
+            final AccessMode accessMode = AccessMode.READ_ONLY;
+            final TestAgent agent =
+                new TestAgent(agentName, accessMode, mTradeFile);
+            final String text =
+                String.format(
+                    EfsFile.ACCESS_DENIED,
+                    agent.name(),
+                    mTradeKey,
+                    accessMode);
 
-        assertThatThrownBy(
-            () -> mRetriever.add(trade))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessage(message);
-    } // end of addInvalidAccess()
+            EfsDispatcher.register(agent, AGENT_DISPATCHER);
 
-    @Test
-    public void addAccessClosed()
-    {
-        final AbstractTestAgent agent = mTestAgent;
-        final AccessMode mode = agent.accessMode();
-        final TradeEvent trade =
-            (TradeEvent.builder()).symbol(mSymbol)
-                                  .price(Decimal2f.valueOf(1.23d))
-                                  .size(1_000)
-                                  .priceTrend(PriceTrend.DOWN)
-                                  .volume(4_300_000)
-                                  .build();
-        final EfsFileConnection<TradeEvent> eventFile =
-            mTradeFile.connect(mode, agent);
-        final String message =
-            String.format(
-                EfsFileConnection.CLOSED_CONNECTION,
-                mTradeFile.name());
+            assertThatThrownBy(() -> agent.open())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(text);
 
-        eventFile.close();
+            EfsDispatcher.deregister(agent);
+        } // end of connectPolicyFailure()
 
-        assertThatThrownBy(() -> eventFile.add(trade))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessage(message);
-    } // end of addAccessClosed()
+        @Test
+        @DisplayName ("connect to closed filed")
+        public void connectClosedFile()
+            throws EfsFileInitializationException
+        {
+            final AbstractTestAgent agent = mPublisher;
+            final AccessMode mode = AccessMode.READ_WRITE;
+            final String symbol = "EQTC";
+            final String topic = EXCHANGE + symbol;
+            final EfsTopicKey<TradeEvent> key =
+                EfsTopicKey.getKey(TradeEvent.class, topic);
+            final EfsFile<TradeEvent> file =
+                createEventFile(key,
+                                POLICY,
+                                FILE_DISPATCHER,
+                                MAX_CONNECTIONS,
+                                MAX_RETRIEVALS);
+            final String text =
+                String.format(EfsFile.CLOSED_FILE, key.toString());
 
-    @Test
-    @SuppressWarnings ("unchecked")
-    public void retrieveNullIntervalTest()
-    {
-        final EfsInterval interval = null;
-        final Query query = all(TradeEvent.class);
-        final Consumer<EfsRow<TradeEvent>> eventCB =
-            mRetriever::onEvent;
-        final Consumer<RetrievalCompleteEvent<TradeEvent>> doneCB =
-            mRetriever::onDone;
+            file.close();
 
-        assertThatThrownBy(
-            () -> mRetriever.retrieve(interval,
-                                       query,
-                                       eventCB,
-                                       doneCB))
-            .isInstanceOf(NullPointerException.class)
-            .hasMessage(EfsFileConnection.NULL_INTERVAL);
-    } // end of retrieveNullIntervalTest()
+            assertThat(file.isOpen()).isFalse();
 
-    @Test
-    @SuppressWarnings ("unchecked")
-    public void retrieveNullQueryTest()
-    {
-        final EfsInterval interval = sInterval;
-        final Query query = null;
-        final Consumer<EfsRow<TradeEvent>> eventCB =
-            mRetriever::onEvent;
-        final Consumer<RetrievalCompleteEvent<TradeEvent>> doneCB =
-            mRetriever::onDone;
+            assertThatThrownBy(() -> file.connect(mode, agent))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(text);
+        } // end of connectClosedFile()
 
-        assertThatThrownBy(
-            () -> mRetriever.retrieve(interval,
-                                       query,
-                                       eventCB,
-                                       doneCB))
-            .isInstanceOf(NullPointerException.class)
-            .hasMessage(EfsFileConnection.NULL_QUERY);
-    } // end of retrieveNullQueryTest()
+        @Test
+        public void addNullEventTest()
+        {
+            final TradeEvent event = null;
 
-    @Test
-    @SuppressWarnings ("unchecked")
-    public void retrieveNullEventCBTest()
-    {
-        final EfsInterval interval = sInterval;
-        final Query query = all(TradeEvent.class);
-        final Consumer<EfsRow<TradeEvent>> eventCB = null;
-        final Consumer<RetrievalCompleteEvent<TradeEvent>> doneCB =
-            mRetriever::onDone;
+            assertThatThrownBy(
+                () -> mPublisher.add(event))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage(EfsFileConnection.NULL_EVENT);
+        } // end of addNullEventTest()
 
-        assertThatThrownBy(
-            () -> mRetriever.retrieve(interval,
-                                       query,
-                                       eventCB,
-                                       doneCB))
-            .isInstanceOf(NullPointerException.class)
-            .hasMessage(EfsFileConnection.NULL_EVENT_CALLBACK);
-    } // end of retrieveNullEventCBTest()
+        @Test
+        public void addInvalidAccess()
+        {
+            final TradeEvent trade =
+                (TradeEvent.builder()).symbol(mSymbol)
+                                      .price(Decimal2f.valueOf(1.23d))
+                                      .size(1_000)
+                                      .priceTrend(PriceTrend.DOWN)
+                                      .volume(4_300_000)
+                                      .build();
+            final String message =
+                String.format(EfsFileConnection.READ_ONLY_ACCESS,
+                              mTradeFile.name());
 
-    @Test
-    @SuppressWarnings ("unchecked")
-    public void retrieveNullCompletionCBTest()
-    {
-        final EfsInterval interval = sInterval;
-        final Query query = all(TradeEvent.class);
-        final Consumer<EfsRow<TradeEvent>> eventCB =
-            mRetriever::onEvent;
-        final Consumer<RetrievalCompleteEvent<TradeEvent>> doneCB =
-            null;
+            assertThatThrownBy(
+                () -> mRetriever.add(trade))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(message);
+        } // end of addInvalidAccess()
 
-        assertThatThrownBy(
-            () -> mRetriever.retrieve(interval,
-                                       query,
-                                       eventCB,
-                                       doneCB))
-            .isInstanceOf(NullPointerException.class)
-            .hasMessage(EfsFileConnection.NULL_DONE_CALLBACK);
-    } // end of retrieveNullCompletionCBTest()
+        @Test
+        public void addAccessClosed()
+        {
+            final AbstractTestAgent agent = mTestAgent;
+            final AccessMode mode = agent.accessMode();
+            final TradeEvent trade =
+                (TradeEvent.builder()).symbol(mSymbol)
+                                      .price(Decimal2f.valueOf(1.23d))
+                                      .size(1_000)
+                                      .priceTrend(PriceTrend.DOWN)
+                                      .volume(4_300_000)
+                                      .build();
+            final EfsFileConnection<TradeEvent> eventFile =
+                mTradeFile.connect(mode, agent);
+            final String message =
+                String.format(
+                    EfsFileConnection.CLOSED_CONNECTION,
+                    mTradeFile.name());
 
-    @Test
-    @SuppressWarnings ("unchecked")
-    public void retrieveInvalidAccess()
-    {
-        final EfsInterval interval = sInterval;
-        final Query query = all(TradeEvent.class);
-        final Consumer<EfsRow<TradeEvent>> eventCB =
-            mRetriever::onEvent;
-        final Consumer<RetrievalCompleteEvent<TradeEvent>> doneCB =
-            mRetriever::onDone;
-        final String message =
-            String.format(EfsFileConnection.WRITE_ONLY_ACCESS,
-                          mTradeFile.name());
+            eventFile.close();
 
-        assertThatThrownBy(
-            () -> mPublisher.retrieve(interval,
-                                      query,
-                                      eventCB,
-                                      doneCB))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessage(message);
-    } // end of retrieveInvalidAccess()
+            assertThatThrownBy(() -> eventFile.add(trade))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(message);
+        } // end of addAccessClosed()
 
-    @Test
-    @SuppressWarnings ("unchecked")
-    public void retrieveAccessClosed()
-    {
-        final AbstractTestAgent agent = mTestAgent;
-        final AccessMode mode = agent.accessMode();
-        final EfsInterval interval = sInterval;
-        final Query query = all(TradeEvent.class);
-        final Consumer<EfsRow<TradeEvent>> eventCB =
-            mRetriever::onEvent;
-        final Consumer<RetrievalCompleteEvent<TradeEvent>> doneCB =
-            mRetriever::onDone;
-        final EfsFileConnection<TradeEvent> eventFile =
-            mTradeFile.connect(mode, agent);
-        final String message =
-            String.format(
-                EfsFileConnection.CLOSED_CONNECTION,
-                mTradeFile.name());
+        @Test
+        @SuppressWarnings ("unchecked")
+        public void retrieveNullIntervalTest()
+        {
+            final EfsInterval interval = null;
+            final Query query = all(TradeEvent.class);
+            final Consumer<EfsRow<TradeEvent>> eventCB =
+                mRetriever::onEvent;
+            final Consumer<RetrievalCompleteEvent<TradeEvent>> doneCB =
+                mRetriever::onDone;
 
-        eventFile.close();
+            assertThatThrownBy(
+                () -> mRetriever.retrieve(interval,
+                                           query,
+                                           eventCB,
+                                           doneCB))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage(EfsFileConnection.NULL_INTERVAL);
+        } // end of retrieveNullIntervalTest()
 
-        assertThatThrownBy(
-            () -> eventFile.retrieve(interval,
-                                     query,
-                                     eventCB,
-                                     doneCB))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessage(message);
-    } // end of retrieveAccessClosed()
+        @Test
+        @SuppressWarnings ("unchecked")
+        public void retrieveNullQueryTest()
+        {
+            final EfsInterval interval = sInterval;
+            final Query query = null;
+            final Consumer<EfsRow<TradeEvent>> eventCB =
+                mRetriever::onEvent;
+            final Consumer<RetrievalCompleteEvent<TradeEvent>> doneCB =
+                mRetriever::onDone;
 
-    @Test
-    @DisplayName ("null field name")
-    public void fieldNameNull()
-    {
-        final String field = null;
+            assertThatThrownBy(
+                () -> mRetriever.retrieve(interval,
+                                           query,
+                                           eventCB,
+                                           doneCB))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage(EfsFileConnection.NULL_QUERY);
+        } // end of retrieveNullQueryTest()
 
-        assertThatThrownBy(() -> mTradeFile.attribute(field))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessage(EfsFile.INVALID_FIELD);
-    } // end of fieldNameNull()
+        @Test
+        @SuppressWarnings ("unchecked")
+        public void retrieveNullEventCBTest()
+        {
+            final EfsInterval interval = sInterval;
+            final Query query = all(TradeEvent.class);
+            final Consumer<EfsRow<TradeEvent>> eventCB = null;
+            final Consumer<RetrievalCompleteEvent<TradeEvent>> doneCB =
+                mRetriever::onDone;
 
-    @Test
-    @DisplayName ("empty field name")
-    public void fieldNameEmpty()
-    {
-        final String field = "";
+            assertThatThrownBy(
+                () -> mRetriever.retrieve(interval,
+                                           query,
+                                           eventCB,
+                                           doneCB))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage(EfsFileConnection.NULL_EVENT_CALLBACK);
+        } // end of retrieveNullEventCBTest()
 
-        assertThatThrownBy(() -> mTradeFile.attribute(field))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessage(EfsFile.INVALID_FIELD);
-    } // end of fieldNameEmpty()
+        @Test
+        @SuppressWarnings ("unchecked")
+        public void retrieveNullCompletionCBTest()
+        {
+            final EfsInterval interval = sInterval;
+            final Query query = all(TradeEvent.class);
+            final Consumer<EfsRow<TradeEvent>> eventCB =
+                mRetriever::onEvent;
+            final Consumer<RetrievalCompleteEvent<TradeEvent>> doneCB =
+                null;
 
-    @Test
-    @DisplayName ("blank field name")
-    public void fieldNameBlank()
-    {
-        final String field = "\t";
+            assertThatThrownBy(
+                () -> mRetriever.retrieve(interval,
+                                           query,
+                                           eventCB,
+                                           doneCB))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage(EfsFileConnection.NULL_DONE_CALLBACK);
+        } // end of retrieveNullCompletionCBTest()
 
-        assertThatThrownBy(() -> mTradeFile.attribute(field))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessage(EfsFile.INVALID_FIELD);
-    } // end of fieldNameBlank()
+        @Test
+        @SuppressWarnings ("unchecked")
+        public void retrieveInvalidAccess()
+        {
+            final EfsInterval interval = sInterval;
+            final Query query = all(TradeEvent.class);
+            final Consumer<EfsRow<TradeEvent>> eventCB =
+                mRetriever::onEvent;
+            final Consumer<RetrievalCompleteEvent<TradeEvent>> doneCB =
+                mRetriever::onDone;
+            final String message =
+                String.format(EfsFileConnection.WRITE_ONLY_ACCESS,
+                              mTradeFile.name());
 
-    @Test
-    @DisplayName ("unknown field name")
-    public void fieldNameUnknown()
-    {
-        final String field = "fubar";
-        final String text =
-            String.format(EfsFile.UNKNOWN_FIELD, field);
+            assertThatThrownBy(
+                () -> mPublisher.retrieve(interval,
+                                          query,
+                                          eventCB,
+                                          doneCB))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(message);
+        } // end of retrieveInvalidAccess()
 
-        assertThatThrownBy(() -> mTradeFile.attribute(field))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessage(text);
-    } // end of fieldNameUnknown()
+        @Test
+        @SuppressWarnings ("unchecked")
+        public void retrieveAccessClosed()
+        {
+            final AbstractTestAgent agent = mTestAgent;
+            final AccessMode mode = agent.accessMode();
+            final EfsInterval interval = sInterval;
+            final Query query = all(TradeEvent.class);
+            final Consumer<EfsRow<TradeEvent>> eventCB =
+                mRetriever::onEvent;
+            final Consumer<RetrievalCompleteEvent<TradeEvent>> doneCB =
+                mRetriever::onDone;
+            final EfsFileConnection<TradeEvent> eventFile =
+                mTradeFile.connect(mode, agent);
+            final String message =
+                String.format(
+                    EfsFileConnection.CLOSED_CONNECTION,
+                    mTradeFile.name());
 
-    @Test
-    @DisplayName ("add on closed file")
-    public void addOnClosedFile()
-    {
-        final TradeEvent.Builder tradeBuilder =
-            TradeEvent.builder();
-        final Decimal2f price =
-            Decimal2f.valueOfUnscaled(4321, 2);
-        final int size = 200;
-        final TradeEvent trade =
-            tradeBuilder.symbol(mSymbol)
-                        .price(price)
-                        .size(size)
-                        .priceTrend(PriceTrend.DOWN)
-                        .volume(103_700)
-                        .build();
-        final String text =
-            String.format(
-                EfsFileConnection.CLOSED_CONNECTION,
-                mTradeFile.name());
+            eventFile.close();
 
-        // Close file from underneath publishing agent.
-        mTradeFile.close();
+            assertThatThrownBy(
+                () -> eventFile.retrieve(interval,
+                                         query,
+                                         eventCB,
+                                         doneCB))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(message);
+        } // end of retrieveAccessClosed()
 
-        assertThatThrownBy(
-            () -> mPublisher.add(trade))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessage(text);
-    } // end of addOnClosedFile()
+        @Test
+        @DisplayName ("null field name")
+        public void fieldNameNull()
+        {
+            final String field = null;
+
+            assertThatThrownBy(() -> mTradeFile.attribute(field))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(EfsFile.INVALID_FIELD);
+        } // end of fieldNameNull()
+
+        @Test
+        @DisplayName ("empty field name")
+        public void fieldNameEmpty()
+        {
+            final String field = "";
+
+            assertThatThrownBy(() -> mTradeFile.attribute(field))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(EfsFile.INVALID_FIELD);
+        } // end of fieldNameEmpty()
+
+        @Test
+        @DisplayName ("blank field name")
+        public void fieldNameBlank()
+        {
+            final String field = "\t";
+
+            assertThatThrownBy(() -> mTradeFile.attribute(field))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(EfsFile.INVALID_FIELD);
+        } // end of fieldNameBlank()
+
+        @Test
+        @DisplayName ("unknown field name")
+        public void fieldNameUnknown()
+        {
+            final String field = "fubar";
+            final String text =
+                String.format(EfsFile.UNKNOWN_FIELD, field);
+
+            assertThatThrownBy(() -> mTradeFile.attribute(field))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(text);
+        } // end of fieldNameUnknown()
+
+        @Test
+        @DisplayName ("add on closed file")
+        public void addOnClosedFile()
+        {
+            final TradeEvent.Builder tradeBuilder =
+                TradeEvent.builder();
+            final Decimal2f price =
+                Decimal2f.valueOfUnscaled(4321, 2);
+            final int size = 200;
+            final TradeEvent trade =
+                tradeBuilder.symbol(mSymbol)
+                            .price(price)
+                            .size(size)
+                            .priceTrend(PriceTrend.DOWN)
+                            .volume(103_700)
+                            .build();
+
+            // Close file from underneath publishing agent.
+            mTradeFile.close();
+
+            // Note: this test will always fail with an
+            // IllegalStateException but the reason may be
+            // either that event file is closed or no longer
+            // registered with dispatcher. So exception message
+            // cannot be checked.
+            assertThatThrownBy(
+                () -> mPublisher.add(trade))
+                .isInstanceOf(IllegalStateException.class);
+        } // end of addOnClosedFile()
+
+        @Test
+        @DisplayName("event and completion dispatch failure")
+        @SuppressWarnings({"unchecked"})
+        public void eventCompletionDispatchFailure()
+        {
+            final EfsFile.Metrics metrics =
+                new EfsFile.Metrics<>(
+                    mTradeKey, sTestClock.instant());
+            final Decimal2f price =
+                Decimal2f.valueOfUnscaled(321, 2);
+            final TradeEvent trade =
+                (TradeEvent.builder()).symbol(mSymbol)
+                                      .price(price)
+                                      .size(500)
+                                      .priceTrend(PriceTrend.ZERO_MINUS)
+                                      .volume(123_700)
+                                      .build();
+            final Set<Integer> tags = ImmutableSet.of();
+            final int requestId = 12345;
+            final Retrieval<TradeEvent> request =
+                new Retrieval<>(requestId,
+                                mTestAgent.connection(),
+                                mTestAgent,
+                                sInterval,
+                                sAllQuery,
+                                mTestAgent::onEvent,
+                                mTestAgent::onDone);
+            final long timeDelta = 10L;
+            final int numEvents = (EVENT_QUEUE_SIZE + 2);
+            final CountDownLatch continueSignal =
+                new CountDownLatch(1);
+            final CountDownLatch doneSignal = new CountDownLatch(1);
+            int index;
+            Instant timestamp = sTestClock.instant();
+            EfsRow<TradeEvent> row;
+
+            mTestAgent.setContinueSignal(continueSignal);
+            mTestAgent.setDoneSignal(doneSignal);
+
+            try
+            {
+            for (index = 0; index < numEvents; ++index)
+            {
+                row =
+                    EfsRow.createRow(
+                        timestamp, index, tags, trade);
+
+                request.postRow(row, metrics);
+
+                timestamp = timestamp.plusMillis(timeDelta);
+            }
+            }
+            catch (IllegalStateException statex)
+            {
+                // Ignore. Event queue overflow is expected.
+            }
+
+            request.doClose(timestamp,
+                            CompletionType.RETRIEVAL_COMPLETED);
+
+            continueSignal.countDown();
+
+            assertThat(metrics.dispatchFailures())
+                .isGreaterThan(0L);
+        } // end of eventCompletionDispatchFailure()
+    } // end of class EfsFailureTests
 
     // Success Tests.
 
-    @Test
-    @DisplayName ("access mask test")
-    public void accessMaskTest()
+    @Nested
+    @DisplayName("EfsFile open, close tests")
+    public final class EfsFileOpenCloseTests
     {
-        AccessMode mode;
-
-        mode = AccessMode.READ_ONLY;
-        assertThat(mode.accessMask()).isNotZero();
-        assertThat(mode.isCompatible(AccessMode.WRITE_ONLY)).isFalse();
-        assertThat(mode.isCompatible(AccessMode.READ_WRITE)).isTrue();
-
-        mode = AccessMode.WRITE_ONLY;
-        assertThat(mode.accessMask()).isNotZero();
-        assertThat(mode.isCompatible(AccessMode.READ_ONLY)).isFalse();
-        assertThat(mode.isCompatible(AccessMode.READ_WRITE)).isTrue();
-
-        mode = AccessMode.READ_WRITE;
-        assertThat(mode.accessMask()).isNotZero();
-        assertThat(mode.isCompatible(AccessMode.READ_ONLY)).isTrue();
-        assertThat(mode.isCompatible(AccessMode.WRITE_ONLY)).isTrue();
-    } // end of accessMaskTest()
-
-    @Test
-    @DisplayName ("open, examine, close EfsFileConnection")
-    @SuppressWarnings ("unchecked")
-    public void openCloseFileConnection()
-        throws Exception
-    {
-        final TestAgent agent = mTestAgent;
-        final EfsInterval pastInterval =
-            (EfsInterval.builder())
-                .beginning(
-                    (EfsIndexEndpoint.builder())
-                        .indexOffset(-20, Clusivity.EXCLUSIVE)
-                        .build())
-                .ending(
-                    (EfsIndexEndpoint.builder())
-                        .indexOffset(-10, Clusivity.EXCLUSIVE)
-                        .build())
-                .build();
-        final EfsInterval interval = sInterval;
-        final Query query = sAllQuery;
-        final Retrieval<TradeEvent> retrieval;
-        final CountDownLatch continueSignal =
-            new CountDownLatch(1);
-        final CountDownLatch doneSignal = new CountDownLatch(1);
-        final EfsFileConnection<TradeEvent> connection =
-            agent.connection();
-
-        assertThat(connection.isOpen()).isTrue();
-        assertThat(connection.agent()).isSameAs(agent);
-        assertThat(connection.accessMode())
-            .isEqualTo(agent.accessMode());
-
-        // Retrieve from empty event file first.
-        agent.setContinueSignal(continueSignal);
-        agent.setDoneSignal(doneSignal);
-        agent.retrieve(pastInterval, query);
-
-        // Wait here for test agent to be informed that retrieval
-        // request is completed.
-        try
+        @Test
+        @DisplayName("access mask test")
+        public void accessMaskTest()
         {
-            doneSignal.await(10L, TimeUnit.SECONDS);
-        }
-        catch (InterruptedException interrupt)
-        {}
+            AccessMode mode;
 
-        // Now add trades to file.
-        postTrades();
+            mode = AccessMode.READ_ONLY;
+            assertThat(mode.accessMask()).isNotZero();
+            assertThat(mode.isCompatible(AccessMode.WRITE_ONLY)).isFalse();
+            assertThat(mode.isCompatible(AccessMode.READ_WRITE)).isTrue();
 
-        agent.setContinueSignal(continueSignal);
-        agent.setDoneSignal(doneSignal);
-        retrieval = agent.retrieve(interval, query);
+            mode = AccessMode.WRITE_ONLY;
+            assertThat(mode.accessMask()).isNotZero();
+            assertThat(mode.isCompatible(AccessMode.READ_ONLY)).isFalse();
+            assertThat(mode.isCompatible(AccessMode.READ_WRITE)).isTrue();
 
-        // Create retrieval, examine, and doClose.
-        final String text =
-            String.format(
-                "[id=%d, agent=%s, status=active, interval=%s, query=%s]",
-                retrieval.id(),
-                agent.name(),
+            mode = AccessMode.READ_WRITE;
+            assertThat(mode.accessMask()).isNotZero();
+            assertThat(mode.isCompatible(AccessMode.READ_ONLY)).isTrue();
+            assertThat(mode.isCompatible(AccessMode.WRITE_ONLY)).isTrue();
+        } // end of accessMaskTest()
+
+        @Test
+        @DisplayName("open, examine, close EfsFileConnection")
+        @SuppressWarnings ("unchecked")
+        public void openCloseFileConnection()
+            throws Exception
+        {
+            final TestAgent agent = mTestAgent;
+            final EfsInterval pastInterval =
+                (EfsInterval.builder())
+                    .beginning(
+                        (EfsIndexOffsetEndpoint.builder())
+                            .indexOffset(-20, Clusivity.EXCLUSIVE)
+                            .build())
+                    .ending(
+                        (EfsIndexOffsetEndpoint.builder())
+                            .indexOffset(-10, Clusivity.EXCLUSIVE)
+                            .build())
+                    .build();
+            final EfsInterval interval = sInterval;
+            final Query query = sAllQuery;
+            final Retrieval<TradeEvent> retrieval;
+            final CountDownLatch continueSignal =
+                new CountDownLatch(1);
+            final CountDownLatch doneSignal = new CountDownLatch(1);
+            final EfsFileConnection<TradeEvent> connection =
+                agent.connection();
+
+            assertThat(connection.isOpen()).isTrue();
+            assertThat(connection.agent()).isSameAs(agent);
+            assertThat(connection.accessMode())
+                .isEqualTo(agent.accessMode());
+
+            // Retrieve from empty event file first.
+            agent.setContinueSignal(continueSignal);
+            agent.setDoneSignal(doneSignal);
+            agent.retrieve(pastInterval, query);
+
+            // Wait here for test agent to be informed that retrieval
+            // request is completed.
+            try
+            {
+                doneSignal.await(10L, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException interrupt)
+            {}
+
+            // Now add trades to file.
+            postTrades();
+
+            agent.setContinueSignal(continueSignal);
+            agent.setDoneSignal(doneSignal);
+            retrieval = agent.retrieve(interval, query);
+
+            // Create retrieval, examine, and doClose.
+            final String text =
+                String.format(
+                    "[id=%d, agent=%s, status=active, interval=%s, query=%s]",
+                    retrieval.id(),
+                    agent.name(),
+                    interval,
+                    query);
+
+            assertThat(retrieval).isNotNull();
+            assertThat(retrieval.isCompleted()).isFalse();
+            assertThat(retrieval.completionType()).isNull();
+            assertThat(retrieval.agent()).isSameAs(agent);
+            assertThat(retrieval.interval()).isEqualTo(interval);
+            assertThat(retrieval.toString()).isEqualTo(text);
+
+            retrieval.close();
+
+            // Release test agent so it may receive the completion
+            // callback.
+            continueSignal.countDown();
+
+            // Wait here for test agent to be informed that retrieval
+            // request is completed.
+            try
+            {
+                doneSignal.await(5L, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException interrupt)
+            {}
+
+            assertThat(retrieval.isCompleted()).isTrue();
+            assertThat(retrieval.completionType())
+                .isEqualTo(CompletionType.USER_CANCEL);
+
+            agent.close();
+        } // openCloseFileConnection()
+
+        @Test
+        @DisplayName("get previously opened file")
+        public void getPreviouslyOpenedFile()
+        {
+            final EfsFile<TradeEvent> file =
+                EfsFile.getEventFile(mTradeKey);
+
+            assertThat(file).isSameAs(mTradeFile);
+        } // end of getPreviouslyOpenedFile()
+    } // end of class EfsFileOpenCloseTests
+
+    @Nested
+    @DisplayName("EfsFile add, retrieve tests")
+    public final class EfsFileAddRetrieveTests
+    {
+    //    @Disabled
+        @Test
+        @DisplayName("EfsFile retrieve past events only")
+        public void pastRetrievalTest()
+        {
+            final AtomicBoolean publishFlag =
+                new AtomicBoolean(true);
+            final Duration runTime = Duration.ofSeconds(3L);
+            final Decimal2f initialPrice = mPublisher.price();
+            CountDownLatch doneSignal = new CountDownLatch(1);
+
+            // Start by adding trades to file.
+            mPublisher.postTrades(
+                mSymbol, runTime, publishFlag, doneSignal);
+
+            try
+            {
+                doneSignal.await(5L, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException interrupt)
+            {}
+
+            // Have the agent retrieve trades from file.
+            final Instant endTime = mPublisher.instant();
+            final int numTrades = mPublisher.tradeCount();
+            final long tIndex0 = Math.negateExact(numTrades - 100);
+            final Instant tsIndex1 = (endTime.minusSeconds(2L));
+            final Decimal<Scale2f> maxPrice =
+                initialPrice.add(Decimal2f.valueOfUnscaled(1, 0));
+            final int minSize = 500;
+            final EfsIntervalEndpoint beginning =
+                (EfsIndexOffsetEndpoint.builder())
+                    .indexOffset(tIndex0, Clusivity.INCLUSIVE)
+                    .build();
+            final EfsIntervalEndpoint ending =
+                (EfsTimeEndpoint.builder(endTime))
+                    .time(tsIndex1, Clusivity.EXCLUSIVE)
+                    .build();
+            final EfsInterval interval =
+                (EfsInterval.builder()).beginning(beginning)
+                                       .ending(ending)
+                                       .build();
+
+            doneSignal = new CountDownLatch(1);
+            mRetriever.retrieveTrades(interval,
+                                      maxPrice,
+                                      minSize,
+                                      doneSignal);
+
+            try
+            {
+                doneSignal.await(5L, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException interrupt)
+            {}
+
+            assertThat(mRetriever.tradesReceived()).isGreaterThan(0);
+        } // end of pastRetrievalTest()
+
+    //    @Disabled
+        @Test
+        @DisplayName("EfsFile future event retrieval")
+        public void futureRetrievalTest()
+        {
+            final AtomicBoolean publishFlag =
+                new AtomicBoolean(true);
+            final Duration runTime = Duration.ofSeconds(10L);
+            final Decimal<Scale2f> initialPrice = mPublisher.price();
+            final Decimal<Scale2f> maxPrice =
+                initialPrice.add(Decimal2f.valueOfUnscaled(10, 0));
+            final int minSize = 100;
+            final long tIndex0 = 1L;
+            final long tsIndex1 = 100L;
+            final EfsIntervalEndpoint beginning =
+                (EfsIndexOffsetEndpoint.builder())
+                    .indexOffset(tIndex0, Clusivity.INCLUSIVE)
+                    .build();
+            final EfsIntervalEndpoint ending =
+                (EfsIndexOffsetEndpoint.builder())
+                    .indexOffset(tsIndex1, Clusivity.EXCLUSIVE)
+                    .build();
+            final EfsInterval interval =
+                (EfsInterval.builder()).beginning(beginning)
+                                       .ending(ending)
+                                       .build();
+            final CountDownLatch doneSignal = new CountDownLatch(2);
+
+            sLogger.info(
+                "Future test: retrieving interval {}, initial price {}, max price {}.",
                 interval,
-                query);
+                initialPrice,
+                maxPrice);
 
-        assertThat(retrieval).isNotNull();
-        assertThat(retrieval.isCompleted()).isFalse();
-        assertThat(retrieval.completionType()).isNull();
-        assertThat(retrieval.agent()).isSameAs(agent);
-        assertThat(retrieval.interval()).isEqualTo(interval);
-        assertThat(retrieval.toString()).isEqualTo(text);
+            // Start retreival first and then start publishing.
+            mRetriever.retrieveTrades(interval,
+                                      maxPrice,
+                                      minSize,
+                                      doneSignal);
+            mPublisher.postTrades(
+                mSymbol, runTime, publishFlag, doneSignal);
 
-        retrieval.close();
+            try
+            {
+                doneSignal.await(5L, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException interrupt)
+            {}
 
-        // Release test agent so it may receive the completion
-        // callback.
-        continueSignal.countDown();
+            // Stop publishing in case it is still running.
+            publishFlag.set(false);
 
-        // Wait here for test agent to be informed that retrieval
-        // request is completed.
-        try
+            assertThat(mRetriever.tradesReceived()).isGreaterThan(0);
+        } // end of futureRetrievalTest()
+
+    //    @Disabled
+        @Test
+        @DisplayName("EfsFile past and future event retrieval")
+        public void pastAndFutureRetrievalTest()
         {
-            doneSignal.await(5L, TimeUnit.SECONDS);
-        }
-        catch (InterruptedException interrupt)
-        {}
+            final long runTimeSeconds = 15L;
+            final AtomicBoolean publishFlag =
+                new AtomicBoolean(true);
+            Duration runTime = Duration.ofSeconds(3L);
+            final Decimal<Scale2f> initialPrice = mPublisher.price();
+            final Decimal<Scale2f> maxPrice =
+                initialPrice.add(Decimal2f.valueOfUnscaled(1, 0));
+            final int minSize = 500;
+            CountDownLatch doneSignal = new CountDownLatch(1);
 
-        assertThat(retrieval.isCompleted()).isTrue();
-        assertThat(retrieval.completionType())
-            .isEqualTo(CompletionType.USER_CANCEL);
+            // Start by adding trades to file.
+            mPublisher.postTrades(
+                mSymbol, runTime, publishFlag, doneSignal);
 
-        agent.close();
-    } // openCloseFileConnection()
+            try
+            {
+                doneSignal.await(5L, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException interrupt)
+            {}
 
-    @Test
-    @DisplayName ("get previously opened file")
-    public void getPreviouslyOpenedFile()
-    {
-        final EfsFile<TradeEvent> file =
-            EfsFile.getEventFile(mTradeKey);
+            final int numTrades = mPublisher.tradeCount();
+            final long tIndex0 = Math.negateExact(numTrades - 100);
+            final Duration tsIndex1 =
+                Duration.ofSeconds(runTimeSeconds - 2L);
+            final EfsIntervalEndpoint beginning =
+                (EfsIndexOffsetEndpoint.builder())
+                    .indexOffset(tIndex0, Clusivity.INCLUSIVE)
+                    .build();
+            final EfsIntervalEndpoint ending =
+                (EfsDurationEndpoint.builder())
+                    .timeOffset(tsIndex1, Clusivity.EXCLUSIVE)
+                    .build();
+            final EfsInterval interval =
+                (EfsInterval.builder()).beginning(beginning)
+                                       .ending(ending)
+                                       .build();
+            Retrieval<TradeEvent> request;
+            String text;
 
-        assertThat(file).isSameAs(mTradeFile);
-    } // end of getPreviouslyOpenedFile()
+            runTime = Duration.ofSeconds(runTimeSeconds);
+            doneSignal = new CountDownLatch(2);
 
-//    @Disabled
-    @Test
-    @DisplayName("EfsFile retrieve past events only")
-    public void pastRetrievalTest()
-    {
-        final AtomicBoolean publishFlag =
-            new AtomicBoolean(true);
-        final Duration runTime = Duration.ofSeconds(3L);
-        final Decimal2f initialPrice = mPublisher.price();
-        CountDownLatch doneSignal = new CountDownLatch(1);
-
-        // Start by adding trades to file.
-        mPublisher.postTrades(
-            mSymbol, runTime, publishFlag, doneSignal);
-
-        try
-        {
-            doneSignal.await(5L, TimeUnit.SECONDS);
-        }
-        catch (InterruptedException interrupt)
-        {}
-
-        // Have the agent retrieve trades from file.
-        final Instant endTime = mPublisher.instant();
-        final int numTrades = mPublisher.tradeCount();
-        final long tIndex0 = Math.negateExact(numTrades - 100);
-        final Instant tsIndex1 = (endTime.minusSeconds(2L));
-        final Decimal<Scale2f> maxPrice =
-            initialPrice.add(Decimal2f.valueOfUnscaled(1, 0));
-        final int minSize = 500;
-        final EfsIntervalEndpoint beginning =
-            (EfsIndexEndpoint.builder())
-                .indexOffset(tIndex0, Clusivity.INCLUSIVE)
-                .build();
-        final EfsIntervalEndpoint ending =
-            (EfsTimeEndpoint.builder())
-                .time(tsIndex1, Clusivity.EXCLUSIVE)
-                .build();
-        final EfsInterval interval =
-            (EfsInterval.builder()).beginning(beginning)
-                                   .ending(ending)
-                                   .build();
-
-        doneSignal = new CountDownLatch(1);
-        mRetriever.retrieveTrades(interval,
-                                  maxPrice,
-                                  minSize,
-                                  doneSignal);
-
-        try
-        {
-            doneSignal.await(5L, TimeUnit.SECONDS);
-        }
-        catch (InterruptedException interrupt)
-        {}
-
-        assertThat(mRetriever.tradesReceived()).isGreaterThan(0);
-    } // end of pastRetrievalTest()
-
-//    @Disabled
-    @Test
-    @DisplayName("EfsFile future event retrieval")
-    public void futureRetrievalTest()
-    {
-        final AtomicBoolean publishFlag =
-            new AtomicBoolean(true);
-        final Duration runTime = Duration.ofSeconds(10L);
-        final Decimal<Scale2f> initialPrice = mPublisher.price();
-        final Decimal<Scale2f> maxPrice =
-            initialPrice.add(Decimal2f.valueOfUnscaled(10, 0));
-        final int minSize = 100;
-        final long tIndex0 = 1L;
-        final long tsIndex1 = 100L;
-        final EfsIntervalEndpoint beginning =
-            (EfsIndexEndpoint.builder())
-                .indexOffset(tIndex0, Clusivity.INCLUSIVE)
-                .build();
-        final EfsIntervalEndpoint ending =
-            (EfsIndexEndpoint.builder())
-                .indexOffset(tsIndex1, Clusivity.EXCLUSIVE)
-                .build();
-        final EfsInterval interval =
-            (EfsInterval.builder()).beginning(beginning)
-                                   .ending(ending)
-                                   .build();
-        final CountDownLatch doneSignal = new CountDownLatch(2);
-
-        sLogger.info(
-            "Future test: retrieving interval {}, initial price {}, max price {}.",
-            interval,
-            initialPrice,
-            maxPrice);
-
-        // Start retreival first and then start publishing.
-        mRetriever.retrieveTrades(interval,
-                                  maxPrice,
-                                  minSize,
-                                  doneSignal);
-        mPublisher.postTrades(
-            mSymbol, runTime, publishFlag, doneSignal);
-
-        try
-        {
-            doneSignal.await(5L, TimeUnit.SECONDS);
-        }
-        catch (InterruptedException interrupt)
-        {}
-
-        // Stop publishing in case it is still running.
-        publishFlag.set(false);
-
-        assertThat(mRetriever.tradesReceived()).isGreaterThan(0);
-    } // end of futureRetrievalTest()
-
-//    @Disabled
-    @Test
-    @DisplayName("EfsFile past and future event retrieval")
-    public void pastAndFutureRetrievalTest()
-    {
-        final long runTimeSeconds = 15L;
-        final AtomicBoolean publishFlag =
-            new AtomicBoolean(true);
-        Duration runTime = Duration.ofSeconds(3L);
-        final Decimal<Scale2f> initialPrice = mPublisher.price();
-        final Decimal<Scale2f> maxPrice =
-            initialPrice.add(Decimal2f.valueOfUnscaled(1, 0));
-        final int minSize = 500;
-        CountDownLatch doneSignal = new CountDownLatch(1);
-
-        // Start by adding trades to file.
-        mPublisher.postTrades(
-            mSymbol, runTime, publishFlag, doneSignal);
-
-        try
-        {
-            doneSignal.await(30L, TimeUnit.SECONDS);
-        }
-        catch (InterruptedException interrupt)
-        {}
-
-        final int numTrades = mPublisher.tradeCount();
-        final long tIndex0 = Math.negateExact(numTrades - 100);
-        final Duration tsIndex1 =
-            Duration.ofSeconds(runTimeSeconds - 2L);
-        final EfsIntervalEndpoint beginning =
-            (EfsIndexEndpoint.builder())
-                .indexOffset(tIndex0, Clusivity.INCLUSIVE)
-                .build();
-        final EfsIntervalEndpoint ending =
-            (EfsDurationEndpoint.builder())
-                .timeOffset(tsIndex1, Clusivity.EXCLUSIVE)
-                .build();
-        final EfsInterval interval =
-            (EfsInterval.builder()).beginning(beginning)
-                                   .ending(ending)
-                                   .build();
-        Retrieval<TradeEvent> request;
-        String text;
-
-        runTime = Duration.ofSeconds(runTimeSeconds);
-        doneSignal = new CountDownLatch(2);
-
-        sLogger.info(
-            "Past & future test: retrieving interval {}, initial price {}, max price {}.",
-            interval,
-            initialPrice,
-            maxPrice);
-
-        // Start retreival first and then start publishing.
-        mRetriever.retrieveTrades(interval,
-                                  maxPrice,
-                                  minSize,
-                                  doneSignal);
-
-        request = mRetriever.request();
-        text =
-            String.format(
-                "[id=%d, agent=%s, status=active, interval=%s, query=%s]",
-                request.id(),
-                mRetriever.name(),
+            sLogger.info(
+                "Past & future test: retrieving interval {}, initial price {}, max price {}.",
                 interval,
-                mRetriever.query());
+                initialPrice,
+                maxPrice);
 
-        assertThat(request.toString()).isEqualTo(text);
+            // Start retreival first and then start publishing.
+            mRetriever.retrieveTrades(interval,
+                                      maxPrice,
+                                      minSize,
+                                      doneSignal);
 
-        mPublisher.postTrades(
-            mSymbol, runTime, publishFlag, doneSignal);
+            request = mRetriever.request();
+            text =
+                String.format(
+                    "[id=%d, agent=%s, status=active, interval=%s, query=%s]",
+                    request.id(),
+                    mRetriever.name(),
+                    interval,
+                    mRetriever.query());
 
-        try
+            assertThat(request.toString()).isEqualTo(text);
+
+            mPublisher.postTrades(
+                mSymbol, runTime, publishFlag, doneSignal);
+
+            try
+            {
+                doneSignal.await(30L, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException interrupt)
+            {}
+
+            // Stop publishing in case it is still running.
+            publishFlag.set(false);
+
+            assertThat(mRetriever.tradesReceived()).isGreaterThan(0);
+
+            text =
+                String.format(
+                    "[id=%d, agent=%s, status=completed (%s), interval=%s, query=%s]",
+                    request.id(),
+                    mRetriever.name(),
+                    request.completionType(),
+                    interval,
+                    mRetriever.query());
+
+            assertThat(request.toString()).isEqualTo(text);
+
+            final EfsFile.Metrics metrics = mTradeFile.metrics();
+
+            assertThat(metrics.topicKey()).isSameAs(mTradeKey);
+            assertThat(metrics.openTime()).isNotNull();
+            assertThat(metrics.eventsAdded()).isGreaterThan(0L);
+            assertThat(metrics.retrievalsStarted())
+                .isGreaterThan(0L);
+            assertThat(metrics.retrievalsCompleted())
+                .isGreaterThan(0L);
+            assertThat(metrics.retrievalsInProgress()).isZero();
+        } // end of pastAndFutureRetrievalTest()
+
+        @Test
+        @DisplayName("EfsFile state transition test")
+        public void efsFileStateTest()
+            throws EfsFileInitializationException
         {
-            doneSignal.await(30L, TimeUnit.SECONDS);
-        }
-        catch (InterruptedException interrupt)
-        {}
+            final AtomicBoolean publishFlag =
+                new AtomicBoolean(true);
+            final Duration runTime = Duration.ofSeconds(10L);
+            final String topic = EXCHANGE + "FUBR";
+            final EfsTopicKey<TradeEvent> key =
+                EfsTopicKey.getKey(TradeEvent.class, topic);
+            final EfsFile<TradeEvent> tradeFile =
+                createEventFile(key,
+                                POLICY,
+                                FILE_DISPATCHER,
+                                MAX_CONNECTIONS,
+                                MAX_RETRIEVALS);
+            final TestPublisher publisher =
+                new TestPublisher(
+                    "my-publisher", tradeFile, sTestClock);
+            final TestRetriever retriever =
+                new TestRetriever("my-retriever", tradeFile);
+            CountDownLatch doneSignal = new CountDownLatch(1);
 
-        // Stop publishing in case it is still running.
-        publishFlag.set(false);
+            assertThat(EfsFile.exists(key)).isTrue();
+            assertThat(tradeFile.isOpen()).isTrue();
+            assertThat(tradeFile.rowCount()).isZero();
+            assertThat(tradeFile.topicKey()).isEqualTo(key);
 
-        assertThat(mRetriever.tradesReceived()).isGreaterThan(0);
+            EfsDispatcher.register(publisher, AGENT_DISPATCHER);
+            EfsDispatcher.register(retriever, AGENT_DISPATCHER);
 
-        text =
-            String.format(
-                "[id=%d, agent=%s, status=completed (%s), interval=%s, query=%s]",
-                request.id(),
-                mRetriever.name(),
-                request.completionType(),
-                interval,
-                mRetriever.query());
+            publisher.open();
+            retriever.open();
 
-        assertThat(request.toString()).isEqualTo(text);
-    } // end of pastAndFutureRetrievalTest()
+            publisher.postTrades(
+                mSymbol, runTime, publishFlag, doneSignal);
 
-    @Test
-    @DisplayName("EfsFile state transition test")
-    public void efsFileStateTest()
-        throws IOException
+            try
+            {
+                doneSignal.await(5L, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException interrupt)
+            {}
+
+            // Stop publishing in case it is still running.
+            publishFlag.set(false);
+
+            final long rowCount = publisher.rowCount();
+
+            assertThat(rowCount).isGreaterThan(0L);
+
+            final EfsIntervalEndpoint beginning =
+                (EfsIndexOffsetEndpoint.builder())
+                    .indexOffset(rowCount, Clusivity.INCLUSIVE)
+                    .build();
+            final EfsIntervalEndpoint ending =
+                (EfsIndexOffsetEndpoint.builder())
+                    .indexOffset((rowCount + 100L),
+                                 Clusivity.EXCLUSIVE)
+                    .build();
+            final EfsInterval interval =
+                (EfsInterval.builder()).beginning(beginning)
+                                       .ending(ending)
+                                       .build();
+            final Decimal<Scale2f> maxPrice =
+                (publisher.price()).add(
+                    Decimal2f.valueOfUnscaled(10, 0));
+            final int minSize = 100;
+
+            // Retrieve future trades which will never be published.
+            doneSignal = new CountDownLatch(1);
+            retriever.retrieveTrades(interval,
+                                      maxPrice,
+                                      minSize,
+                                      doneSignal);
+
+            // Allow time for retrieval to be put into place.
+            DelayedExecution.waitUntil(Duration.ofSeconds(1L));
+
+            // Close event file which will cancel the retrieval.
+            tradeFile.close();
+
+            try
+            {
+                doneSignal.await(2L, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException interrupt)
+            {}
+
+            assertThat(EfsFile.exists(key)).isFalse();
+            assertThat(tradeFile.isOpen()).isFalse();
+            assertThat(tradeFile.rowCount()).isZero();
+            assertThat(retriever.tradesReceived()).isZero();
+            assertThat(retriever.completionReason())
+                .isEqualTo(CompletionType.FILE_CLOSED);
+        } // end of efsFileStateTest()
+
+        @Test
+        @DisplayName("cancel retrieval on close")
+        public void cancelRetrievalOnClose()
+        {
+            final Decimal<Scale2f> initialPrice = mPublisher.price();
+            final Decimal<Scale2f> maxPrice =
+                initialPrice.add(Decimal2f.valueOfUnscaled(10, 0));
+            final int minSize = 100;
+            final long tIndex0 = 1L;
+            final long tsIndex1 = 100L;
+            final EfsIntervalEndpoint beginning =
+                (EfsIndexOffsetEndpoint.builder())
+                    .indexOffset(tIndex0, Clusivity.INCLUSIVE)
+                    .build();
+            final EfsIntervalEndpoint ending =
+                (EfsIndexOffsetEndpoint.builder())
+                    .indexOffset(tsIndex1, Clusivity.EXCLUSIVE)
+                    .build();
+            final EfsInterval interval =
+                (EfsInterval.builder()).beginning(beginning)
+                                       .ending(ending)
+                                       .build();
+            final CountDownLatch doneSignal = new CountDownLatch(1);
+
+            mRetriever.retrieveTrades(interval,
+                                      maxPrice,
+                                      minSize,
+                                      doneSignal);
+
+            mRetriever.close();
+
+            try
+            {
+                doneSignal.await(5L, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException interrupt)
+            {}
+
+            assertThat(mRetriever.completionReason())
+                .isEqualTo(CompletionType.CONNECTION_CLOSED);
+        } // end of cancelRetrievalOnClose()
+
+        @Test
+        @DisplayName("exceed active retrieval limit")
+        @SuppressWarnings({"unchecked"})
+        public void retrievalExceedsLimit()
+            throws EfsFileInitializationException
+        {
+            final int maxConnections = 5;
+            final int maxRetrievals = 1;
+            final EfsIntervalEndpoint beginning =
+                (EfsIndexFixedEndpoint.builder(0))
+                    .fixedIndex(0L, Clusivity.INCLUSIVE)
+                    .build();
+            final EfsIntervalEndpoint ending =
+                (EfsIndexFixedEndpoint.builder(0))
+                    .endNever()
+                    .build();
+            final EfsInterval interval =
+                (EfsInterval.builder()).beginning(beginning)
+                                       .ending(ending)
+                                       .build();
+            CountDownLatch continueSignal =
+                new CountDownLatch(1);
+            CountDownLatch doneSignal = new CountDownLatch(1);
+
+            // 1. Close existing trade and create new file with
+            //    size 1 retrieval limit.
+            mTradeFile.close();
+            mTradeFile = createEventFile(mTradeKey,
+                                         POLICY,
+                                         FILE_DISPATCHER,
+                                         maxConnections,
+                                         maxRetrievals);
+            mTradeFile.setSystemClock(sTestClock);
+
+            // 2. Close, create, and open first test agent.
+            mTestAgent.close();
+            EfsDispatcher.deregister(mTestAgent);
+            mTestAgent =
+                new TestAgent(AGENT_NAME,
+                              AccessMode.READ_WRITE,
+                              mTradeFile);
+            EfsDispatcher.register(mTestAgent, AGENT_DISPATCHER);
+            mTestAgent.open();
+
+            // 3. Create and open second test agent.
+            final String agentName = AGENT_NAME + "-1";
+            final TestAgent testAgent1 =
+                new TestAgent(agentName,
+                              AccessMode.READ_WRITE,
+                              mTradeFile);
+
+            EfsDispatcher.register(testAgent1, AGENT_DISPATCHER);
+            testAgent1.open();
+
+            // 4. Have test agent 0 retrieve all event from now
+            //    to forever.
+            mTestAgent.setContinueSignal(continueSignal);
+            mTestAgent.setDoneSignal(doneSignal);
+            mTestAgent.retrieve(interval, sAllQuery);
+
+            // 5. Have test agent 1 also perform a retrieval.
+            mTestAgent.setContinueSignal(continueSignal);
+            mTestAgent.setDoneSignal(doneSignal);
+            testAgent1.retrieve(interval, sAllQuery);
+
+            continueSignal.countDown();
+
+            // 6. Verify that test agent 1 retrieval completed
+            //    with reason RESOURCE_EXHAUSTED.
+            try
+            {
+                doneSignal.await(1L, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException interrupt)
+            {}
+
+            assertThat(testAgent1.isCompleted()).isTrue();
+            assertThat(testAgent1.completionType())
+                .isEqualTo(CompletionType.RESOURCE_EXHAUSTED);
+        } // end of retrievalExceedsLimit()
+
+        @Test
+        @DisplayName("intervals test")
+        public void intervalTest()
+        {
+            postTrades();
+
+            final Instant now = mPublisher.instant();
+            final Instant beginTime = now.minusSeconds(2L);
+            final Instant endTime = now.minusSeconds(1L);
+            final Duration beginTimeOffset = Duration.ofSeconds(-2L);
+            final Duration endTimeOffset = Duration.ofSeconds(-1L);
+            final int beginIndexOffset = -50;
+            final int endIndexOffset = -20;
+
+            // [fixed time, fixed time]
+            EfsIntervalEndpoint beginEndpoint =
+                (EfsTimeEndpoint.builder(now))
+                    .time(beginTime, Clusivity.INCLUSIVE)
+                    .build();
+            EfsIntervalEndpoint endEndpoint =
+                (EfsTimeEndpoint.builder(now))
+                    .time(endTime, Clusivity.INCLUSIVE)
+                    .build();
+            EfsInterval interval =
+                (EfsInterval.builder()).beginning(beginEndpoint)
+                                       .ending(endEndpoint)
+                                       .build();
+
+            retrieveTrades(interval);
+
+            // (fixed time, fixed time)
+            beginEndpoint =
+                (EfsTimeEndpoint.builder(now))
+                    .time(beginTime, Clusivity.EXCLUSIVE)
+                    .build();
+            endEndpoint =
+                (EfsTimeEndpoint.builder(now))
+                    .time(endTime, Clusivity.EXCLUSIVE)
+                    .build();
+            interval =
+                (EfsInterval.builder()).beginning(beginEndpoint)
+                                       .ending(endEndpoint)
+                                       .build();
+
+            retrieveTrades(interval);
+
+            // [time offset, time offset]
+            beginEndpoint =
+                (EfsDurationEndpoint.builder())
+                    .timeOffset(beginTimeOffset, Clusivity.INCLUSIVE)
+                    .build();
+            endEndpoint =
+                (EfsDurationEndpoint.builder())
+                    .timeOffset(endTimeOffset, Clusivity.INCLUSIVE)
+                    .build();
+            interval =
+                (EfsInterval.builder()).beginning(beginEndpoint)
+                                       .ending(endEndpoint)
+                                       .build();
+
+            retrieveTrades(interval);
+
+            // (time offset, time offset)
+            beginEndpoint =
+                (EfsDurationEndpoint.builder())
+                    .timeOffset(beginTimeOffset, Clusivity.EXCLUSIVE)
+                    .build();
+            endEndpoint =
+                (EfsDurationEndpoint.builder())
+                    .timeOffset(endTimeOffset, Clusivity.EXCLUSIVE)
+                    .build();
+            interval =
+                (EfsInterval.builder()).beginning(beginEndpoint)
+                                       .ending(endEndpoint)
+                                       .build();
+
+            retrieveTrades(interval);
+
+            // [index offset, index offset]
+            beginEndpoint =
+                (EfsIndexOffsetEndpoint.builder())
+                    .indexOffset(beginIndexOffset,
+                                 Clusivity.INCLUSIVE)
+                    .build();
+            endEndpoint =
+                (EfsIndexOffsetEndpoint.builder())
+                    .indexOffset(endIndexOffset, Clusivity.INCLUSIVE)
+                    .build();
+            interval =
+                (EfsInterval.builder()).beginning(beginEndpoint)
+                                       .ending(endEndpoint)
+                                       .build();
+
+            retrieveTrades(interval);
+
+            // (index offset, index offset)
+            beginEndpoint =
+                (EfsIndexOffsetEndpoint.builder())
+                    .indexOffset(beginIndexOffset,
+                                 Clusivity.EXCLUSIVE)
+                    .build();
+            endEndpoint =
+                (EfsIndexOffsetEndpoint.builder())
+                    .indexOffset(endIndexOffset, Clusivity.EXCLUSIVE)
+                    .build();
+            interval =
+                (EfsInterval.builder()).beginning(beginEndpoint)
+                                       .ending(endEndpoint)
+                                       .build();
+
+            retrieveTrades(interval);
+        } // end of intervalTest()
+    } // end of class EfsFileAddRetrieveTests
+
+    @Nested
+    @DisplayName("EfsFile tagged event tests")
+    public final class EfsFileTaggedEventsTests
     {
-        final AtomicBoolean publishFlag =
-            new AtomicBoolean(true);
-        final Duration runTime = Duration.ofSeconds(10L);
-        final String topic = EXCHANGE + "FUBR";
-        final EfsTopicKey<TradeEvent> key =
-            EfsTopicKey.getKey(TradeEvent.class, topic);
-        final EfsFile<TradeEvent> tradeFile =
-            EfsFile.createEventFile(key, FILE_DISPATCHER);
-        final TestPublisher publisher =
-            new TestPublisher(
-                "my-publisher", tradeFile, sTestClock);
-        final TestRetriever retriever =
-            new TestRetriever("my-retriever", tradeFile);
-        CountDownLatch doneSignal = new CountDownLatch(1);
-
-        assertThat(EfsFile.exists(key)).isTrue();
-        assertThat(tradeFile.isOpen()).isTrue();
-        assertThat(tradeFile.rowCount()).isZero();
-        assertThat(tradeFile.topicKey()).isEqualTo(key);
-
-        EfsDispatcher.register(publisher, AGENT_DISPATCHER);
-        EfsDispatcher.register(retriever, AGENT_DISPATCHER);
-
-        publisher.open();
-        retriever.open();
-
-        publisher.postTrades(
-            mSymbol, runTime, publishFlag, doneSignal);
-
-        try
+        @Test
+        @DisplayName("tagged event add and retrieve test")
+        public void taggedEventTest()
         {
-            doneSignal.await(5L, TimeUnit.SECONDS);
-        }
-        catch (InterruptedException interrupt)
-        {}
+            // NOTE: all of the following arrays must be the same
+            // size.
+            final int[][] tags =
+            {
+                { 101 },
+                { 202, 303 },
+                { 101, 303}
+            };
+            final Decimal2f[] prices =
+            {
+                Decimal2f.valueOfUnscaled(234, 2),
+                Decimal2f.valueOfUnscaled(235, 2),
+                Decimal2f.valueOfUnscaled(235, 2),
+            };
+            final int[] sizes = { 400, 700, 500 };
+            final PriceTrend[] trends =
+            {
+                PriceTrend.ZERO_MINUS,
+                PriceTrend.UP,
+                PriceTrend.ZERO_PLUS
+            };
+            final int[] volumes = { 14_500, 15_200, 15_700 };
+            CountDownLatch doneSignal = new CountDownLatch(1);
+            final TagAgent agent =
+                new TagAgent(TAG_AGENT_NAME, mTradeFile, sTestClock);
+            int tag = 101;
 
-        // Stop publishing in case it is still running.
-        publishFlag.set(false);
+            EfsDispatcher.register(agent, AGENT_DISPATCHER);
+            agent.open();
 
-        final long rowCount = tradeFile.rowCount();
+            // Retrieve on empty file.
+            agent.retrieve(tag, doneSignal);
 
-        assertThat(rowCount).isGreaterThan(0L);
+            try
+            {
+                doneSignal.await(5L, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException interrupt)
+            {}
 
-        final EfsIntervalEndpoint beginning =
-            (EfsIndexEndpoint.builder())
-                .indexOffset(rowCount, Clusivity.INCLUSIVE)
-                .build();
-        final EfsIntervalEndpoint ending =
-            (EfsIndexEndpoint.builder())
-                .indexOffset((rowCount + 100L),
-                             Clusivity.EXCLUSIVE)
-                .build();
-        final EfsInterval interval =
-            (EfsInterval.builder()).beginning(beginning)
-                                   .ending(ending)
-                                   .build();
-        final Decimal<Scale2f> maxPrice =
-            (publisher.price()).add(
-                Decimal2f.valueOfUnscaled(10, 0));
-        final int minSize = 100;
+            assertThat(agent.trades()).isEmpty();
 
-        // Retrieve future trades which will never be published.
-        doneSignal = new CountDownLatch(1);
-        retriever.retrieveTrades(interval,
-                                  maxPrice,
-                                  minSize,
-                                  doneSignal);
+            // Post tagged trades to event file.
+            agent.postTrades(
+                mSymbol, tags, prices, sizes, trends, volumes);
 
-        // Allow time for retrieval to be put into place.
-        DelayedExecution.waitUntil(Duration.ofSeconds(1L));
+            // Retrieve trades with given tag.
+            doneSignal = new CountDownLatch(1);
+            agent.retrieve(tag, doneSignal);
 
-        // Close event file which will cancel the retrieval.
-        tradeFile.close();
+            try
+            {
+                doneSignal.await(5L, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException interrupt)
+            {}
 
-        try
+            final List<EfsRow<TradeEvent>> trades = agent.trades();
+
+            assertThat(trades).hasSize(2);
+            validateRow(trades.get(0),
+                        tag,
+                        prices[0],
+                        sizes[0],
+                        trends[0],
+                        volumes[0]);
+            validateRow(trades.get(1),
+                        tag,
+                        prices[2],
+                        sizes[2],
+                        trends[2],
+                        volumes[2]);
+
+            // Now retrieve rows with an unknown tag.
+            tag = 404;
+            doneSignal = new CountDownLatch(1);
+            agent.retrieve(tag, doneSignal);
+
+            try
+            {
+                doneSignal.await(5L, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException interrupt)
+            {}
+
+            assertThat(agent.trades()).isEmpty();
+
+            agent.close();
+        } // end of taggedEventTest()
+
+        @Test
+        @DisplayName("trigger event overflow on tag retrieval event delivery")
+        public void taggedEventRetrievalOverflow()
         {
-            doneSignal.await(2L, TimeUnit.SECONDS);
-        }
-        catch (InterruptedException interrupt)
-        {}
+            final int tag = 202;
+            final Decimal2f price =
+                Decimal2f.valueOfUnscaled(321, 2);
+            final TradeEvent trade =
+                (TradeEvent.builder()).symbol(mSymbol)
+                                      .price(price)
+                                      .size(500)
+                                      .priceTrend(PriceTrend.ZERO_MINUS)
+                                      .volume(123_700)
+                                      .build();
+            final TagRetrieveInternalEvent<TradeEvent> tagRetrieve =
+                new TagRetrieveInternalEvent<>(tag,
+                                               mTestAgent,
+                                               mTestAgent::onEvent,
+                                               mTestAgent::onDone);
+            final Set<Integer> tags = new TreeSet<>();
+            final long timeDelta = 10L;
+            final int numEvents = (EVENT_QUEUE_SIZE + 2);
+            final CountDownLatch continueSignal =
+                new CountDownLatch(1);
+            final CountDownLatch doneSignal = new CountDownLatch(1);
+            int index;
+            Instant timestamp = sTestClock.instant();
+            EfsRow<TradeEvent> row;
 
-        assertThat(EfsFile.exists(key)).isFalse();
-        assertThat(tradeFile.isOpen()).isFalse();
-        assertThat(tradeFile.rowCount()).isZero();
-        assertThat(retriever.tradesReceived()).isZero();
-        assertThat(retriever.completionReason())
-            .isEqualTo(CompletionType.FILE_CLOSED);
-    } // end of efsFileStateTest()
+            assertThat(tagRetrieve.agent()).isSameAs(mTestAgent);
 
-    @Test
-    @DisplayName("cancel retrieval on close")
-    public void cancelRetrievalOnClose()
+            tags.add(tag);
+
+            mTestAgent.setContinueSignal(continueSignal);
+            mTestAgent.setDoneSignal(doneSignal);
+
+            for (index = 0; index < numEvents; ++index)
+            {
+                row =
+                    EfsRow.createRow(
+                        timestamp, index, tags, trade);
+
+                tagRetrieve.postRow(row);
+
+                timestamp = timestamp.plusMillis(timeDelta);
+            }
+
+            continueSignal.countDown();
+
+            tagRetrieve.postCompletion(
+                timestamp, RETRIEVAL_COMPLETED);
+
+            try
+            {
+                doneSignal.await(5L, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException interrupt)
+            {}
+        } // end of taggedEventRetrievalOverflow()
+
+        @Test
+        @DisplayName("trigger event overflow on retrieval complete delivery")
+        public void taggedEventRetrievalCompleteOverflow()
+        {
+            final int tag = 202;
+            final Decimal2f price =
+                Decimal2f.valueOfUnscaled(321, 2);
+            final TradeEvent trade =
+                (TradeEvent.builder()).symbol(mSymbol)
+                                      .price(price)
+                                      .size(500)
+                                      .priceTrend(PriceTrend.ZERO_MINUS)
+                                      .volume(123_700)
+                                      .build();
+            final TagRetrieveInternalEvent<TradeEvent> tagRetrieve =
+                new TagRetrieveInternalEvent<>(tag,
+                                               mTestAgent,
+                                               mTestAgent::onEvent,
+                                               mTestAgent::onDone);
+            final Set<Integer> tags = new TreeSet<>();
+            final long timeDelta = 10L;
+            final int numEvents = (EVENT_QUEUE_SIZE + 1);
+            final CountDownLatch continueSignal =
+                new CountDownLatch(1);
+            final CountDownLatch doneSignal = new CountDownLatch(1);
+            int index;
+            Instant timestamp = sTestClock.instant();
+            EfsRow<TradeEvent> row;
+
+            tags.add(tag);
+
+            mTestAgent.setContinueSignal(continueSignal);
+            mTestAgent.setDoneSignal(doneSignal);
+
+            for (index = 0; index < numEvents; ++index)
+            {
+                row =
+                    EfsRow.createRow(
+                        timestamp, index, tags, trade);
+
+                tagRetrieve.postRow(row);
+
+                timestamp = timestamp.plusMillis(timeDelta);
+            }
+
+            tagRetrieve.postCompletion(
+                timestamp, RETRIEVAL_COMPLETED);
+
+            continueSignal.countDown();
+        } // end of taggedEventRetrievalCompleteOverflow()
+    } // end of class EfsFileTaggedEventsTests
+
+    @Nested
+    @DisplayName("EfsFile exhaust tests")
+    public final class EfsExhaustTests
     {
-        final Decimal<Scale2f> initialPrice = mPublisher.price();
-        final Decimal<Scale2f> maxPrice =
-            initialPrice.add(Decimal2f.valueOfUnscaled(10, 0));
-        final int minSize = 100;
-        final long tIndex0 = 1L;
-        final long tsIndex1 = 100L;
-        final EfsIntervalEndpoint beginning =
-            (EfsIndexEndpoint.builder())
-                .indexOffset(tIndex0, Clusivity.INCLUSIVE)
-                .build();
-        final EfsIntervalEndpoint ending =
-            (EfsIndexEndpoint.builder())
-                .indexOffset(tsIndex1, Clusivity.EXCLUSIVE)
-                .build();
-        final EfsInterval interval =
-            (EfsInterval.builder()).beginning(beginning)
-                                   .ending(ending)
-                                   .build();
-        final CountDownLatch doneSignal = new CountDownLatch(1);
-
-        mRetriever.retrieveTrades(interval,
-                                  maxPrice,
-                                  minSize,
-                                  doneSignal);
-
-        mRetriever.close();
-
-        try
+        @Test
+        @DisplayName("Exhaust, close, and re-open event file")
+        public void exhaustAndInitializeEventFile()
+            throws EfsFileInitializationException
         {
-            doneSignal.await(5L, TimeUnit.SECONDS);
-        }
-        catch (InterruptedException interrupt)
-        {}
+            final TestExhaust exhaustAgent;
+            final EfsFile.Builder<TradeEvent> builder =
+                EfsFile.builder(mTradeKey);
+            Duration runTime = Duration.ofSeconds(3L);
+            final AtomicBoolean publishFlag =
+                new AtomicBoolean(true);
+            CountDownLatch doneSignal = new CountDownLatch(1);
 
-        assertThat(mRetriever.completionReason())
-            .isEqualTo(CompletionType.CONNECTION_CLOSED);
-    } // end of cancelRetrievalOnClose()
+            // 1. Create exhaust agent.
+            exhaustAgent = new TestExhaust(TEST_EXHAUST);
+            EfsDispatcher.register(
+                exhaustAgent, AGENT_DISPATCHER);
 
-    @Test
-    @DisplayName("intervals test")
-    public void intervalTest()
-    {
-        postTrades();
+            // 2. Close and open event file with exhaust set.
+            mTradeFile.close();
+            EfsDispatcher.deregister(mTradeFile);
+            mTradeFile =
+                builder.dispatcher(FILE_DISPATCHER)
+                       .tableExhaust(exhaustAgent::onExhaust,
+                                     exhaustAgent)
+                       .clock(sTestClock)
+                       .build();
 
-        final Instant now = mPublisher.instant();
-        final Instant beginTime = now.minusSeconds(2L);
-        final Instant endTime = now.minusSeconds(1L);
-        final Duration beginTimeOffset = Duration.ofSeconds(-2L);
-        final Duration endTimeOffset = Duration.ofSeconds(-1L);
-        final int beginIndexOffset = -50;
-        final int endIndexOffset = -20;
+            // 3. Close and open publisher.
+            mPublisher.close();
+            EfsDispatcher.deregister(mPublisher);
+            mPublisher =
+                new TestPublisher(
+                    PUBLISHER_NAME, mTradeFile, sTestClock);
+            EfsDispatcher.register(mPublisher, AGENT_DISPATCHER);
+            mPublisher.open();
+            mPublisher.reset(sTestClock);
 
-        // [fixed time, fixed time]
-        EfsIntervalEndpoint beginEndpoint =
-            (EfsTimeEndpoint.builder())
-                .time(beginTime, Clusivity.INCLUSIVE)
-                .build();
-        EfsIntervalEndpoint endEndpoint =
-            (EfsTimeEndpoint.builder())
-                .time(endTime, Clusivity.INCLUSIVE)
-                .build();
-        EfsInterval interval =
-            (EfsInterval.builder()).beginning(beginEndpoint)
-                                   .ending(endEndpoint)
-                                   .build();
+            // 4. Have publisher post events.
+            mPublisher.postTrades(
+                mSymbol, runTime, publishFlag, doneSignal);
 
-        retrieveTrades(interval);
+            try
+            {
+                doneSignal.await(5L, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException interrupt)
+            {}
 
-        // (fixed time, fixed time)
-        beginEndpoint =
-            (EfsTimeEndpoint.builder())
-                .time(beginTime, Clusivity.EXCLUSIVE)
-                .build();
-        endEndpoint =
-            (EfsTimeEndpoint.builder())
-                .time(endTime, Clusivity.EXCLUSIVE)
-                .build();
-        interval =
-            (EfsInterval.builder()).beginning(beginEndpoint)
-                                   .ending(endEndpoint)
-                                   .build();
+            assertThat(exhaustAgent.tradesExhausted())
+                .isEqualTo(mPublisher.tradeCount());
 
-        retrieveTrades(interval);
+            // 5. Close, open, and initialize event file with
+            //    exhausted rows.
+            mTradeFile.close();
+            EfsDispatcher.deregister(mTradeFile);
+            mTradeFile =
+                builder.tableInitializer(exhaustAgent::onInitialize)
+                       .dispatcher(FILE_DISPATCHER)
+                       .clock(sTestClock)
+                       .build();
 
-        // [time offset, time offset]
-        beginEndpoint =
-            (EfsDurationEndpoint.builder())
-                .timeOffset(beginTimeOffset, Clusivity.INCLUSIVE)
-                .build();
-        endEndpoint =
-            (EfsDurationEndpoint.builder())
-                .timeOffset(endTimeOffset, Clusivity.INCLUSIVE)
-                .build();
-        interval =
-            (EfsInterval.builder()).beginning(beginEndpoint)
-                                   .ending(endEndpoint)
-                                   .build();
-
-        retrieveTrades(interval);
-
-        // (time offset, time offset)
-        beginEndpoint =
-            (EfsDurationEndpoint.builder())
-                .timeOffset(beginTimeOffset, Clusivity.EXCLUSIVE)
-                .build();
-        endEndpoint =
-            (EfsDurationEndpoint.builder())
-                .timeOffset(endTimeOffset, Clusivity.EXCLUSIVE)
-                .build();
-        interval =
-            (EfsInterval.builder()).beginning(beginEndpoint)
-                                   .ending(endEndpoint)
-                                   .build();
-
-        retrieveTrades(interval);
-
-        // [index offset, index offset]
-        beginEndpoint =
-            (EfsIndexEndpoint.builder())
-                .indexOffset(beginIndexOffset,
-                             Clusivity.INCLUSIVE)
-                .build();
-        endEndpoint =
-            (EfsIndexEndpoint.builder())
-                .indexOffset(endIndexOffset, Clusivity.INCLUSIVE)
-                .build();
-        interval =
-            (EfsInterval.builder()).beginning(beginEndpoint)
-                                   .ending(endEndpoint)
-                                   .build();
-
-        retrieveTrades(interval);
-
-        // (index offset, index offset)
-        beginEndpoint =
-            (EfsIndexEndpoint.builder())
-                .indexOffset(beginIndexOffset,
-                             Clusivity.EXCLUSIVE)
-                .build();
-        endEndpoint =
-            (EfsIndexEndpoint.builder())
-                .indexOffset(endIndexOffset, Clusivity.EXCLUSIVE)
-                .build();
-        interval =
-            (EfsInterval.builder()).beginning(beginEndpoint)
-                                   .ending(endEndpoint)
-                                   .build();
-
-        retrieveTrades(interval);
-    } // end of intervalTest()
-
-//    @Disabled
-    @Test
-    @DisplayName("tagged event add and retrieve test")
-    public void taggedEventTest()
-    {
-        // NOTE: all of the following arrays must be the same
-        // size.
-        final int[][] tags =
-        {
-            { 101 },
-            { 202, 303 },
-            { 101, 303}
-        };
-        final Decimal2f[] prices =
-        {
-            Decimal2f.valueOfUnscaled(234, 2),
-            Decimal2f.valueOfUnscaled(235, 2),
-            Decimal2f.valueOfUnscaled(235, 2),
-        };
-        final int[] sizes = { 400, 700, 500 };
-        final PriceTrend[] trends =
-        {
-            PriceTrend.ZERO_MINUS,
-            PriceTrend.UP,
-            PriceTrend.ZERO_PLUS
-        };
-        final int[] volumes = { 14_500, 15_200, 15_700 };
-        CountDownLatch doneSignal = new CountDownLatch(1);
-        final TagAgent agent =
-            new TagAgent(TAG_AGENT_NAME, mTradeFile, sTestClock);
-        int tag = 101;
-
-        EfsDispatcher.register(agent, AGENT_DISPATCHER);
-        agent.open();
-
-        // Retrieve on empty file.
-        agent.retrieve(tag, doneSignal);
-
-        try
-        {
-            doneSignal.await(5L, TimeUnit.SECONDS);
-        }
-        catch (InterruptedException interrupt)
-        {}
-
-        assertThat(agent.trades()).isEmpty();
-
-        // Post tagged trades to event file.
-        agent.postTrades(
-            mSymbol, tags, prices, sizes, trends, volumes);
-
-        // Retrieve trades with given tag.
-        doneSignal = new CountDownLatch(1);
-        agent.retrieve(tag, doneSignal);
-
-        try
-        {
-            doneSignal.await(5L, TimeUnit.SECONDS);
-        }
-        catch (InterruptedException interrupt)
-        {}
-
-        final List<EfsRow<TradeEvent>> trades = agent.trades();
-
-        assertThat(trades).hasSize(2);
-        validateRow(trades.get(0),
-                    tag,
-                    prices[0],
-                    sizes[0],
-                    trends[0],
-                    volumes[0]);
-        validateRow(trades.get(1),
-                    tag,
-                    prices[2],
-                    sizes[2],
-                    trends[2],
-                    volumes[2]);
-
-        // Now retrieve rows with an unknown tag.
-        tag = 404;
-        doneSignal = new CountDownLatch(1);
-        agent.retrieve(tag, doneSignal);
-
-        try
-        {
-            doneSignal.await(5L, TimeUnit.SECONDS);
-        }
-        catch (InterruptedException interrupt)
-        {}
-
-        assertThat(agent.trades()).isEmpty();
-
-        agent.close();
-    } // end of taggedEventTest()
-
-    @Test
-    @DisplayName("trigger event overflow on tag retrieval event delivery")
-    public void taggedEventRetrievalOverflow()
-    {
-        final int tag = 202;
-        final Decimal2f price =
-            Decimal2f.valueOfUnscaled(321, 2);
-        final TradeEvent trade =
-            (TradeEvent.builder()).symbol(mSymbol)
-                                  .price(price)
-                                  .size(500)
-                                  .priceTrend(PriceTrend.ZERO_MINUS)
-                                  .volume(123_700)
-                                  .build();
-        final TagRetrieveInternalEvent<TradeEvent> tagRetrieve =
-            new TagRetrieveInternalEvent<>(tag,
-                                           mTestAgent,
-                                           mTestAgent::onEvent,
-                                           mTestAgent::onDone);
-        final Set<Integer> tags = new TreeSet<>();
-        final long timeDelta = 10L;
-        final int numEvents = (EVENT_QUEUE_SIZE + 2);
-        final CountDownLatch continueSignal =
-            new CountDownLatch(1);
-        final CountDownLatch doneSignal = new CountDownLatch(1);
-        int index;
-        Instant timestamp = sTestClock.instant();
-        EfsRow<TradeEvent> row;
-
-        tags.add(tag);
-
-        mTestAgent.setContinueSignal(continueSignal);
-        mTestAgent.setDoneSignal(doneSignal);
-
-        for (index = 0; index < numEvents; ++index)
-        {
-            row = new EfsRow<>(timestamp, index, tags, trade);
-
-            tagRetrieve.postRow(row);
-
-            timestamp = timestamp.plusMillis(timeDelta);
-        }
-
-        continueSignal.countDown();
-
-        tagRetrieve.postCompletion(
-            timestamp, RETRIEVAL_COMPLETED);
-
-        try
-        {
-            doneSignal.await(5L, TimeUnit.SECONDS);
-        }
-        catch (InterruptedException interrupt)
-        {}
-    } // end of taggedEventRetrievalOverflow()
-
-    @Test
-    @DisplayName("trigger event overflow on retrieval complete delivery")
-    public void taggedEventRetrievalCompleteOverflow()
-    {
-        final int tag = 202;
-        final Decimal2f price =
-            Decimal2f.valueOfUnscaled(321, 2);
-        final TradeEvent trade =
-            (TradeEvent.builder()).symbol(mSymbol)
-                                  .price(price)
-                                  .size(500)
-                                  .priceTrend(PriceTrend.ZERO_MINUS)
-                                  .volume(123_700)
-                                  .build();
-        final TagRetrieveInternalEvent<TradeEvent> tagRetrieve =
-            new TagRetrieveInternalEvent<>(tag,
-                                           mTestAgent,
-                                           mTestAgent::onEvent,
-                                           mTestAgent::onDone);
-        final Set<Integer> tags = new TreeSet<>();
-        final long timeDelta = 10L;
-        final int numEvents = (EVENT_QUEUE_SIZE + 1);
-        final CountDownLatch continueSignal =
-            new CountDownLatch(1);
-        final CountDownLatch doneSignal = new CountDownLatch(1);
-        int index;
-        Instant timestamp = sTestClock.instant();
-        EfsRow<TradeEvent> row;
-
-        tags.add(tag);
-
-        mTestAgent.setContinueSignal(continueSignal);
-        mTestAgent.setDoneSignal(doneSignal);
-
-        for (index = 0; index < numEvents; ++index)
-        {
-            row = new EfsRow<>(timestamp, index, tags, trade);
-
-            tagRetrieve.postRow(row);
-
-            timestamp = timestamp.plusMillis(timeDelta);
-        }
-
-        tagRetrieve.postCompletion(
-            timestamp, RETRIEVAL_COMPLETED);
-
-        continueSignal.countDown();
-    } // end of taggedEventRetrievalCompleteOverflow()
-
-    @Test
-    @DisplayName("event and completion dispatch failure")
-    @SuppressWarnings({"unchecked"})
-    public void eventCompletionDispatchFailure()
-    {
-        final Decimal2f price =
-            Decimal2f.valueOfUnscaled(321, 2);
-        final TradeEvent trade =
-            (TradeEvent.builder()).symbol(mSymbol)
-                                  .price(price)
-                                  .size(500)
-                                  .priceTrend(PriceTrend.ZERO_MINUS)
-                                  .volume(123_700)
-                                  .build();
-        final Set<Integer> tags = ImmutableSet.of();
-        final int requestId = 12345;
-        final Retrieval<TradeEvent> request =
-            new Retrieval<>(requestId,
-                            mTestAgent.connection(),
-                            mTestAgent,
-                            sInterval,
-                            sAllQuery,
-                            mTestAgent::onEvent,
-                            mTestAgent::onDone);
-        final long timeDelta = 10L;
-        final int numEvents = (EVENT_QUEUE_SIZE + 2);
-        final CountDownLatch continueSignal =
-            new CountDownLatch(1);
-        final CountDownLatch doneSignal = new CountDownLatch(1);
-        int index;
-        Instant timestamp = sTestClock.instant();
-        EfsRow<TradeEvent> row;
-
-        mTestAgent.setContinueSignal(continueSignal);
-        mTestAgent.setDoneSignal(doneSignal);
-
-        for (index = 0; index < numEvents; ++index)
-        {
-            row = new EfsRow<>(timestamp, index, tags, trade);
-
-            request.postRow(row);
-
-            timestamp = timestamp.plusMillis(timeDelta);
-        }
-
-        request.doClose(timestamp,
-                        CompletionType.RETRIEVAL_COMPLETED);
-
-        continueSignal.countDown();
-    } // end of eventCompletionDispatchFailure()
+            assertThat(mTradeFile.rowCount())
+                .isEqualTo(mPublisher.tradeCount());
+        } // end of exhaustAndInitializeEventFile()
+    } // end of class EfsExhaustTests
 
     //
     // end of JUnit Tests.
@@ -1679,4 +2046,20 @@ public final class EfsFileTest
         assertThat(trade.getPriceTrend()).isEqualTo(pxTrend);
         assertThat(trade.getVolume()).isEqualTo(volume);
     } // end of validateRow(int, EfsRow<>)
+
+    private static <E extends IEfsEvent> EfsFile<E> createEventFile(final EfsTopicKey<E> key,
+                                                                    final IConnectionPolicy policy,
+                                                                    final String dispatcher,
+                                                                    final int maxConnections,
+                                                                    final int maxRetrievals)
+        throws EfsFileInitializationException
+    {
+        final EfsFile.Builder<E> builder = EfsFile.builder(key);
+
+        return (builder.dispatcher(dispatcher)
+                       .connectionPolicy(policy)
+                       .maxConnections(maxConnections)
+                       .maxRetrievals(maxRetrievals)
+                       .build());
+    } // end of createEventFile(EfsTopicKey<>, String)
 } // end of class EfsFileTest

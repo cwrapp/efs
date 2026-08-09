@@ -16,9 +16,11 @@
 
 package org.efs.bus;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import jakarta.annotation.Nullable;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -511,6 +513,36 @@ public class EfsEventBus
     public static final String UNREGISTERED_AGENT =
         "%s is not registered with a dispatcher";
 
+    /**
+     * A {@code null} clock results in a
+     * {@code NullPointerException} with message {@value}.
+     */
+    public static final String NULL_CLOCK = "clock is null";
+
+    /**
+     * Attempt to set event exhaust callback to {@code null}
+     * results in an {@code NullPointerException} with message
+     * {@value}.
+     */
+    public static final String NULL_EXHAUST_CB =
+        "exhaustCB is null";
+
+    /**
+     * Attempt to set event exhaust agent to {@code null}
+     * results in an {@code NullPointerException} with message
+     * {@value}.
+     */
+    public static final String NULL_EXHAUST_AGENT =
+        "exhaustAgent is null";
+
+    /**
+     * Attempt to create an already existing efs event bus
+     * results in an {@code IllegalStateException} with message
+     * {@value}.
+     */
+    public static final String BUS_PREVIOUSLY_CREATED =
+        "bus \"%s\" previously created";
+
     //-----------------------------------------------------------
     // Statics.
     //
@@ -520,6 +552,18 @@ public class EfsEventBus
      */
     private static final ConcurrentHashMap<String, EfsEventBus> sBuses =
         new ConcurrentHashMap<>();
+
+    /**
+     * Maps unique agent name to its logical clock used to
+     * generate logical (Lamport) timestamp.
+     */
+    private static final ConcurrentHashMap<String, AtomicLong> sLogicalClocks =
+        new ConcurrentHashMap<>();
+
+    /**
+     * Default system clock used by efs file instances.
+     */
+    private static final Clock sClock = Clock.systemUTC();
 
     /**
      * Logging subsystem interface.
@@ -555,6 +599,34 @@ public class EfsEventBus
      */
     private final List<WildcardAccessPoint<?>> mWildcards;
 
+    /**
+     * Clock used by this efs bus instance. Defaults to
+     * {@code Clock.systemUTC()}. This value may be changed for
+     * testing purposes.
+     *
+     * @see #setSystemClock(Clock)
+     */
+    private final AtomicReference<Clock> mClock;
+
+    /**
+     * If not {@code null}, then post newly added events to
+     * this consumer so it can store the row in persistent
+     * memory.
+     */
+    @Nullable
+    private final Consumer<EfsEnvelope> mExhaustCB;
+
+    /**
+     * Agent associated with {@link #mExhaustCB}.
+     */
+    @Nullable
+    private final IEfsAgent mExhaustAgent;
+
+    /**
+     * Forwards event envelope to exhaust agent.
+     */
+    private final Consumer<EfsEnvelope> mForwardExhaust;
+
     //
     // Metrics.
     //
@@ -586,12 +658,19 @@ public class EfsEventBus
     //
 
     /**
-     * Creates a new efs event bus instance with a given name.
-     * @param busName unique event bus name.
+     * Creates a new efs event bus instance based on builder
+     * settings. Note that builder settings are validated.
+     * @param builder contains event bus settings.
      */
-    private EfsEventBus(final String busName)
+    private EfsEventBus(final Builder builder)
     {
-        mBusName = busName;
+        mBusName = builder.mBusName;
+        mClock = new AtomicReference<>(builder.mClock);
+        mExhaustCB = builder.mExhaustCB;
+        mExhaustAgent = builder.mExhaustAgent;
+        mForwardExhaust = (mExhaustAgent == null ?
+                           this::doNoExhaust :
+                           this::doExhaust);
 
         mTopicMap = new ConcurrentHashMap<>();
         mTopicLock = new ReentrantLock(true);
@@ -618,6 +697,15 @@ public class EfsEventBus
     {
         return (mBusName);
     } // end of busName()
+
+    /**
+     * Returns current instant as per the current {@code Clock}.
+     * @return clock's current instant.
+     */
+    public Instant instant()
+    {
+        return ((mClock.get()).instant());
+    } // end of instant()
 
     /**
      * Returns current number of advertisements successfully
@@ -653,6 +741,47 @@ public class EfsEventBus
 
     //
     // end of Get Methods.
+    //-----------------------------------------------------------
+
+    //-----------------------------------------------------------
+    // Set Methods.
+    //
+
+    /**
+     * Sets system clock used to obtain {@code Instant} values,
+     * returning replaced system clock. This method is mainly
+     * used by unit tests to put a fixed clock in place. This
+     * allows for tests to always use the same time.
+     * <p style="background-color:#ffcccc;padding:5px;border: 2px solid darkred;">
+     * Note: setting this system clock affects all active
+     * {@code EfsFile} instances. This method is primarily
+     * provided for unit tests which need to control wall clock
+     * time for consistent test results. If used, that means that
+     * tests updating the system clock may <em>not</em> execute
+     * in parallel as these tests will impact the other and
+     * prevent consistent test results. Therefore when using this
+     * method in testing, parallel execution is discouraged.
+     * </p>
+     * <p>
+     * This method may also be used to replace the default
+     * {@code Clock.systemUTC()} with a proprietary clock. This
+     * should be during application start up.
+     * </p>
+     * @param clock replaces current system clock.
+     * @return replaced system clock.
+     * @throws NullPointerException
+     * if {@code clock} is {@code null}.
+     */
+    @VisibleForTesting
+    public Clock setSystemClock(final Clock clock)
+    {
+        Objects.requireNonNull(clock, NULL_CLOCK);
+
+        return (mClock.getAndSet(clock));
+    } // end of setSystemClock(Clock)
+
+    //
+    // end of Set Methods.
     //-----------------------------------------------------------
 
     /**
@@ -1066,7 +1195,7 @@ public class EfsEventBus
      */
     public <E extends IEfsEvent> Subscription<E> subscribe(final EfsTopicKey<E> topicKey,
                                                            final Consumer<EfsPublishStatus<E>> pscb,
-                                                           final Consumer<E> ecb,
+                                                           final Consumer<EfsEnvelope<E>> ecb,
                                                            final IEfsAgent subscriber)
     {
         return (subscribe(false, topicKey, pscb, ecb, subscriber));
@@ -1163,7 +1292,7 @@ public class EfsEventBus
      */
     public <E extends IEfsEvent> Subscription<E> subscribeInbox(final EfsTopicKey<E> topicKey,
                                                                 final Consumer<EfsPublishStatus<E>> pscb,
-                                                                final Consumer<E> ecb,
+                                                                final Consumer<EfsEnvelope<E>> ecb,
                                                                 final IEfsAgent subscriber)
     {
         return (subscribe(true, topicKey, pscb, ecb, subscriber));
@@ -1270,7 +1399,7 @@ public class EfsEventBus
     public <E extends IEfsEvent> WildcardSubscription<E> subscribeAll(final Class<E> eventClass,
                                                                       final String regexTopic,
                                                                       final Consumer<EfsPublishStatus<E>> pscb,
-                                                                      final Consumer<E> ecb,
+                                                                      final Consumer<EfsEnvelope<E>> ecb,
                                                                       final Consumer<EfsTopicKey<E>> topicUpdate,
                                                                       final IEfsAgent subscriber)
     {
@@ -1384,7 +1513,7 @@ public class EfsEventBus
     public <E extends IEfsEvent> WildcardSubscription<E> subscribeAllInbox(final Class<E> eventClass,
                                                                            final String regexTopic,
                                                                            final Consumer<EfsPublishStatus<E>> pscb,
-                                                                           final Consumer<E> ecb,
+                                                                           final Consumer<EfsEnvelope<E>> ecb,
                                                                            final Consumer<EfsTopicKey<E>> topicUpdate,
                                                                            final IEfsAgent subscriber)
     {
@@ -1440,7 +1569,7 @@ public class EfsEventBus
      * Note that unlike regular subscriptions, router
      * subscriptions do not require an event callback
      * ({@code ecb}) because event delivery is handled through
-     * the router's {@link IEventRouter#routeTo(IEfsEvent)}
+     * the router's {@link IEventRouter#routeTo(EfsEnvelope)}
      * method.
      * </p>
      * <p style="background-color:#ffcccc;padding:5px;border: 2px solid darkred;">
@@ -1539,15 +1668,17 @@ public class EfsEventBus
 
     /**
      * Returns efs event bus associated with the given name. If
-     * there is no such event bus for given name, then a new
-     * event bus is constructed for that name.
+     * there is no such event bus for given name, then returns
+     * {@code null}.
      * @param busName bus name. Must be unique within JVM.
-     * @return event bus for given name.
+     * @return event bus for given name or {@code null} if no
+     * such named bus currently exists.
      * @throws IllegalArgumentException
      * if {@code busName} is either {@code null}, an empty
      * string, or blank.
      */
-    public static EfsEventBus findOrCreateBus(final String busName)
+    @Nullable
+    public static EfsEventBus findBus(final String busName)
     {
         if (Strings.isNullOrEmpty(busName) || busName.isBlank())
         {
@@ -1555,10 +1686,28 @@ public class EfsEventBus
                 new IllegalArgumentException(INVALID_BUS_NAME));
         }
 
-        return (
-            sBuses.computeIfAbsent(
-                busName, n -> new EfsEventBus(busName)));
-    } // end of createBus(String)
+        return (sBuses.get(busName));
+    } // end of findBus(String)
+
+    /**
+     * Returns an efs event bus builder for given bus name. This
+     * builder is used to create a new event bus instance.
+     * @param busName bus name. Must be unique within JVM.
+     * @return efs event bus builder instance.
+     * @throws IllegalArgumentException
+     * if {@code busName} is either {@code null}, an empty
+     * string, or blank.
+     */
+    public static Builder builder(final String busName)
+    {
+        if (Strings.isNullOrEmpty(busName) || busName.isBlank())
+        {
+            throw (
+                new IllegalArgumentException(INVALID_BUS_NAME));
+        }
+
+        return (new Builder(busName));
+    } // end of builder(String)
 
     /**
      * Performs the actual work of adding a topic key to the
@@ -1586,7 +1735,7 @@ public class EfsEventBus
         {
             // No. Add topic key and then find all matching
             // wildcard advertisements and subscriptions.
-            retval = new TopicFeed<>(topicKey);
+            retval = new TopicFeed<>(this, topicKey);
             mTopicMap.put(topicKey, retval);
             findMatchingWildcardAccess(topicKey);
         }
@@ -1621,7 +1770,7 @@ public class EfsEventBus
     private <E extends IEfsEvent> Subscription<E> subscribe(final boolean isInBox,
                                                             final EfsTopicKey<E> topicKey,
                                                             final Consumer<EfsPublishStatus<E>> pscb,
-                                                            final Consumer<E> ecb,
+                                                            final Consumer<EfsEnvelope<E>> ecb,
                                                             final IEfsAgent subscriber)
     {
         final Subscription<E> retval;
@@ -1701,7 +1850,7 @@ public class EfsEventBus
                                                                        final String regexTopic,
                                                                        final boolean isInBox,
                                                                        final Consumer<EfsPublishStatus<E>> pscb,
-                                                                       final Consumer<E> ecb,
+                                                                       final Consumer<EfsEnvelope<E>> ecb,
                                                                        final Consumer<EfsTopicKey<E>> topicUpdate,
                                                                        final IEfsAgent subscriber)
     {
@@ -1826,9 +1975,202 @@ public class EfsEventBus
         }
     } // end of findMatchingWildcardAccess(EfsTopicKey)
 
+    /**
+     * If there is an exhaust agent in place, then forwards given
+     * event exhaust agent and callback.
+     * @param <E> efs event type.
+     * @param event exhaust this event.
+     */
+    private <E extends IEfsEvent> void exhaust(final EfsEnvelope<E> event)
+    {
+        mForwardExhaust.accept(event);
+    } // end of exhaust(EfsEnvelope<>)
+
+    /**
+     * There is no configured exhaust agent, so do nothing.
+     * @param <E> efs event type.
+     * @param event exhaust this event.
+     */
+    // This method deliberately does nothing with its parameter.
+    @SuppressWarnings({"java:S1186", "unused"})
+    private <E extends IEfsEvent> void doNoExhaust(final EfsEnvelope<E> event)
+    {}
+
+    /**
+     * Forward event envelope to exhaust agent.
+     * @param <E> efs event type.
+     * @param event exhaust this event.
+     */
+    private <E extends IEfsEvent> void doExhaust(final EfsEnvelope<E> event)
+    {
+        // Yes, forward the event to the exhaust agent's
+        // callback.
+        try
+        {
+            EfsDispatcher.dispatch(
+                mExhaustCB, event, mExhaustAgent);
+        }
+        catch (Exception jex)
+        {
+            sLogger.warn(
+                "{}: failed to dispatch event [publister={}, timestamp={}, logical timestamp={}] to exhaust agent",
+                mBusName,
+                (event.publisher()).name(),
+                event.publishTimestamp(),
+                event.logicalTimestamp());
+        }
+    } // end of doExhaust(EfsEnvelope<>)
+
 //---------------------------------------------------------------
 // Inner classes.
 //
+
+    /**
+     * Configures and creates a new event bus instance.
+     * The builder allows callers to provide a custom clock and
+     * optional event-exhaust callbacks before constructing the
+     * bus. Each bus name must be unique within the JVM; creating
+     * a second bus with the same name results in an
+     * {@link IllegalStateException}.
+     */
+    public static final class Builder
+    {
+    //-----------------------------------------------------------
+    // Member data.
+    //
+
+        //-------------------------------------------------------
+        // Locals.
+        //
+
+        /**
+         * JVM-unique event bus name.
+         */
+        private final String mBusName;
+
+        /**
+         * Clock used to acquire current instant. Initialized to
+         * {@link #sClock}. Should be overridden only for testing
+         * purposes.
+         */
+        private Clock mClock;
+
+        /**
+         * If not {@code null}, then newly added rows are
+         * forwarded to this consumer callback for persistence.
+         *
+         * @see #mExhaustAgent
+         */
+        @Nullable private Consumer<EfsEnvelope> mExhaustCB;
+
+        /**
+         * Agent responsible for persisting newly added rows.
+         *
+         * @see #mExhaustCB
+         */
+        @Nullable private IEfsAgent mExhaustAgent;
+
+    //-----------------------------------------------------------
+    // Member methods.
+    //
+
+        //-------------------------------------------------------
+        // Constructors.
+        //
+
+        private Builder(final String busName)
+        {
+            mBusName = busName;
+            mClock = sClock;
+        } // end of Builder(String)
+
+        //
+        // end of Constructors.
+        //-------------------------------------------------------
+
+        //-------------------------------------------------------
+        // Set Methods.
+        //
+
+        /**
+         * Sets clock used by efs event file. Provided for unit
+         * testing purposes only.
+         * @param clock event file clock providing current
+         * {@code Instant}.
+         * @return {@code this Builder} instance.
+         * @throws NullPointerException
+         * if {@code clock} is {@code null}.
+         */
+        @VisibleForTesting
+        public Builder clock(final Clock clock)
+        {
+            mClock = Objects.requireNonNull(clock, NULL_CLOCK);
+
+            return (this);
+        } // end of clock(Clock)
+
+        /**
+         * Sets efs event exhaust callback and agent to given
+         * values. This pair is used to exhaust newly published
+         * events to persistent store.
+         * @param exhaustCB method used to persist given row.
+         * @param exhaustAgent agent performing event row
+         * persistence.
+         * @return {@code this Builder} instance.
+         * @throws NullPointerException
+         * if either {@code exhaustCB} or {@code exhaustAgent} is
+         * {@code null}.
+         */
+        public Builder eventExhaust(final Consumer<EfsEnvelope> exhaustCB,
+                                    final IEfsAgent exhaustAgent)
+        {
+            Objects.requireNonNull(exhaustCB, NULL_EXHAUST_CB);
+            Objects.requireNonNull(
+                exhaustAgent, NULL_EXHAUST_AGENT);
+
+            mExhaustCB = exhaustCB;
+            mExhaustAgent = exhaustAgent;
+
+            return (this);
+        } // end of eventExhaust(Consumer<>, IEfsAgent)
+
+        //
+        // end of Set Methods.
+        //-------------------------------------------------------
+
+        /**
+         * Returns a new efs event bus instance based on builder
+         * settings.
+         * @return newly created efs event bus.
+         * @throws IllegalStateException
+         * if there already exists an event bus with the
+         * given bus name.
+         */
+        public EfsEventBus build()
+        {
+            final EfsEventBus retval;
+
+            synchronized (sBuses)
+            {
+                // Is there an efs event bus for this name
+                // already?
+                if (sBuses.containsKey(mBusName))
+                {
+                    // Yes. Must be unique within the JVM.
+                    throw (
+                        new IllegalStateException(
+                            String.format(
+                                BUS_PREVIOUSLY_CREATED,
+                                mBusName)));
+                }
+
+                retval = new EfsEventBus(this);
+                sBuses.put(mBusName, retval);
+            }
+
+            return (retval);
+        } // end of build()
+    } // end of class Builder<E extends IEfsEvent>
 
     /**
      * Tracks publishers and subscribers for a given topic key.
@@ -1847,6 +2189,11 @@ public class EfsEventBus
         //-------------------------------------------------------
         // Locals.
         //
+
+        /**
+         * Event bus owning this topic feed.
+         */
+        private final EfsEventBus mBus;
 
         /**
          * This unique topic.
@@ -1892,17 +2239,20 @@ public class EfsEventBus
         /**
          * Creates a new topic information instance for given
          * event class+topic key.
+         * @param bus event bus owning this topic key.
          * @param topicKey event class+topic key.
          */
-        private TopicFeed(final EfsTopicKey<E> topicKey)
+        private TopicFeed(final EfsEventBus bus,
+                          final EfsTopicKey<E> topicKey)
         {
+            mBus = bus;
             mTopicKey = topicKey;
             mPublishers = new ConcurrentHashMap<>();
             mAdvertisedPublishers = new AtomicInteger();
             mActivePublishers = new AtomicInteger();
             mSubscribers =
                 new AtomicReference<>(ImmutableList.of());
-        } // end of TopicInfo(EfsTopicKey)
+        } // end of TopicInfo(EfsEventBus, EfsTopicKey)
 
         //
         // end of Constructors.
@@ -1949,6 +2299,8 @@ public class EfsEventBus
                                            final IEfsAgent publisher)
         {
             final String pubName = publisher.name();
+            final AtomicLong logicalClock =
+                logicalClock(pubName);
             final Advertisement<E> retval;
 
             if (mPublishers.containsKey(pubName))
@@ -1962,7 +2314,11 @@ public class EfsEventBus
             }
 
             // Add publisher to advertised publishers map.
-            retval = new Advertisement<>(this, publisher, sscb);
+            retval = new Advertisement<>(mBus,
+                                         this,
+                                         publisher,
+                                         logicalClock,
+                                         sscb);
             mPublishers.put(pubName, retval);
             mAdvertisedPublishers.incrementAndGet();
 
@@ -1998,7 +2354,7 @@ public class EfsEventBus
                 if (ad.markUnpublished())
                 {
                     // Make sure active publisher count is not
-                    // decremented more ofter than incremented.
+                    // negative.
                     mActivePublishers.updateAndGet(
                         n -> (n > 0 ? (n - 1) : n));
                 }
@@ -2023,17 +2379,21 @@ public class EfsEventBus
          */
         private Subscription<E> subscribe(final boolean isInBox,
                                           final Consumer<EfsPublishStatus<E>> pscb,
-                                          final Consumer<E> ecb,
+                                          final Consumer<EfsEnvelope<E>> ecb,
                                           final IEfsAgent subscriber)
         {
+            final AtomicLong logicalClock =
+                logicalClock(subscriber.name());
             final Subscription<E> retval =
                 (isInBox ?
                  new InboxSubscription<>(this,
                                          subscriber,
+                                         logicalClock,
                                          pscb,
                                          ecb) :
                  new ConcreteSubscription<>(this,
                                             subscriber,
+                                            logicalClock,
                                             pscb,
                                             ecb));
 
@@ -2056,10 +2416,13 @@ public class EfsEventBus
                                           final IEfsAgent subscriber,
                                           final IEventRouter<E> router)
         {
+            final AtomicLong logicalClock =
+                logicalClock(subscriber.name());
             final Subscription<E> retval =
                 new RouterSubscription<>(this,
-                                         pscb,
                                          subscriber,
+                                         logicalClock,
+                                         pscb,
                                          router);
 
             subscribe(retval);
@@ -2124,18 +2487,11 @@ public class EfsEventBus
                         new ArrayList<>(current);
                     final List<Subscription<E>> retval;
 
-                    // Is subscription in the list?
-                    if (subs.remove(sub))
-                    {
-                        // Yes. Create a new immutable list from
-                        // updated list.
-                        retval = ImmutableList.copyOf(subs);
-                    }
-                    // No. Keep the current list in place.
-                    else
-                    {
-                        retval = current;
-                    }
+                    // Remove this subscription from
+                    // subscriptions list and create new,
+                    // immutable list.
+                    subs.remove(sub);
+                    retval = ImmutableList.copyOf(subs);
 
                     return (retval);
                 });
@@ -2264,7 +2620,7 @@ public class EfsEventBus
          * in subscribers list.
          * @param event dispatch this event.
          */
-        private void forwardEvent(final E event)
+        private void forwardEvent(final EfsEnvelope<E> event)
         {
             (mSubscribers.get()).forEach(
                 s -> s.forwardEvent(event));
@@ -2289,12 +2645,21 @@ public class EfsEventBus
             return (
                 builder.topicKey(mTopicKey)
                        .advertisedPublishers(advertisedPubs)
-                       .activePublishers(
-                           (activePubs > advertisedPubs) ?
-                           advertisedPubs :
-                           activePubs)
+                       .activePublishers(activePubs)
                        .build());
         } // end of generatePublishStatus()
+
+        /**
+         * Returns logical clock associated with efs agent name.
+         * @param agentName efs agent name.
+         * @return logical clock.
+         */
+        private AtomicLong logicalClock(final String agentName)
+        {
+            return (
+                sLogicalClocks.computeIfAbsent(
+                    agentName, t -> new AtomicLong()));
+        } // end of logicalClock(String)
     } // end of class TopicFeed
 
     /**
@@ -2330,6 +2695,11 @@ public class EfsEventBus
          * for a {@code RouterSubscription}.
          */
         protected final IEfsAgent mAgent;
+
+        /**
+         * Agent logical clock.
+         */
+        protected final AtomicLong mLogicalClock;
 
         /**
          * Set to {@code true} if access point is active and
@@ -2370,18 +2740,21 @@ public class EfsEventBus
          * agent.
          * @param topic topic feed.
          * @param agent publisher or subscriber agent.
+         * @param logicalClock agent logical clock.
          */
         private AccessPoint(final TopicFeed<E> topic,
-                            final IEfsAgent agent)
+                            final IEfsAgent agent,
+                            final AtomicLong logicalClock)
         {
             mTopic = topic;
             mAgent = agent;
+            mLogicalClock = logicalClock;
 
             mActive = new AtomicBoolean(true);
             mPubStatus = new AtomicBoolean();
             mEventCount = new LongAdder();
             mLatestEvent = new AtomicLong();
-        } // end of AbstractFeed<>(TopicFeed, IEfsAgent)
+        } // end of AbstractFeed<>(...)
 
         //
         // end of Constructors.
@@ -2471,9 +2844,8 @@ public class EfsEventBus
     } // end of class AbstractFeedAccess
 
     /**
-     * An advertisement is an publishing agent's access point to
-     * a event class+topic feed. Publisher uses this
-     * advertisement to:
+     * Represents a publishing agent's access point to a concrete
+     * topic feed. A publisher uses this advertisement to:
      * <ol>
      *   <li>
      *     {@link #publishStatus(boolean) Set the publisher's event publishing status}.
@@ -2485,8 +2857,7 @@ public class EfsEventBus
      *   <li>
      *     {@link #publish(IEfsEvent)  Publish events} to extant
      *     subscribers. Doing so requires this advertisement to
-           be 1) open, 2) publish status is {@code true}, and 3)
-     *     there are subscribers to this topic.
+           be 1) open and 2) publish status is {@code true}.
      *   </li>
      * </ol>
      * Once an advertisement is {@link #close() closed}, it
@@ -2500,7 +2871,7 @@ public class EfsEventBus
      * subscription status since that is independent of
      * advertisements.
      *
-     * @param <E> event class
+     * @param <E> efs event class
      */
     public static final class Advertisement<E extends IEfsEvent>
         extends AccessPoint<E>
@@ -2512,6 +2883,11 @@ public class EfsEventBus
         //-------------------------------------------------------
         // Locals.
         //
+
+        /**
+         * This advertisement belongs to this event bus.
+         */
+        private final EfsEventBus mBus;
 
         /**
          * Dispatcher {@code EfsSubscribeStatus} events to this
@@ -2531,18 +2907,23 @@ public class EfsEventBus
          * Creates a new advertisement instance containing topic
          * feed, publishing agent, and subscription status event
          * callback.
+         * @param bus event bus owning this advertisement.
          * @param topic topic feed.
          * @param publisher publishing agent.
+         * @param logicalClock agent logical clock.
          * @param sscb subscription status event callback.
          */
-        private Advertisement(final TopicFeed<E> topic,
+        private Advertisement(final EfsEventBus bus,
+                              final TopicFeed<E> topic,
                               final IEfsAgent publisher,
+                              final AtomicLong logicalClock,
                               final Consumer<EfsSubscribeStatus<E>> sscb)
         {
-            super (topic, publisher);
+            super (topic, publisher, logicalClock);
 
+            mBus = bus;
             mStatusCallback = sscb;
-        } // end of Advertisement(TopicInfo, IEfsAgent)
+        } // end of Advertisement(...)
 
         //
         // end of Constructors.
@@ -2611,6 +2992,10 @@ public class EfsEventBus
          * If given publishing status is different than current
          * status, then all extant subscribers are informed of
          * this change.
+         * <p>
+         * While this publishing status is {@code false}, the
+         * agent will not be allowed to publish events.
+         * </p>
          * @param pubStatus active publishing status.
          * @throws IllegalStateException
          * if this advertisement is closed.
@@ -2644,7 +3029,16 @@ public class EfsEventBus
         } // end of publishStatus(boolean)
 
         /**
-         * Publishes given event to all extant subscribers.
+         * Publishes given event to all extant subscribers. This
+         * is allowed only when:
+         * <ul>
+         *   <li>
+         *     this advertisement is open and
+         *   </li>
+         *   <li>
+         *     the publish status is {@code true}.
+         *   </li>
+         * </ul>
          * @param event forward this event to subscribers.
          * @throws NullPointerException
          * if {@code event} is {@code null}.
@@ -2662,6 +3056,9 @@ public class EfsEventBus
          */
         public void publish(final E event)
         {
+            final Instant pubTimestamp = mBus.instant();
+            final EfsEnvelope<E> envelope;
+
             Objects.requireNonNull(event, NULL_EVENT);
 
             // Is this advertisement still open?
@@ -2685,9 +3082,19 @@ public class EfsEventBus
 
             // Everything checks out. Cleared to send event to
             // subscribers - even if there are no subscribers.
-            mTopic.forwardEvent(event);
+            envelope =
+                new EfsEnvelope<>(mBus.busName(),
+                                  pubTimestamp,
+                                  mAgent,
+                                  mLogicalClock.getAndIncrement(),
+                                  event);
+            mTopic.forwardEvent(envelope);
             mLatestEvent.set(System.currentTimeMillis());
             mEventCount.increment();
+
+            // If there is an exhaust agent in place, forward
+            // the event to it.
+            mBus.exhaust(envelope);
 
             sLogger.trace("{} published {} event {} at {}.",
                           mAgent.name(),
@@ -2704,7 +3111,7 @@ public class EfsEventBus
          * if not.
          * @return {@code true} if advertisement was published.
          */
-        private final boolean markUnpublished()
+        private boolean markUnpublished()
         {
             return (mPubStatus.compareAndSet(true, false));
         } // end of markUnpublished()
@@ -2725,8 +3132,12 @@ public class EfsEventBus
     } // end of class Advertisement
 
     /**
-     * Abstract base class for concrete, inbox, and router
-     * subscriptions. Defines {@code AutoCloseable.close} method.
+     * Base class for subscriptions concrete topic subscriptions,
+     * inbox subscriptions, and event router subscriptions. From
+     * an agent perspective, the only operation which may be
+     * performed on a subscription is to {@link #close() close}
+     * it.
+     *
      * @param <E> efs event class.
      */
     public abstract static class Subscription<E extends IEfsEvent>
@@ -2749,12 +3160,14 @@ public class EfsEventBus
          * subscribing agent.
          * @param topic subscription is for this topic.
          * @param subscriber agent placing this subscription.
+         * @param logicalClock agent logical clock.
          */
         protected Subscription(final TopicFeed<E> topic,
-                               final IEfsAgent subscriber)
+                               final IEfsAgent subscriber,
+                               final AtomicLong logicalClock)
         {
-            super (topic, subscriber);
-        } // end of AbstractSubscription(TopicInfo)
+            super (topic, subscriber, logicalClock);
+        } // end of AbstractSubscription(...)
 
         //
         // end of Constructors.
@@ -2776,7 +3189,7 @@ public class EfsEventBus
          * @param event dispatch this event to subscribing agent
          * and callback.
          */
-        protected abstract void forwardEvent(final E event);
+        protected abstract void forwardEvent(final EfsEnvelope<E> event);
 
         //
         // end of Abstract Method Declarations.
@@ -2841,7 +3254,7 @@ public class EfsEventBus
         /**
          * Dispatch event to this callback.
          */
-        protected final Consumer<E> mCallback;
+        protected final Consumer<EfsEnvelope<E>> mCallback;
 
     //-----------------------------------------------------------
     // Member methods.
@@ -2856,15 +3269,17 @@ public class EfsEventBus
          * key with given callback and agent.
          * @param topic subscription topic.
          * @param subscriber dispatch events to this agent.
+         * @param logicalClock agent logical clock.
          * @param pscb forwardEvent status event callback.
          * @param ecb dispatch events to this callback.
          */
         private ConcreteSubscription(final TopicFeed<E> topic,
                                      final IEfsAgent subscriber,
+                                     final AtomicLong logicalClock,
                                      final Consumer<EfsPublishStatus<E>> pscb,
-                                     final Consumer<E> ecb)
+                                     final Consumer<EfsEnvelope<E>> ecb)
         {
-            super (topic, subscriber);
+            super (topic, subscriber, logicalClock);
 
             mPublishStatusCallback = pscb;
             mCallback = ecb;
@@ -2895,10 +3310,18 @@ public class EfsEventBus
          * @param event dispatch this event to subscriber.
          */
         @Override
-        protected void forwardEvent(final E event)
+        protected void forwardEvent(final EfsEnvelope<E> event)
         {
+            final long agentTimestamp = mLogicalClock.get();
+            final long eventTimestamp = event.logicalTimestamp();
+
             // Note: EfsDispatcher.dispatch arguments validated
-            // previously
+            // previously.
+            // Update agent logical clock based on agent and
+            // event timestamps.
+            mLogicalClock.set(
+                Math.max(agentTimestamp, eventTimestamp) + 1L);
+
             EfsDispatcher.dispatch(mCallback, event, mAgent);
         } // end of forwardEvent(E)
 
@@ -2929,7 +3352,7 @@ public class EfsEventBus
          * Forward events to subscriber using this conflation
          * event.
          */
-        private final ConflationEvent<E> mInbox;
+        private final ConflationEvent<EfsEnvelope<E>> mInbox;
 
     //-----------------------------------------------------------
     // Member methods.
@@ -2944,15 +3367,17 @@ public class EfsEventBus
          * with given event callback and subscription agent.
          * @param topic subscription topic.
          * @param subscriber dispatch events to this agent.
+         * @param logicalClock agent logical clock.
          * @param pscb forwardEvent status event callback.
          * @param ecb dispatch events to this callback.
          */
         private InboxSubscription(final TopicFeed<E> topic,
                                   final IEfsAgent subscriber,
+                                  final AtomicLong logicalClock,
                                   final Consumer<EfsPublishStatus<E>> pscb,
-                                  final Consumer<E> ecb)
+                                  final Consumer<EfsEnvelope<E>> ecb)
         {
-            super (topic, subscriber, pscb, ecb);
+            super (topic, subscriber, logicalClock, pscb, ecb);
 
             mInbox = new ConflationEvent<>();
         } // end of InboxSubscription(...)
@@ -2973,7 +3398,7 @@ public class EfsEventBus
          * @param event place event inside inbox.
          */
         @Override
-        protected void forwardEvent(final E event)
+        protected void forwardEvent(final EfsEnvelope<E> event)
         {
             // Is this inbox event already on the agent's
             // queue?
@@ -2983,12 +3408,24 @@ public class EfsEventBus
                 EfsDispatcher.dispatch(
                     () ->
                     {
-                        final E latestEvent = mInbox.poll();
+                        final EfsEnvelope<E> latestEvent =
+                            mInbox.poll();
 
                         // Make sure there is an event to
                         // deliver.
                         if (latestEvent != null)
                         {
+                            final long agentTimestamp =
+                                mLogicalClock.get();
+                            final long eventTimestamp =
+                                latestEvent.logicalTimestamp();
+
+                            // Update agent logical clock based
+                            // on agent and event timestamps.
+                            mLogicalClock.set(
+                                Math.max(agentTimestamp,
+                                         eventTimestamp) + 1L);
+
                             mCallback.accept(latestEvent);
                         }
                     },
@@ -3043,14 +3480,17 @@ public class EfsEventBus
          * subscriber, and subscription agent.
          * @param topic subscription topic key.
          * @param subscriber agent placing this subscription.
+         * @param logicalClock agent logical clock.
+         * @param pscb forwardEvent status event callback.
          * @param router event router.
          */
         private RouterSubscription(final TopicFeed<E> topic,
-                                   final Consumer<EfsPublishStatus<E>> pscb,
                                    final IEfsAgent subscriber,
+                                   final AtomicLong logicalClock,
+                                   final Consumer<EfsPublishStatus<E>> pscb,
                                    final IEventRouter<E> router)
         {
-            super (topic, subscriber);
+            super (topic, subscriber, logicalClock);
 
             mPublishStatusCallback = pscb;
             mRouter = router;
@@ -3065,10 +3505,10 @@ public class EfsEventBus
         //
 
         /**
-         * Has event router dispatch given forwardEvent status event
-to all its subordinate targets.
-         * @param pse dispatch this forwardEvent status event to all
-router targets.
+         * Has event router dispatch given forwardEvent status
+         * event to all its subordinate targets.
+         * @param pse dispatch this forwardEvent status event to
+         * all router targets.
          */
         @Override
         protected void forwardPublishStatus(final EfsPublishStatus<E> pse)
@@ -3085,12 +3525,12 @@ router targets.
          * callback specified by event router.
          */
         @Override
-        protected void forwardEvent(E event)
+        protected void forwardEvent(EfsEnvelope<E> event)
         {
             // Protect against router throwning an exception.
             try
             {
-                final EfsDispatchTarget<E> target =
+                final EfsDispatchTarget<EfsEnvelope<E>> target =
                     mRouter.routeTo(event);
 
                 if (target != null)
@@ -3178,6 +3618,17 @@ router targets.
         // Constructors.
         //
 
+        /**
+         * Base class for wildcard advertisement and subscription
+         * classes.
+         * @param eventClass topic event class.
+         * @param wildcardTopic uncompiled topic regular
+         * expression.
+         * @param pattern compiled topic regular expression.
+         * @param topicUpdate new topic key update callback.
+         * @param agent agent placing this wildcard
+         * subscription.
+         */
         protected WildcardAccessPoint(final Class<E> eventClass,
                                       final String wildcardTopic,
                                       final Pattern pattern,
@@ -3309,10 +3760,12 @@ router targets.
     } // end of class WildcardAccessPoint<E extends IEfsEvent>
 
     /**
-     * Track concrete advertisements created when new topics for
-     * given event class are introduced to event bus. These
-     * advertisements are automatically closed when wildcard
-     * advertisement is closed.
+     * Tracks concrete advertisements created for topics that
+     * match a wildcard topic pattern. Each time a new concrete
+     * topic is discovered for the matching event class, the bus
+     * creates an advertisement for that topic and registers it
+     * with this object. Closing the wildcard advertisement
+     * closes all concrete advertisements it created.
      *
      * @param <E> efs event class.
      */
@@ -3520,10 +3973,13 @@ router targets.
     } // end of class WildcardAdvertisement
 
     /**
-     * Tracks concrete subscriptions created when new topics
-     * for given event class are introduced to event bus. These
-     * subscriptions are automatically closed when wildcard
-     * subscription is closed.
+     * Tracks concrete subscriptions created for topics that
+     * match a wildcard topic pattern. Each time a new concrete
+     * topic is discovered for the matching event class, the bus
+     * creates a concrete, inbox, or router subscription for that
+     * topic and registers it with this object. Closing the
+     * wildcard subscription closes all concrete subscriptions it
+     * created.
      *
      * @param <E> efs event class
      */
@@ -3552,7 +4008,7 @@ router targets.
         /**
          * Dispatch event to this callback.
          */
-        private final Consumer<E> mCallback;
+        private final Consumer<EfsEnvelope<E>> mCallback;
 
         /**
          * Subscriptions created when wildcard topic matches
@@ -3594,7 +4050,7 @@ router targets.
                                      final IEfsAgent agent,
                                      final boolean isInbox,
                                      final Consumer<EfsPublishStatus<E>> pscb,
-                                     final Consumer<E> callback)
+                                     final Consumer<EfsEnvelope<E>> callback)
         {
             super (eventClass,
                    wildcardTopic,

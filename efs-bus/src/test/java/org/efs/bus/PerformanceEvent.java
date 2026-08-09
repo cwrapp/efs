@@ -53,7 +53,7 @@ public final class PerformanceEvent
     /**
      * Used by reply ponger.
      */
-    @Nullable public final EfsDispatchTarget<PerformanceEvent> reply;
+    @Nullable public final EfsDispatchTarget<EfsEnvelope<PerformanceEvent>> reply;
 
 //---------------------------------------------------------------
 // Member methods.
@@ -65,7 +65,7 @@ public final class PerformanceEvent
 
     public PerformanceEvent(final int index,
                             final long nanotime,
-                            @Nullable final EfsDispatchTarget<PerformanceEvent> reply)
+                            @Nullable final EfsDispatchTarget<EfsEnvelope<PerformanceEvent>> reply)
     {
         this.index = index;
         this.nanotime = nanotime;

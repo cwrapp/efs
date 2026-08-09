@@ -9,6 +9,7 @@
     </layout>
   </appender>
 
+  <!-- Set to INFO when running performance tests. -->
   <root level="DEBUG">
     <appender-ref ref="CONSOLE"/>
   </root>

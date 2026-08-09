@@ -74,10 +74,11 @@ public final class EfsDurationEndpoint
     //
 
     @Override
-    public boolean isFuture(final Instant now)
+    public boolean isFuture(final long nextIndex,
+                            final Instant now)
     {
         return (mTimeOffset.compareTo(Duration.ZERO) >= 0);
-    } // end of isFuture(Instant)
+    } // end of isFuture(long, Instant)
 
     //
     // end of Abstract Method Implementations.

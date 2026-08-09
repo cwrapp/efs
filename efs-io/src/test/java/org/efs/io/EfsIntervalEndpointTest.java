@@ -16,6 +16,7 @@
 
 package org.efs.io;
 
+import java.time.Instant;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import org.efs.io.EfsIntervalEndpoint.Clusivity;
 import org.efs.io.EfsIntervalEndpoint.IntervalLocation;
@@ -76,11 +77,13 @@ public final class EfsIntervalEndpointTest
     @Test
     public void compareEndpointsTest()
     {
+        final Instant now = Instant.now();
         final EfsTimeEndpoint timeEp =
-            (EfsTimeEndpoint.builder()).now(Clusivity.EXCLUSIVE)
-                                       .build();
-        final EfsIndexEndpoint indexEp =
-            (EfsIndexEndpoint.builder()).now(Clusivity.INCLUSIVE)
+            (EfsTimeEndpoint.builder(now))
+                .now(Clusivity.EXCLUSIVE)
+                .build();
+        final EfsIndexOffsetEndpoint indexEp =
+            (EfsIndexOffsetEndpoint.builder()).now(Clusivity.INCLUSIVE)
                                         .build();
 
         assertThat(EfsIntervalEndpoint.compareEndpoints(timeEp,

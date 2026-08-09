@@ -246,52 +246,68 @@ public abstract class AbstractTestAgent
     {
         final Duration runTime =
             Duration.between(mStartTime, mStopTime);
-        final Formatter output = new Formatter();
+        ;
         final int median = (mEventCount / 2);
         final int p75 = (int) (mEventCount * .75d);
         final int p90 = (int) (mEventCount * .9d);
         final int p95 = (int) (mEventCount * .95d);
         final int p99 = (int) (mEventCount * .99d);
+        final int p999 = (int) (mEventCount * .999d);
+        final int p9999 = (int) (mEventCount * .9999d);
         final long[] latencies = calculateLatency();
         int i;
+        final String retval;
 
-        output.format("%n%s:%nRun time: %s%n%n",
-                      mAgentName,
-                      formatDuration(runTime));
-
-        output.format("Messages received: %,d%n", mEventCount);
-        output.format("Latency:%n");
-        output.format(
-            "       minimum= %,11d nanoseconds%n", mMinLatency);
-        output.format(
-            "        median= %,11d nanoseconds.%n",
-            latencies[median]);
-        output.format(
-            "       average= %,11d nanoseconds.%n",
-            mAverageLatency);
-        output.format(
-            "75%% percentile= %,11d nanoseconds%n",
-            latencies[p75]);
-        output.format(
-            "90%% percentile= %,11d nanoseconds%n",
-            latencies[p90]);
-        output.format(
-            "95%% percentile= %,11d nanoseconds%n",
-            latencies[p95]);
-        output.format(
-            "99%% percentile= %,11d nanoseconds%n",
-            latencies[p99]);
-        output.format(
-            "       maximum= %,11d nanoseconds.%n%n",
-            mMaxLatency);
-
-        output.format("Time intervals:%n");
-        for (i = 0; i < BUCKET_COUNT; ++i)
+        try (final Formatter output = new Formatter())
         {
-            output.format("%s%n", mBuckets[i]);
+            output.format("%n%s:%nRun time: %s%n%n",
+                          mAgentName,
+                          formatDuration(runTime));
+
+            output.format("Messages received: %,d%n",
+                          mEventCount);
+            output.format("Latency:%n");
+            output.format(
+                "          minimum= %,11d nanoseconds%n",
+                mMinLatency);
+            output.format(
+                "           median= %,11d nanoseconds.%n",
+                latencies[median]);
+            output.format(
+                "          average= %,11d nanoseconds.%n",
+                mAverageLatency);
+            output.format(
+                "   75%% percentile= %,11d nanoseconds%n",
+                latencies[p75]);
+            output.format(
+                "   90%% percentile= %,11d nanoseconds%n",
+                latencies[p90]);
+            output.format(
+                "   95%% percentile= %,11d nanoseconds%n",
+                latencies[p95]);
+            output.format(
+                "   99%% percentile= %,11d nanoseconds%n",
+                latencies[p99]);
+            output.format(
+                " 99.9%% percentile= %,11d nanoseconds%n",
+                latencies[p999]);
+            output.format(
+                "99.99%% percentile= %,11d nanoseconds%n",
+                latencies[p9999]);
+            output.format(
+                "          maximum= %,11d nanoseconds.%n%n",
+                mMaxLatency);
+
+            output.format("Time intervals:%n");
+            for (i = 0; i < BUCKET_COUNT; ++i)
+            {
+                output.format("%s%n", mBuckets[i]);
+            }
+
+            retval = output.toString();
         }
 
-        return (output.toString());
+        return (retval);
     } // end of doGenerateResults()
 
     private long[] calculateLatency()
@@ -415,7 +431,7 @@ public abstract class AbstractTestAgent
         {
             return (
                 String.format(
-                    "[%,10d, %,10d) %,7d items.",
+                    "[%,10d, %,10d) %,11d items.",
                     mTime,
                     mMaxTime,
                     mCount));

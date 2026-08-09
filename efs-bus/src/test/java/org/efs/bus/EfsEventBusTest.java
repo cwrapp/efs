@@ -16,6 +16,9 @@
 
 package org.efs.bus;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -38,6 +41,7 @@ import org.efs.dispatcher.IEfsAgent;
 import org.efs.dispatcher.config.ThreadType;
 import org.efs.event.EfsTopicKey;
 import org.efs.event.IEfsEvent;
+import org.junit.jupiter.api.AfterEach;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.AssertionsKt.assertNotNull;
 import org.junit.jupiter.api.BeforeAll;
@@ -69,6 +73,17 @@ public class EfsEventBusTest
     // Constants.
     //
 
+    /**
+     * Fixed test timestamp.
+     */
+    /* package */ static final String TEST_TIME =
+        "2026-08-01T06:00:00.000Z";
+
+    /**
+     * Use Greenwich Mean Time for testing.
+     */
+    /* package */ static final ZoneId GMT = ZoneId.of("GMT");
+
     private static final String PUBLISHER_NAME_0 =
         "MockPublisher";
     private static final String PUBLISHER_NAME_1 =
@@ -79,6 +94,7 @@ public class EfsEventBusTest
         "AnotherSubscriber";
     private static final String UNREGISTERED_NAME =
         "unregistered";
+    private static final String EXHAUST_NAME = "exhaust-agent";
     private static final String BUS_NAME_PREFIX = "test-bus-";
     private static final String TOPIC_0 = "test-topic";
     private static final String TOPIC_1 = "another-topic";
@@ -94,6 +110,12 @@ public class EfsEventBusTest
     private static IEfsAgent sMockAnotherPublisher;
     private static IEfsAgent sMockSubscriber;
     private static IEfsAgent sMockAnotherSubscriber;
+    private static ExhaustAgent sExhaustAgent;
+
+    /**
+     * Clock used for testing purposes.
+     */
+    private static Clock sTestClock;
 
     //-----------------------------------------------------------
     // Locals.
@@ -114,7 +136,7 @@ public class EfsEventBusTest
     @BeforeAll
     public static void setUpClass()
     {
-        final int numThreads = 1;
+        final int numThreads = 4;
         final ThreadType threadType = ThreadType.BLOCKING;
         final int priority = 3;
         final DispatcherType dispatcherType = DispatcherType.EFS;
@@ -137,6 +159,7 @@ public class EfsEventBusTest
         sMockAnotherPublisher = mock(IEfsAgent.class);
         sMockSubscriber = mock(IEfsAgent.class);
         sMockAnotherSubscriber = mock(IEfsAgent.class);
+        sExhaustAgent = new ExhaustAgent(EXHAUST_NAME);
 
         // Register mock agents with dispatcher
         when(sMockPublisher.name()).thenReturn(PUBLISHER_NAME_0);
@@ -154,20 +177,39 @@ public class EfsEventBusTest
                                TEST_DISPATCHER_NAME);
         EfsDispatcher.register(sMockAnotherSubscriber,
                                TEST_DISPATCHER_NAME);
+        EfsDispatcher.register(sExhaustAgent,
+                               TEST_DISPATCHER_NAME);
+
+        sTestClock = Clock.fixed(Instant.parse(TEST_TIME), GMT);
     } // end of setUpClass()
 
     @BeforeEach
+    @SuppressWarnings ("unchecked")
     public void setUp()
     {
+        final String busName =
+            BUS_NAME_PREFIX + System.nanoTime();
+        final EfsEventBus.Builder builder =
+            EfsEventBus.builder(busName);
+
         // Create event bus and topic keys
         mEventBus =
-            EfsEventBus.findOrCreateBus(
-                BUS_NAME_PREFIX + System.nanoTime());
+            builder.clock(sTestClock)
+                   .eventExhaust(
+                       event -> sExhaustAgent.onExhaust(event),
+                       sExhaustAgent)
+                   .build();
         mTestTopicKey =
             EfsTopicKey.getKey(TestEvent.class, TOPIC_0);
         mAnotherTopicKey =
             EfsTopicKey.getKey(AnotherTestEvent.class, TOPIC_1);
     } // end of setUp()
+
+    @AfterEach
+    public void tearDown()
+    {
+        sExhaustAgent.resetCount();
+    } // end of tearDown()
 
     //
     // end of JUnit Initialization.
@@ -191,30 +233,49 @@ public class EfsEventBusTest
             final String name1 = "unique-bus-1";
             final String name2 = "unique-bus-2";
             final EfsEventBus bus1 =
-                EfsEventBus.findOrCreateBus(name1);
+                (EfsEventBus.builder(name1)).build();
             final EfsEventBus bus2 =
-                EfsEventBus.findOrCreateBus(name2);
+                (EfsEventBus.builder(name2)).build();
 
             assertThat(bus1).isNotNull();
             assertThat(bus2).isNotNull();
             assertThat(bus1).isNotSameAs(bus2);
             assertThat(bus1.busName()).isEqualTo(name1);
             assertThat(bus2.busName()).isEqualTo(name2);
+
+            bus1.setSystemClock(sTestClock);
+
+            assertThatThrownBy(() -> EfsEventBus.findBus(null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(EfsEventBus.INVALID_BUS_NAME);
+            assertThatThrownBy(() -> EfsEventBus.findBus(""))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(EfsEventBus.INVALID_BUS_NAME);
+            assertThatThrownBy(() -> EfsEventBus.findBus("\t"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(EfsEventBus.INVALID_BUS_NAME);
+
+            assertThat(EfsEventBus.findBus(name1))
+                .isSameAs(bus1);
         } // end of createBusWithUniqueNameTest()
 
         @Test
         @DisplayName("Should return same bus instance for same name")
-        public void findOrCreateBusSameNameTest()
+        public void buildBusSameNameTest()
         {
             final String busName =
                 "same-bus-" + System.nanoTime();
-            final EfsEventBus bus1 =
-                EfsEventBus.findOrCreateBus(busName);
-            final EfsEventBus bus2 =
-                EfsEventBus.findOrCreateBus(busName);
+            final EfsEventBus bus =
+                (EfsEventBus.builder(busName)).build();
+            final String text =
+                String.format(EfsEventBus.BUS_PREVIOUSLY_CREATED,
+                              busName);
 
-            assertThat(bus1).isSameAs(bus2);
-        } // end of findOrCreateBusSameNameTest()
+            assertThatThrownBy(
+                () -> (EfsEventBus.builder(busName)).build())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(text);
+        } // end of buildBusSameNameTest()
 
         @Test
         @DisplayName("Should throw IllegalArgumentException for null bus name")
@@ -225,7 +286,7 @@ public class EfsEventBusTest
             assertThatThrownBy(
                 () ->
                 {
-                    EfsEventBus.findOrCreateBus(busName);
+                    EfsEventBus.builder(busName);
                 })
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage(EfsEventBus.INVALID_BUS_NAME);
@@ -240,7 +301,7 @@ public class EfsEventBusTest
             assertThatThrownBy(
                 () ->
                 {
-                    EfsEventBus.findOrCreateBus(busName);
+                    EfsEventBus.builder(busName);
                 })
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage(EfsEventBus.INVALID_BUS_NAME);
@@ -253,7 +314,7 @@ public class EfsEventBusTest
             final String busName = "\t";
 
             assertThatThrownBy(
-                () -> EfsEventBus.findOrCreateBus(busName))
+                () -> EfsEventBus.builder(busName))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage(EfsEventBus.INVALID_BUS_NAME);
         } // end of blankBusNameTest()
@@ -576,7 +637,8 @@ public class EfsEventBusTest
                 mTestTopicKey;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final IEfsAgent subscriber = sMockSubscriber;
             final Subscription<TestEvent> sub =
                 mEventBus.subscribe(topicKey,
@@ -599,7 +661,8 @@ public class EfsEventBusTest
                 mTestTopicKey;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final IEfsAgent subscriber = sMockSubscriber;
             final Subscription<TestEvent> sub =
                 mEventBus.subscribeInbox(topicKey,
@@ -619,7 +682,8 @@ public class EfsEventBusTest
             final EfsTopicKey<TestEvent> topicKey = null;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final IEfsAgent subscriber = sMockSubscriber;
 
             assertThatThrownBy(
@@ -639,7 +703,8 @@ public class EfsEventBusTest
                 mTestTopicKey;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 null;
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final IEfsAgent subscriber = sMockSubscriber;
 
             assertThatThrownBy(
@@ -659,7 +724,7 @@ public class EfsEventBusTest
                 mTestTopicKey;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = null;
+            final Consumer<EfsEnvelope<TestEvent>> ecb = null;
             final IEfsAgent subscriber = sMockSubscriber;
 
             assertThatThrownBy(
@@ -679,7 +744,8 @@ public class EfsEventBusTest
                 mTestTopicKey;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final IEfsAgent subscriber = null;
 
             assertThatThrownBy(
@@ -700,7 +766,8 @@ public class EfsEventBusTest
                 mTestTopicKey;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final IEfsAgent subscriber = mock(IEfsAgent.class);
 
             when(subscriber.name()).thenReturn(agentName);
@@ -724,7 +791,8 @@ public class EfsEventBusTest
                 mTestTopicKey;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final IEfsAgent subscriber = sMockSubscriber;
             final  Subscription<TestEvent> sub =
                 mEventBus.subscribe(topicKey,
@@ -748,7 +816,8 @@ public class EfsEventBusTest
                 mTestTopicKey;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final IEfsAgent subscriber = sMockSubscriber;
             final  Subscription<TestEvent> sub =
                 mEventBus.subscribe(topicKey,
@@ -779,7 +848,8 @@ public class EfsEventBusTest
                 };
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final IEfsAgent publisher = sMockPublisher;
             final IEfsAgent subscriber = sMockSubscriber;
             try (Advertisement<TestEvent> ad =
@@ -831,10 +901,10 @@ public class EfsEventBusTest
                 status -> {};
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb =
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
                 event ->
                 {
-                    receivedEvent.set(event);
+                    receivedEvent.set(event.event());
                     signal.countDown();
                 };
             final IEfsAgent publisher = sMockPublisher;
@@ -867,6 +937,8 @@ public class EfsEventBusTest
 
                 assertThat(receivedEvent.get()).isNotNull()
                                                .isSameAs(event);
+                assertThat(sExhaustAgent.exhaustCount())
+                    .isGreaterThan(0);
             }
         } // end of publishEventToSubscriberTest()
 
@@ -884,10 +956,10 @@ public class EfsEventBusTest
                 status -> {};
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb =
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
                 event ->
                 {
-                    receivedEvent.set(event);
+                    receivedEvent.set(event.event());
                     signal.countDown();
                 };
             final IEfsAgent publisher = sMockPublisher;
@@ -940,10 +1012,10 @@ public class EfsEventBusTest
                 status -> {};
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb =
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
                 event ->
                 {
-                    receivedEvent.set(event);
+                    receivedEvent.set(event.event());
                     outSignal.countDown();
                 };
             final Runnable hangTask =
@@ -1012,7 +1084,8 @@ public class EfsEventBusTest
                 status -> {};
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final IEfsAgent publisher = sMockPublisher;
             final IEfsAgent subscriber = sMockSubscriber;
             final Advertisement<TestEvent> ad =
@@ -1044,7 +1117,8 @@ public class EfsEventBusTest
                 status -> {};
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final IEfsAgent publisher = sMockPublisher;
             final IEfsAgent subscriber = sMockSubscriber;
             final Advertisement<TestEvent> ad =
@@ -1079,7 +1153,8 @@ public class EfsEventBusTest
                 status -> {};
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final IEfsAgent publisher = sMockPublisher;
             final IEfsAgent subscriber = sMockSubscriber;
             final Advertisement<TestEvent> ad =
@@ -1256,12 +1331,10 @@ public class EfsEventBusTest
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
             final IEventRouter<TestEvent> router =
-                mock(IEventRouter.class);
+                event -> null;
             final IEfsAgent publisher = sMockPublisher;
             final IEfsAgent subscriber = sMockSubscriber;
             final TestEvent event = mock(TestEvent.class);
-
-            when(router.routeTo(event)).thenReturn(null);
 
             try (Advertisement<TestEvent> ad =
                      mEventBus.advertise(topicKey,
@@ -1288,25 +1361,23 @@ public class EfsEventBusTest
             final CountDownLatch signal = new CountDownLatch(1);
             final EfsTopicKey<TestEvent> topicKey =
                 mTestTopicKey;
+            final IEfsAgent publisher = sMockPublisher;
+            final IEfsAgent subscriber = sMockSubscriber;
             final Consumer<EfsSubscribeStatus<TestEvent>> sscb =
                 status -> {};
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb =
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
                 event ->
                 {
-                    receivedEvent.set(event);
+                    receivedEvent.set(event.event());
                     signal.countDown();
                 };
-            final IEventRouter<TestEvent> router =
-                mock(IEventRouter.class);
-            final IEfsAgent publisher = sMockPublisher;
-            final IEfsAgent subscriber = sMockSubscriber;
-            final TestEvent event = mock(TestEvent.class);
-            final EfsDispatchTarget<TestEvent> targetCB =
+            final EfsDispatchTarget<EfsEnvelope<TestEvent>> targetCB =
                 new EfsDispatchTarget<>(ecb, subscriber);
-
-            when(router.routeTo(event)).thenReturn(targetCB);
+            final IEventRouter<TestEvent> router =
+                event -> targetCB;
+            final TestEvent event = mock(TestEvent.class);
 
             try (Advertisement<TestEvent> ad =
                      mEventBus.advertise(topicKey,
@@ -1351,7 +1422,8 @@ public class EfsEventBusTest
             final boolean inboxFlag = false;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final Consumer<EfsTopicKey<TestEvent>> topicUpdate =
                 k -> {};
             final IEfsAgent subscriber = sMockSubscriber;
@@ -1381,7 +1453,8 @@ public class EfsEventBusTest
             final boolean inboxFlag = true;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final Consumer<EfsTopicKey<TestEvent>> topicUpdate =
                 k -> {};
             final IEfsAgent subscriber = sMockSubscriber;
@@ -1407,7 +1480,8 @@ public class EfsEventBusTest
             final String regexTopic = REGEX_TOPIC;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final Consumer<EfsTopicKey<TestEvent>> topicUpdate =
                 k -> {};
             final IEfsAgent subscriber = sMockSubscriber;
@@ -1431,7 +1505,8 @@ public class EfsEventBusTest
             final String regexTopic = null;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final Consumer<EfsTopicKey<TestEvent>> topicUpdate =
                 k -> {};
             final IEfsAgent subscriber = sMockSubscriber;
@@ -1455,7 +1530,8 @@ public class EfsEventBusTest
             final String regexTopic = "";
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final Consumer<EfsTopicKey<TestEvent>> topicUpdate =
                 k -> {};
             final IEfsAgent subscriber = sMockSubscriber;
@@ -1479,7 +1555,8 @@ public class EfsEventBusTest
             final String regexTopic = "\t";
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final Consumer<EfsTopicKey<TestEvent>> topicUpdate =
                 k -> {};
             final IEfsAgent subscriber = sMockSubscriber;
@@ -1504,7 +1581,8 @@ public class EfsEventBusTest
                 "a".repeat(EfsEventBus.MAX_REGEX_SIZE + 1);
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final Consumer<EfsTopicKey<TestEvent>> topicUpdate =
                 k -> {};
             final IEfsAgent subscriber = sMockSubscriber;
@@ -1528,7 +1606,7 @@ public class EfsEventBusTest
             final String regexTopic = "[invalid(regex";
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb = event -> {};
             final Consumer<EfsTopicKey<TestEvent>> topicUpdate =
                 k -> {};
             final IEfsAgent subscriber = sMockSubscriber;
@@ -1554,7 +1632,7 @@ public class EfsEventBusTest
             final String regexTopic = REGEX_TOPIC;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 null;
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb = event -> {};
             final Consumer<EfsTopicKey<TestEvent>> topicUpdate =
                 k -> {};
             final IEfsAgent subscriber = sMockSubscriber;
@@ -1578,7 +1656,7 @@ public class EfsEventBusTest
             final String regexTopic = REGEX_TOPIC;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = null;
+            final Consumer<EfsEnvelope<TestEvent>> ecb = null;
             final Consumer<EfsTopicKey<TestEvent>> topicUpdate =
                 k -> {};
             final IEfsAgent subscriber = sMockSubscriber;
@@ -1602,7 +1680,8 @@ public class EfsEventBusTest
             final String regexTopic = REGEX_TOPIC;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final Consumer<EfsTopicKey<TestEvent>> topicUpdate =
                 null;
             final IEfsAgent subscriber = sMockSubscriber;
@@ -1626,7 +1705,8 @@ public class EfsEventBusTest
             final String regexTopic = REGEX_TOPIC;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final Consumer<EfsTopicKey<TestEvent>> topicUpdate =
                 k -> {};
             final IEfsAgent subscriber = null;
@@ -1650,7 +1730,8 @@ public class EfsEventBusTest
             final String regexTopic = REGEX_TOPIC;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final Consumer<EfsTopicKey<TestEvent>> topicUpdate =
                 k -> {};
             final IEfsAgent subscriber = mock(IEfsAgent.class);
@@ -1680,7 +1761,8 @@ public class EfsEventBusTest
             final String regexTopic = REGEX_TOPIC;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final Consumer<EfsTopicKey<TestEvent>> topicUpdate =
                 k -> {};
             final IEfsAgent subscriber = sMockSubscriber;
@@ -1711,7 +1793,8 @@ public class EfsEventBusTest
             final String regexTopic = "product-.*";
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final Consumer<EfsTopicKey<TestEvent>> topicUpdate =
                 k ->
                 {
@@ -1781,7 +1864,8 @@ public class EfsEventBusTest
             final String regexTopic = "product-.*";
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final Consumer<EfsTopicKey<TestEvent>> topicUpdate =
                 k ->
                 {
@@ -2294,7 +2378,8 @@ public class EfsEventBusTest
                 mTestTopicKey;
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final IEfsAgent subscriber1 = sMockSubscriber;
             final IEfsAgent subscriber2 = sMockAnotherSubscriber;
             final Subscription<TestEvent> sub1 =
@@ -2354,7 +2439,8 @@ public class EfsEventBusTest
                 status -> {};
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final IEfsAgent publisher = sMockPublisher;
             final IEfsAgent subscriber = sMockSubscriber;
             Advertisement<TestEvent> ad;
@@ -2383,7 +2469,8 @@ public class EfsEventBusTest
                 "^(service|event|message)-(prod|staging|dev)-\\d+$";
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final Consumer<EfsTopicKey<TestEvent>> topicUpdate =
                 k -> {};
             final IEfsAgent subscriber = sMockSubscriber;
@@ -2464,7 +2551,8 @@ public class EfsEventBusTest
                 };
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final IEfsAgent publisher = sMockPublisher;
             final IEfsAgent subscriber = sMockSubscriber;
             final Advertisement<TestEvent> ad =
@@ -2520,7 +2608,8 @@ public class EfsEventBusTest
                 status -> signal.countDown();
             final Consumer<EfsPublishStatus<TestEvent>> pscb =
                 status -> {};
-            final Consumer<TestEvent> ecb = event -> {};
+            final Consumer<EfsEnvelope<TestEvent>> ecb =
+                event -> {};
             final IEfsAgent publisher = sMockPublisher;
             IEfsAgent subscriber;
             String subName;
@@ -2555,6 +2644,20 @@ public class EfsEventBusTest
                 assertThat(ad.hasSubscribers()).isFalse();
             }        } // end of largeNumberOfSubscriptionsTest()
     } // end of class EdgeCasesAndStressTests
+
+    // ========== Event Exhaust Tests ==========
+
+    @Nested
+    @DisplayName("Event Exhaust Tests")
+    public final class ExhaustTests
+    {
+        @Test
+        @DisplayName("Exhaust published events")
+        public void exhaustTest()
+        {
+
+        } // end of void exhaustTest()
+    } // end of class ExhaustTests
 
     //
     // end of JUnit Tests.

@@ -20,9 +20,9 @@
 
 <html lang="en">
   <head>
-    <title>efs Overview</title>
+    <title>efs - Event File System Overview</title>
     <meta charset="UTF-8">
-    <meta name="description" content="efs - event file system" />
+    <meta name="description" content="Overview of the efs event-driven framework for asynchronous agent communication" />
     <meta name="author" content="Charles W. Rapp" />
     <meta name="keywords" content="asynchronous reactive event processing" />
     <link rel="stylesheet" type="text/css" href="efs.css" />
@@ -76,34 +76,37 @@
     <div style="color: #ffff00; font-size: 50px; text-align: center;">Event File System</div>
     <div style="color: #f2f2f2; font-size: 10px; text-align: right;">
       <!-- UPDATE FOR RELEASE -->
-      Updated: July 11, 2026<br/>Version: 0.7.2
+      Updated: August 9, 2026<br/>Version: 0.7.3
     </div>
   </div>
 
-  <h1><a id="Introduction">Introduction</a></h1>
+  <h1 id="Introduction">Introduction</h1>
   <p>
-    efs - Event File System is <em>envisioned</em> as a
-    reliable, robust, and low-latency event persistence and
-    delivery API from publishing agent to subscribing
-    agent.
+    efs - Event File System is an <em>evolving</em> framework for
+    reliable, low-latency event delivery between collaborating agents.
+    It is designed to make asynchronous communication predictable while
+    keeping thread ownership simple.
   </p>
   <p>
-    "Envision" means that efs is not yet implemented to
-    this point - but enough is implemented to warrant an
-    initial release. efs has three levels:
+    The project is still maturing, but enough functionality is in place to
+    justify an initial release. The framework is organized in three layers:
   </p>
   <ol>
     <li>
-      Events, Agents, and Dispatchers.
+      Events, agents, and dispatchers.
     </li>
     <li>
-      Simple event bus based on type+topic event routing.
+      A simple event bus based on type-and-topic routing.
     </li>
     <li>
-      Persistent event store and forward.
+      A persistent event store and forward mechanism.
     </li>
   </ol>
-  <h2><a id="Components">Events, Agents, and Dispatchers</a></h2>
+  <p>
+    A useful mental model is that events carry information, while agents are
+    the active components that decide what to do with that information.
+  </p>
+  <h2 id="Components">Events, Agents, and Dispatchers</h2>
   <p>
     These three types underly all of efs. Events are posted
     to an agent's event queue and the agent is posted to
@@ -115,14 +118,13 @@
     very simple because there is no multi-threaded
     programming concerns to deal with.
   </p>
-  <h3><a id="Events">Events</a></h3>
+  <h3 id="Events">Events</h3>
   <p>
     An efs event is a POJO implementing the
     {@link org.efs.event.IEfsEvent} marker interface. There
-    are no further restrictions place on how you define an
-    event class. It is strongly recommended that an event
-    class be immutable. It is also recommended that the
-    Builder pattern be used to create correctly configured
+    are no further restrictions placed on how you define an
+    event class. It is strongly recommended that event classes be immutable.
+    The Builder pattern is also a good fit for creating correctly configured
     event instances.
   </p>
   <p>
@@ -136,16 +138,15 @@
     to be passive and there might be interesting use of
     active events.
   </p>
-  <h3><a id="Agents">Agents</a></h3>
+  <h3 id="Agents">Agents</h3>
   <p>
     An efs agent is a POJO implementing the
     {@link org.efs.dispatcher.IEfsAgent} interface. This
     interface has a single method: {@code String name()}.
     The {@code name()} implementation is expected to return
-    a unique agent name within the JVM's scope. If this
-    name is used by more than one agent, this results in
-    only the first agent successfully registering with a
-    dispatcher (see next section).
+    a unique agent name within the JVM's scope. If two agents share
+    the same name, only the first one will successfully register with a
+    dispatcher (see the next section).
   </p>
   <p>
     Agents are active objects which means they initiate
@@ -168,13 +169,13 @@
     methods directly, then care must be taken to do this
     correctly.
   </p>
-  <h3><a id="Dispatchers">Dispatchers</a></h3>
+  <h3 id="Dispatchers">Dispatchers</h3>
   <p>
-    efs dispatchers consists of an agent run queue and a
-    fixed size thread pool. An agent with one or more
-    events on its event queue is placed on to its
-    dispatcher's run queue. A dispatcher thread takes this
-    agent from the run queue and has the agent process its
+    efs dispatchers consist of an agent run queue and a
+    fixed-size thread pool. An agent with one or more
+    events on its event queue is placed onto its
+    dispatcher's run queue. A dispatcher thread then takes that
+    agent from the run queue and has it process its
     event queue.
   </p>
   <p>
@@ -196,7 +197,7 @@
     so spinning dispatcher threads can be associated with
     CPU cores isolated from the operating system.
   </p>
-  <h2><a id="EventForwarding">Getting Events to Agents</a></h2>
+  <h2 id="EventForwarding">Getting Events to Agents</h2>
   <p>
     There are three ways to get an event from the agent
     producing the event to the consuming agent:
@@ -218,14 +219,14 @@
       it.
     </li>
   </ol>
-  <h3><a id="DirectForwarding"></a>Direct Event Forwarding</h3>
+  <h3 id="DirectForwarding">Direct Event Forwarding</h3>
   <p>
-    The simplest and fastest way to foward an event between
-    agents is the producing agent to directly dispatch the
-    event to the consuming agent. This requires the
+    The simplest and fastest way to forward an event between
+    agents is for the producing agent to dispatch it directly
+    to the consuming agent. This requires the
     producing agent to know the consuming agent's unique
-    name so it can dispatch the event to the consuming
-    agent. The following code snippet demonstrates how to
+    name so it can dispatch the event to the appropriate
+    target. The following code snippet demonstrates how to
     do this:
   </p>
   <pre><code>// Consumer is an application class implementing IEfsAgent.
@@ -273,13 +274,12 @@ public void onAppEvent(final AppEvent event) {
     method since the method lambda is set by the producing
     agent.
   </p>
-  <h3><a id="EventBusForwarding">Event Bus Forwarding</a></h3>
+  <h3 id="EventBusForwarding">Event Bus Forwarding</h3>
   <p>
-    An {@link org.efs.bus.EfsEventBus event bus} loosens up the
-    producer, consumer coupling by acting as a go-between agents.
-    A producing agent first advertises the topics on which it
-    publishes events. A consuming agent subscribes to the topics
-    on which it wishes to receive events.
+    An {@link org.efs.bus.EfsEventBus event bus} loosens the producer-consumer
+    coupling by acting as an intermediary. A producing agent first advertises
+    the topics on which it publishes events. A consuming agent subscribes to
+    the topics on which it wishes to receive events.
   </p>
   <p style="background-color:#ffcccc;padding:5px;border: 2px solid darkred;">
     <strong>Note:</strong> all agents <em>must</em> be registered
@@ -301,10 +301,10 @@ public void onAppEvent(final AppEvent event) {
     See {@link org.efs.bus Event bus package info} for a detailed
     explanation on using {@code EfsEventBus}.
   </p>
-  <h3><a id="EventFileSystem">Event File System</a></h3>
+  <h3 id="EventFileSystem">Event File System</h3>
   <p>
-    This is a work-in-progress and explanation will be provided
-    later.
+    This part of the framework is still under active development, and a more
+    complete explanation will be added as the implementation matures.
   </p>
   <h2><a id="AgentActivation">Agent Activation</a></h2>
   <p>
@@ -460,7 +460,7 @@ public void onAppEvent(final AppEvent event) {
   </p>
   <p>
     <!-- UPDATE FOR RELEASE -->
-    Updated: July 11, 2026<br>Version: 0.7.2
+    Updated: August 9, 2026<br>Version: 0.7.3
   </p>
 
     @author <a href="mailto:rapp@acm.org">Charles Rapp</a>

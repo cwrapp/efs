@@ -148,12 +148,14 @@ public class PongAgent
      * @param event performance event containing event creation
      * time.
      */
-    protected void onEvent(final PerformanceEvent event)
+    protected void onEvent(final EfsEnvelope<PerformanceEvent> event)
     {
         final long timestamp = System.nanoTime();
-        final int eventIndex = event.index;
+        final PerformanceEvent pEvent = event.event();
+        final int eventIndex = pEvent.index;
         final int deltaCount =
-            mLatencyTracker.addDelta(timestamp - event.nanotime);
+            mLatencyTracker.addDelta(
+                timestamp - pEvent.nanotime);
 
         sLogger.debug("{}: received performance event {}, max {}.",
                       mAgentName,

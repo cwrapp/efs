@@ -1017,11 +1017,8 @@ public final class EfsDispatcher
      * @param event send this event to {@code agent}.
      * @param agent efs agent to receive given event.
      * @throws NullPointerException
-     * if either {@code callback}, {@code event}, or
-     * {@code agent} is {@code null}.
-     * @throws IllegalArgumentException
-     * if {@code agent} name is either {@code null}, empty, or
-     * blank string.
+     * if either {@code callback}, {@code event}, {@code agent},
+     * or agent name is {@code null}.
      * @throws IllegalStateException
      * if {@code agent} is not
      * {@link #register(IEfsAgent, String) registered} or if
@@ -1041,7 +1038,7 @@ public final class EfsDispatcher
         Objects.requireNonNull(callback, NULL_CALLBACK);
         Objects.requireNonNull(event, NULL_EVENT);
         Objects.requireNonNull(agent, NULL_AGENT);
-        validateAgentName(agent);
+        Objects.requireNonNull(agent.name(), MISSING_AGENT_NAME);
 
         efsAgent = validateAgentDispatch(agent);
         efsAgent.dispatch(callback, event);
@@ -1091,10 +1088,8 @@ public final class EfsDispatcher
      * @param agent run {@code task} inline with this agent's
      * events.
      * @throws NullPointerException
-     * if either {@code task} or {@code agent} is {@code null}.
-     * @throws IllegalArgumentException
-     * if {@code agent} name is either {@code null}, empty, or
-     * blank string.
+     * if either {@code task}, {@code agent}, or agent name is
+     * {@code null}.
      * @throws IllegalStateException
      * if {@code agent}'s event queue is full preventing
      * {@code task} from being enqueued.
@@ -1110,7 +1105,7 @@ public final class EfsDispatcher
 
         Objects.requireNonNull(task, NULL_TASK);
         Objects.requireNonNull(agent, NULL_AGENT);
-        validateAgentName(agent);
+        Objects.requireNonNull(agent.name(), MISSING_AGENT_NAME);
 
         efsAgent = validateAgentDispatch(agent);
         efsAgent.dispatch(task);

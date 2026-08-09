@@ -16,9 +16,12 @@
 package org.efs.dispatcher;
 
 import java.time.Duration;
+import java.util.Formatter;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import org.efs.dispatcher.EfsDispatcher.DispatcherStats;
 import org.efs.dispatcher.EfsDispatcher.DispatcherType;
+import org.efs.dispatcher.EfsDispatcherThread.DispatcherThreadStats;
 import org.efs.dispatcher.config.ThreadType;
 import org.efs.logging.AsyncLoggerFactory;
 import org.junit.jupiter.api.Disabled;
@@ -419,13 +422,44 @@ public final class DispatcherPerformanceTest
         EfsDispatcher.deregister(agent);
         EfsDispatcher.deregister(producer);
 
-        sLogger.info("PerformanceAgent results:");
-        sLogger.info(agent.generateResults());
-        sLogger.info("ProducerAgent results:");
-        sLogger.info(producer.generateResults());
-        sLogger.info(
-            "{} performance stats:\n{}\n",
-            dispatcherName,
-            EfsDispatcher.performanceStats(dispatcherName));
+        try (final Formatter output = new Formatter())
+        {
+            final DispatcherStats dispatcherStats =
+                EfsDispatcher.performanceStats(dispatcherName);
+
+            output.format("PerformanceAgent results:%n%s%n",
+                          agent.generateResults())
+                  .format("ProducerAgent results:%n%s%n",
+                          producer.generateResults());
+
+            if (dispatcherStats == null)
+            {
+                output.format("No dispatchers.");
+            }
+            else
+            {
+                final DispatcherThreadStats[] threadStats =
+                    dispatcherStats.dispatcherThreadStats();
+                final int numThreads = threadStats.length;
+                int ti;
+
+                output.format("%s%n",
+                          dispatcherStats.agentReadyTimeStats())
+                      .format("%s%n",
+                              dispatcherStats.agentRunTimeStats())
+                      .format("%s%n",
+                              dispatcherStats.agentEventStats())
+                      .format("Total agent run count: %,d%n%n",
+                              dispatcherStats.totalAgentRunCount())
+                      .format("Dispatcher thread stats:");
+
+                for (ti = 0; ti < numThreads; ++ti)
+                {
+                    output.format("%n  %s", threadStats[ti]);
+                }
+            }
+
+            sLogger.info(output.toString());
+        }
     } // end of runTest(String, int, long, TimeUnit)
 } // end of class DispatcherPerformanceTest

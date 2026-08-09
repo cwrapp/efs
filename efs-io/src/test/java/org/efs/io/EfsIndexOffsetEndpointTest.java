@@ -16,6 +16,7 @@
 
 package org.efs.io;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import org.efs.io.EfsIntervalEndpoint.Clusivity;
 import org.efs.io.EfsIntervalEndpoint.IntervalLocation;
@@ -27,7 +28,7 @@ import org.junit.jupiter.api.Test;
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
 
-public final class EfsIndexEndpointTest
+public final class EfsIndexOffsetEndpointTest
 {
 //---------------------------------------------------------------
 // Member data.
@@ -50,19 +51,14 @@ public final class EfsIndexEndpointTest
     {
         final int offset = -10;
         final Clusivity clusivity = null;
-        final EfsIndexEndpoint.Builder builder =
-            EfsIndexEndpoint.builder();
+        final EfsIndexOffsetEndpoint.Builder builder =
+            EfsIndexOffsetEndpoint.builder();
 
-        try
-        {
-            builder.indexOffset(offset, clusivity);
-        }
-        catch (NullPointerException nullex)
-        {
-            assertThat(nullex)
-                .hasMessage(
-                    EfsIndexEndpoint.Builder.CLUSIVITY_NULL);
-        }
+        assertThatThrownBy(
+            () -> builder.indexOffset(offset, clusivity))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(
+                EfsIndexOffsetEndpoint.Builder.CLUSIVITY_NULL);
     } // end of builderIndexNullClusivity()
 
     @Test
@@ -70,9 +66,9 @@ public final class EfsIndexEndpointTest
     {
         final int offset = -10;
         final Clusivity clusivity = Clusivity.INCLUSIVE;
-        final EfsIndexEndpoint.Builder builder =
-            EfsIndexEndpoint.builder();
-        final EfsIndexEndpoint ep =
+        final EfsIndexOffsetEndpoint.Builder builder =
+            EfsIndexOffsetEndpoint.builder();
+        final EfsIndexOffsetEndpoint ep =
             builder.indexOffset(offset, clusivity).build();
 
         assertThat(ep).isNotNull();
@@ -87,9 +83,9 @@ public final class EfsIndexEndpointTest
     {
         final int offset = 0;
         final Clusivity clusivity = Clusivity.EXCLUSIVE;
-        final EfsIndexEndpoint.Builder builder =
-            EfsIndexEndpoint.builder();
-        final EfsIndexEndpoint ep =
+        final EfsIndexOffsetEndpoint.Builder builder =
+            EfsIndexOffsetEndpoint.builder();
+        final EfsIndexOffsetEndpoint ep =
             builder.indexOffset(offset, clusivity).build();
 
         assertThat(ep).isNotNull();
@@ -104,9 +100,9 @@ public final class EfsIndexEndpointTest
     {
         final int offset = 10;
         final Clusivity clusivity = Clusivity.INCLUSIVE;
-        final EfsIndexEndpoint.Builder builder =
-            EfsIndexEndpoint.builder();
-        final EfsIndexEndpoint ep =
+        final EfsIndexOffsetEndpoint.Builder builder =
+            EfsIndexOffsetEndpoint.builder();
+        final EfsIndexOffsetEndpoint ep =
             builder.indexOffset(offset, clusivity).build();
 
         assertThat(ep).isNotNull();
@@ -120,28 +116,22 @@ public final class EfsIndexEndpointTest
     public void builderNowNullClusivity()
     {
         final Clusivity clusivity = null;
-        final EfsIndexEndpoint.Builder builder =
-            EfsIndexEndpoint.builder();
+        final EfsIndexOffsetEndpoint.Builder builder =
+            EfsIndexOffsetEndpoint.builder();
 
-        try
-        {
-            builder.now(clusivity);
-        }
-        catch (NullPointerException nullex)
-        {
-            assertThat(nullex)
-                .hasMessage(
-                    EfsIndexEndpoint.Builder.CLUSIVITY_NULL);
-        }
+        assertThatThrownBy(() -> builder.now(clusivity))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(
+                EfsIndexOffsetEndpoint.Builder.CLUSIVITY_NULL);
     } // end of builderNowNullClusivity()
 
     @Test
     public void builderNowSuccess()
     {
         final Clusivity clusivity = Clusivity.EXCLUSIVE;
-        final EfsIndexEndpoint.Builder builder =
-            EfsIndexEndpoint.builder();
-        final EfsIndexEndpoint ep =
+        final EfsIndexOffsetEndpoint.Builder builder =
+            EfsIndexOffsetEndpoint.builder();
+        final EfsIndexOffsetEndpoint ep =
             builder.now(clusivity).build();
 
         assertThat(ep).isNotNull();
@@ -154,13 +144,12 @@ public final class EfsIndexEndpointTest
     @Test
     public void builderEndNeverSuccess()
     {
-        final EfsIndexEndpoint.Builder builder =
-            EfsIndexEndpoint.builder();
-        final EfsIndexEndpoint ep = builder.endNever().build();
+        final EfsIndexOffsetEndpoint.Builder builder =
+            EfsIndexOffsetEndpoint.builder();
+        final EfsIndexOffsetEndpoint ep = builder.endNever().build();
 
         assertThat(ep).isNotNull();
-        assertThat(ep.indexOffset())
-            .isEqualTo(Long.MAX_VALUE);
+        assertThat(ep.indexOffset()).isEqualTo(Long.MAX_VALUE);
         assertThat(ep.clusivity())
             .isEqualTo(Clusivity.EXCLUSIVE);
         assertThat(ep.location())
@@ -174,7 +163,7 @@ public final class EfsIndexEndpointTest
     @Test
     public void equalsNull()
     {
-        final EfsIndexEndpoint ep =
+        final EfsIndexOffsetEndpoint ep =
             createEndpoint(-10, Clusivity.EXCLUSIVE);
         final Object o = null;
 
@@ -184,7 +173,7 @@ public final class EfsIndexEndpointTest
     @Test
     public void equalsBoolean()
     {
-        final EfsIndexEndpoint ep =
+        final EfsIndexOffsetEndpoint ep =
             createEndpoint(-10, Clusivity.EXCLUSIVE);
         final Object o = Boolean.TRUE;
 
@@ -194,7 +183,7 @@ public final class EfsIndexEndpointTest
     @Test
     public void equalsSame()
     {
-        final EfsIndexEndpoint ep =
+        final EfsIndexOffsetEndpoint ep =
             createEndpoint(-10, Clusivity.EXCLUSIVE);
         final Object o = ep;
 
@@ -205,7 +194,7 @@ public final class EfsIndexEndpointTest
     public void equalsDifferentClusivity()
     {
         final int offset = -10;
-        final EfsIndexEndpoint ep =
+        final EfsIndexOffsetEndpoint ep =
             createEndpoint(offset, Clusivity.EXCLUSIVE);
         final Object o =
             createEndpoint(offset, Clusivity.INCLUSIVE);
@@ -217,7 +206,7 @@ public final class EfsIndexEndpointTest
     @Test
     public void equalsDifferentOffset()
     {
-        final EfsIndexEndpoint ep =
+        final EfsIndexOffsetEndpoint ep =
             createEndpoint(-10, Clusivity.EXCLUSIVE);
         final Object o =
             createEndpoint(10, Clusivity.INCLUSIVE);
@@ -231,7 +220,7 @@ public final class EfsIndexEndpointTest
     {
         final int offset = -10;
         final Clusivity clusivity = Clusivity.EXCLUSIVE;
-        final EfsIndexEndpoint ep =
+        final EfsIndexOffsetEndpoint ep =
             createEndpoint(offset, clusivity);
         final Object o =
             createEndpoint(offset, clusivity);
@@ -247,9 +236,9 @@ public final class EfsIndexEndpointTest
     @Test
     public void compareLessThan()
     {
-        final EfsIndexEndpoint ep0 =
+        final EfsIndexOffsetEndpoint ep0 =
             createEndpoint(-10, Clusivity.EXCLUSIVE);
-        final EfsIndexEndpoint ep1 =
+        final EfsIndexOffsetEndpoint ep1 =
             createEndpoint(10, Clusivity.INCLUSIVE);
 
         assertThat(ep0.compareTo(ep1)).isLessThan(0);
@@ -258,20 +247,20 @@ public final class EfsIndexEndpointTest
     @Test
     public void compareEquals()
     {
-        final EfsIndexEndpoint ep0 =
+        final EfsIndexOffsetEndpoint ep0 =
             createEndpoint(0, Clusivity.EXCLUSIVE);
-        final EfsIndexEndpoint ep1 =
+        final EfsIndexOffsetEndpoint ep1 =
             createEndpoint(0, Clusivity.INCLUSIVE);
 
-        assertThat(ep0.compareTo(ep1)).isEqualTo(0);
+        assertThat(ep0.compareTo(ep1)).isZero();
     } // end of compareEquals()
 
     @Test
     public void compareGreaterThan()
     {
-        final EfsIndexEndpoint ep0 =
+        final EfsIndexOffsetEndpoint ep0 =
             createEndpoint(10, Clusivity.EXCLUSIVE);
-        final EfsIndexEndpoint ep1 =
+        final EfsIndexOffsetEndpoint ep1 =
             createEndpoint(-10, Clusivity.INCLUSIVE);
 
         assertThat(ep0.compareTo(ep1)).isGreaterThan(0);
@@ -281,12 +270,12 @@ public final class EfsIndexEndpointTest
     // end of JUnit Tests.
     //-----------------------------------------------------------
 
-    private EfsIndexEndpoint createEndpoint(final int offset,
-                                            final Clusivity clusivity)
+    private EfsIndexOffsetEndpoint createEndpoint(final int offset,
+                                                  final Clusivity clusivity)
     {
-        final EfsIndexEndpoint.Builder builder =
-            EfsIndexEndpoint.builder();
+        final EfsIndexOffsetEndpoint.Builder builder =
+            EfsIndexOffsetEndpoint.builder();
 
         return (builder.indexOffset(offset, clusivity).build());
     } // end of createEndpoint(int, Clusivity)
-} // end of class EfsIndexEndpointTest
+} // end of class EfsIndexOffsetEndpointTest

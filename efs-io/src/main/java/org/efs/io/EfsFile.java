@@ -27,6 +27,7 @@ import com.googlecode.cqengine.attribute.Attribute;
 import com.googlecode.cqengine.attribute.MultiValueAttribute;
 import com.googlecode.cqengine.attribute.SimpleAttribute;
 import com.googlecode.cqengine.index.hash.HashIndex;
+import com.googlecode.cqengine.index.navigable.NavigableIndex;
 import com.googlecode.cqengine.index.unique.UniqueIndex;
 import com.googlecode.cqengine.query.Query;
 import static com.googlecode.cqengine.query.QueryFactory.ascending;
@@ -40,9 +41,10 @@ import static com.googlecode.cqengine.query.QueryFactory.queryOptions;
 import com.googlecode.cqengine.query.option.QueryOptions;
 import com.googlecode.cqengine.resultset.ResultSet;
 import jakarta.annotation.Nullable;
-import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -56,6 +58,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
+import net.sf.eBus.util.Validator;
 import org.efs.dispatcher.EfsDispatcher;
 import org.efs.dispatcher.IEfsAgent;
 import org.efs.event.EfsTopicKey;
@@ -108,10 +112,12 @@ import org.slf4j.Logger;
  * <h2>Lifecycle</h2>
  * <ul>
  *   <li>
- *     Create with
- *     {@link #createEventFile(org.efs.event.EfsTopicKey, String)}.
- *     The dispatcher name must correspond to a dispatcher
- *     created/started by your application.
+ *     Create with {@link EfsFile.Builder}. A {@code Builder}
+ *     instance is acquired from
+ *     {@link #builder(EfsTopicKey)}. {@code Builder} requires
+ *     only that a dispatcher name is set (since {@code EfsFile}
+ *     is itself an agent). This dispatcher name must correspond
+ *     to a dispatcher created/started by your application.
  *   </li>
  *   <li>
  *     Obtain a connection using
@@ -132,21 +138,30 @@ import org.slf4j.Logger;
  *   </li>
  * </ul>
  *
- * <h2>Ordering and guarantees</h2>
+ * <h2>Ordering and Consistency Guarantees</h2>
  * <ul>
  *   <li>
- *     Row index is strictly monotonic and unique and can be used
- *     as an ordered key for retrieval.
+ *     <strong>Row Index</strong>: Strictly increasing, unique,
+ *     and  assigned in the order events are posted. Can be used
+ *     as a linearization point.
  *   </li>
  *   <li>
- *     Publish timestamp is non-decreasing (monotonic as events
- *     are posted) but is not guaranteed unique.
+ *     <strong>Publish Timestamp</strong>: Non-decreasing
+ *     (monotonic)  but not guaranteed unique. Events posted in
+ *     quick succession  may share the same timestamp. When two
+ *     rows have the same timestamp, they are ordered by row
+ *     index in ascending order.
  *   </li>
  *   <li>
- *     Retrieval requests may deliver matching historical rows
- *     immediately and, optionally, continue delivering matching
- *     future rows until the retrieval ends or the request is
- *     cancelled.
+ *     <strong>Query Results</strong>: Always returned in
+ *     ascending row index order, ensuring a consistent
+ *     linearization across  historical and future retrievals.
+ *   </li>
+ *   <li>
+ *     <strong>Retrieval Continuity</strong>: A retrieval that
+ *     spans  both historical and future events will never skip
+ *     or duplicate  a row, even if the historical query and
+ *     future subscriptions are processed asynchronously.
  *   </li>
  * </ul>
  *
@@ -246,9 +261,6 @@ file.doClose();
  * Note: the example is illustrative and omits dispatcher and
  * agent setup details. See the dispatcher package documentation
  * for how to create and register dispatchers and agents.
- * </p>
- * <p style="background-color:#ffcccc;padding:5px;border: 2px solid darkred;">
- * TODO: This class is in-progress.
  * </p>
  *
  * @param <E> efs event type.
@@ -369,10 +381,30 @@ public final class EfsFile<E extends IEfsEvent>
     //
 
     /**
+     * Default maximum concurrent {@link EfsFileConnection}s is
+     * {@value}. This value may be overridden in
+     * {@link Builder#maxConnections(int)}.
+     */
+    public static final int DEFAULT_MAX_CONNECTIONS = 100;
+
+    /**
+     * Default maximum concurrent, active retrievals is {@value}.
+     */
+    public static final int DEFAULT_MAX_ACTIVE_RETRIEVALS =
+        1_000;
+
+    /**
      * Empty immutable set of user defined tags.
      */
     public static final Set<Integer> NO_TAGS =
         ImmutableSet.of();
+
+    /**
+     * Default event file connection policy allows all agents
+     * to connect using any access mode.
+     */
+    public static final IConnectionPolicy DEFAULT_CONNECTION_POLICY =
+        (agent, accessMode) -> true;
 
     // CQEngine attributes.
 
@@ -481,6 +513,61 @@ public final class EfsFile<E extends IEfsEvent>
      */
     public static final String CLOSED_FILE = "\"%s\" is closed";
 
+    /**
+     * Attempt to set maximum concurrent efs event file
+     * connection or active retrieval limit to a value &le; zero
+     * results in an {@code IllegalArgumentException} with
+     * message {@value}.
+     */
+    public static final String INVALID_LIMIT =
+        "limit <= zero";
+
+    /**
+     * Attempt to set table initializer to {@code null} results
+     * in an {@code NullPointerException} with message {@value}.
+     */
+    public static final String NULL_INITIALIZER =
+        "initializer is null";
+
+    /**
+     * Attempt to set table exhaust callback to {@code null}
+     * results in an {@code NullPointerException} with message
+     * {@value}.
+     */
+    public static final String NULL_EXHAUST_CB =
+        "exhaustCB is null";
+
+    /**
+     * Attempt to set table exhaust agent to {@code null}
+     * results in an {@code NullPointerException} with message
+     * {@value}.
+     */
+    public static final String NULL_EXHAUST_AGENT =
+        "exhaustAgent is null";
+
+    /**
+     * Attempt to create an efs event file connection which
+     * exceeds maximum concurrent connection allowed results in
+     * an {@code IllegalStateException} with message {@value}.
+     */
+    public static final String CONNECTION_LIMIT_REACHED =
+        "connection limit (%,d) exceeded for file %s";
+
+    /**
+     * A {@code null} policy results in a
+     * {@code NullPointerException} with message {@value}.
+     */
+    public static final String NULL_POLICY = "policy is null";
+
+    /**
+     * Attempt to create an efs event file connection by
+     * specified agent and access mode pair without necessary
+     * permission results in an {@code IllegalStateException}
+     * with message {@value}.
+     */
+    public static final String ACCESS_DENIED =
+        "%s may not connect to %s with %s access mode";
+
     //-----------------------------------------------------------
     // Statics.
     //
@@ -498,14 +585,9 @@ public final class EfsFile<E extends IEfsEvent>
         AsyncLoggerFactory.getLogger(EfsFile.class);
 
     /**
-     * Use this clock to obtain {@code Instant} values. This
-     * data member is not final to allow for unit tests to use
-     * fixed clocks.
-     *
-     * @see #setSystemClock(Clock)
+     * Default system clock used by efs file instances.
      */
-    private static final AtomicReference<Clock> sClock =
-        new AtomicReference<>(Clock.systemUTC());
+    private static final Clock sClock = Clock.systemUTC();
 
     //-----------------------------------------------------------
     // Locals.
@@ -537,6 +619,13 @@ public final class EfsFile<E extends IEfsEvent>
      * {@code false} if not. Initialized to {@code true}
      */
     private final AtomicBoolean mOpenFlag;
+
+    /**
+     * Defines which agents, access mode pairs are allowed to
+     * access this event file. Defaults to
+     * {@link #DEFAULT_CONNECTION_POLICY}.
+     */
+    private final IConnectionPolicy mConnectionPolicy;
 
     /**
      * Table indexed by row index.
@@ -583,6 +672,51 @@ public final class EfsFile<E extends IEfsEvent>
     private final Map<Integer, Retrieval<E>> mActiveRequests;
 
     /**
+     * If not {@code null}, then post newly added event row to
+     * this consumer so it can store the row in persistent
+     * memory.
+     */
+    @Nullable
+    private final Consumer<EfsRow<E>> mExhaustCB;
+
+    /**
+     * Agent associated with {@link #mExhaustCB}.
+     */
+    @Nullable
+    private final IEfsAgent mExhaustAgent;
+
+    /**
+     * Method used to forward row to exhaust agent.
+     */
+    private final Consumer<EfsRow<E>> mForwardExhaust;
+
+    /**
+     * Clock used by this efs file instance. Defaults to
+     * {@code Clock.systemUTC()}. This value may be changed for
+     * testing purposes.
+     *
+     * @see #setSystemClock(Clock)
+     */
+    private final AtomicReference<Clock> mClock;
+
+    /**
+     * Total number of efs event file connections in place at
+     * any one time.
+     */
+    private final int mMaxConnections;
+
+    /**
+     * Total number of event file retrievals active at any
+     * one time.
+     */
+    private final int mMaxActiveRetrievals;
+
+    /**
+     * Tracks this event file's performance metrics.
+     */
+    private final Metrics<E> mMetrics;
+
+    /**
      * Latest row to be added to table. On start-up initialized
      * to current time, zero row index, and {@code null} event.
      */
@@ -597,67 +731,40 @@ public final class EfsFile<E extends IEfsEvent>
     //
 
     /**
-     * Creates a new efs file instance for the given event type
-     * and topic key and attributes map.
-     * @param key event type and topic key.
-     * @param attributes event attributes map.
+     * Creates a new efs event file instance based on builder
+     * settings. These settings are validated to be correct.
+     * @param builder contains event file settings.
      */
-    private EfsFile(final EfsTopicKey<E> key,
-                    final SortedSet<String> fields,
-                    final Map<String, Attribute<EfsRow<E>, ?>> attributes)
+    private EfsFile(final Builder<E> builder)
     {
-        mTopicKey = key;
-        mFields = fields;
-        mAttributes = attributes;
-        mFileName = key.toString();
+        mTopicKey = builder.mTopicKey;
+        mFileName = mTopicKey.toString();
+        mFields = builder.mFields;
+        mAttributes = builder.mAttributes;
         mOpenFlag = new AtomicBoolean(true);
-        mTable = new ConcurrentIndexedCollection<>();
+        mConnectionPolicy = builder.mConnectionPolicy;
+        mTable = builder.mTable;
         mConnections = new ArrayList<>();
         mActiveRequests = new HashMap<>();
+        mExhaustCB = builder.mExhaustCB;
+        mExhaustAgent = builder.mExhaustAgent;
+        mForwardExhaust = (mExhaustAgent == null ?
+                           this::doNoExhaust :
+                           this::doExhaust);
+        mClock = new AtomicReference<>(builder.mClock);
+        mMetrics =
+            new Metrics<>(mTopicKey, (mClock.get()).instant());
+        mMaxConnections = builder.mMaxConnections;
+        mMaxActiveRetrievals = builder.mMaxActiveRetrievals;
 
-        mRowIndex =
-            new SimpleAttribute<EfsRow<E>, Long>(ROW_INDEX_ATTRIBUTE)
-            {
-                @Override
-                public Long getValue(final EfsRow<E> row,
-                                     final QueryOptions qo)
-                {
-                    return (row.getRowIndex());
-                }
-            };
-        mPubTimeIndex =
-            new SimpleAttribute<EfsRow<E>, Instant>(PUBLISH_TIMESTAMP_ATTRIBUTE)
-            {
-                @Override
-                public Instant getValue(final EfsRow<E> row,
-                                        final QueryOptions qo)
-                {
-                    return (row.getPublishTimestamp());
-                }
-            };
-        mTagIndex =
-            new MultiValueAttribute<EfsRow<E>, Integer>(TAGS_ATTRIBUTE)
-            {
-                @Override
-                public Iterable<Integer> getValues(final EfsRow<E> row,
-                                                   final QueryOptions qo)
-                {
-                    return (row.getTags());
-                } // end of getValues(EfsRow, QueryOptions)
-            };
-        mOrderByOpts =
-            queryOptions(orderBy(ascending(mRowIndex)));
+        mRowIndex = builder.mRowIndex;
+        mPubTimeIndex = builder.mPubTimeIndex;
+        mTagIndex = builder.mTagIndex;
+        mOrderByOpts = builder.mOrderByOpts;
 
-        // Index row and publish timestamp attributes.
-        mTable.addIndex(UniqueIndex.onAttribute(mRowIndex));
-        mTable.addIndex(HashIndex.onAttribute(mPubTimeIndex));
-        mTable.addIndex(HashIndex.onAttribute(mTagIndex));
-
-        mNextRowIndex = new AtomicLong();
-        mLatestRow =
-            new EfsRow<>(
-                (sClock.get()).instant(), 0, NO_TAGS, null);
-    } // end of EfsFile(EfsTopicKey, Map<>)
+        mNextRowIndex = new AtomicLong(builder.mNextRowIndex);
+        mLatestRow = builder.mLatestRow;
+    } // end of EfsFile(Builder)
 
     //
     // end of Constructors.
@@ -743,7 +850,7 @@ public final class EfsFile<E extends IEfsEvent>
      */
     public Instant instant()
     {
-        return ((sClock.get()).instant());
+        return ((mClock.get()).instant());
     } // end of instant()
 
     /**
@@ -773,10 +880,19 @@ public final class EfsFile<E extends IEfsEvent>
      * Returns currently configured system clock.
      * @return current system clock.
      */
-    public static Clock getSystemClock()
+    public Clock getSystemClock()
     {
-        return (sClock.get());
+        return (mClock.get());
     } // end of getSystemClock()
+
+    /**
+     * Returns this event file's metrics.
+     * @return metrics for this event file.
+     */
+    public Metrics<E> metrics()
+    {
+        return (mMetrics);
+    } // end of metrics()
 
     //
     // end of Get Methods.
@@ -812,11 +928,11 @@ public final class EfsFile<E extends IEfsEvent>
      * if {@code clock} is {@code null}.
      */
     @VisibleForTesting
-    public static Clock setSystemClock(final Clock clock)
+    public Clock setSystemClock(final Clock clock)
     {
         Objects.requireNonNull(clock, NULL_CLOCK);
 
-        return (sClock.getAndSet(clock));
+        return (mClock.getAndSet(clock));
     } // end of setSystemClock(Clock)
 
     //
@@ -833,8 +949,24 @@ public final class EfsFile<E extends IEfsEvent>
      * if either {@code accessMode} or {@code agent} is
      * {@code null}.
      * @throws IllegalStateException
-     * if {@code agent} is not registered with a dispatcher or
-     * this file is closed.
+     * if:
+     * <ul>
+     *   <li>
+     *     {@code agent} is not registered with a dispatcher,
+     *   </li>
+     *   <li>
+     *     this file is closed,
+     *   </li>
+     *   <li>
+     *     {@code agent} is not allowed to connect with this
+     *     file using {@code accessMode}, or
+     *   </li>
+     *   <li>
+     *     this file's connection limit is at maximum and no
+     *     new connections are allowed until an existing
+     *     connection closes.
+     *   </li>
+     * </ul>
      */
     public EfsFileConnection<E> connect(final AccessMode accessMode,
                                         final IEfsAgent agent)
@@ -862,10 +994,40 @@ public final class EfsFile<E extends IEfsEvent>
                     String.format(CLOSED_FILE, mFileName)));
         }
 
-        // TODO: determine agent's connect rights.
+        // Is agent allowed to connect to this event file using
+        // the specified access mode?
+        if (!mConnectionPolicy.isAllowed(agent, accessMode))
+        {
+            // No.
+            throw (
+                new IllegalStateException(
+                    String.format(
+                        ACCESS_DENIED,
+                        agent.name(),
+                        mFileName,
+                        accessMode)));
+        }
+
+        sLogger.debug(
+            "{}: creating connection for agent {}, access mode {}.",
+            mTopicKey,
+            agent.name(),
+            accessMode);
 
         synchronized (mConnections)
         {
+            // Is the connection limit at maximum allowed?
+            if (mConnections.size() == mMaxConnections)
+            {
+                // Yes, can't exceed that value.
+                throw (
+                    new IllegalStateException(
+                        String.format(
+                            CONNECTION_LIMIT_REACHED,
+                            mMaxConnections,
+                            mTopicKey)));
+            }
+
             retval =
                 new EfsFileConnection<>(this, agent, accessMode);
             mConnections.add(retval);
@@ -886,142 +1048,62 @@ public final class EfsFile<E extends IEfsEvent>
             // 1. Is this file open?
             if (mOpenFlag.compareAndSet(true, false))
             {
+                final CloseInternalEvent event =
+                    new CloseInternalEvent();
+
+                sLogger.info(
+                    "{}: closing event file.", mTopicKey);
+
                 // 2. Yes. Remove file from global map.
                 sFiles.remove(mTopicKey);
 
                 // 3. Dispatch asynchronous doClose handler.
-                EfsDispatcher.dispatch(
-                    this::onClose,
-                    new CloseInternalEvent(), this);
+                try
+                {
+                    EfsDispatcher.dispatch(
+                        this::onClose, event, this);
+                }
+                catch (Exception jex)
+                {
+                    sLogger.warn(
+                        "{}: failed to dispatch close event, running on this thread.",
+                        mTopicKey,
+                        jex);
+
+                    mMetrics.incrementDispatchFailure();
+
+                    onClose(event);
+                }
             }
         }
     } // end of doClose()
 
     /**
-     * Returns a newly created efs event file for given
-     * type+topic key and assigning the file to the given
-     * dispatcher.
+     * Returns a new {@code EfsFile} builder for given topic key.
      * <p>
-     * Example
+     * <strong>Note:</strong> this method does <em>not</em>
+     * check if an event file currently exists for given key.
+     * This check is performed when {@link Builder#build()} is
+     * called.
      * </p>
-     * <pre>{@code
-     * // 1) Create and start a dispatcher named "fileDispatcher".
-     * EfsDispatcher.builder("fileDispatcher")
-     *     .threadType(org.efs.dispatcher.config.ThreadType.BLOCKING)
-     *     .numThreads(1)
-     *     .priority(Thread.NORM_PRIORITY)
-     *     .dispatcherType(org.efs.dispatcher.EfsDispatcher.DispatcherType.EFS)
-     *     .eventQueueCapacity(128)
-     *     .runQueueCapacity(4)
-     *     .maxEvents(128)
-     *     .build();
-     *
-     * // 2) Create a topic key for your event type.
-     * EfsTopicKey<MyEvent> key = EfsTopicKey.getKey(MyEvent.class, "myTopic");
-     *
-     * // 3) Create the EfsFile and assign it to the existing dispatcher.
-     * //    The dispatcher named "fileDispatcher" must already exist (see step 1).
-     * EfsFile<MyEvent> file = EfsFile.createEventFile(key, "fileDispatcher");
-     *
-     * // 4) Register an agent with the same dispatcher before connecting.
-     * //    The agent must be registered with the dispatcher; otherwise connect() will throw.
-     * IEfsAgent agent = new MyAgent("myAgent"); // implements IEfsAgent
-     * EfsDispatcher.register(agent, "fileDispatcher");
-     *
-     * // 5) Connect to the file (now allowed because the dispatcher exists and the agent is registered).
-     * EfsFileConnection<MyEvent> conn = file.connect(EfsFile.AccessMode.READ_WRITE, agent);
-     * }</pre>
+     * <p>
+     * Please read {@link Builder} class documentation required
+     * building event files.
+     * </p>
      * @param <E> efs event type.
-     * @param key efs event class and topic key.
-     * @param dispatcher efs file is associated with this
-     * dispatcher.
-     * @return efs event file.
+     * @param key event file topic key.
+     * @return efs event file builder.
      * @throws NullPointerException
      * if {@code key} is {@code null}.
-     * @throws IllegalArgumentException
-     * if {@code dispatcher} is either a {@code null}, empty, or
-     * blank or is not a known dispatcher.
-     * @throws NullPointerException
-     * if {@code key} is {@code null}.
-     * @throws IllegalArgumentException
-     * {@code dispatcher} is either {@code null}, an empty
-     * string, or blanks or does not reference a known
-     * dispatcher.
-     * @throws IllegalStateException
-     * if event file for {@code key} already exists.
-     * @throws IOException
-     * if attempt to open efs event file fails.
      *
      * @see #getEventFile(EfsTopicKey)
      */
-    @SuppressWarnings ("unchecked")
-    public static <E extends IEfsEvent> EfsFile<E> createEventFile(final EfsTopicKey<E> key,
-                                                                   final String dispatcher)
-        throws IOException
+    public static <E extends IEfsEvent>  Builder<E> builder(final EfsTopicKey<E> key)
     {
-        final EfsEventLayout<E> layout;
-        final Map<String, Attribute<EfsRow<E>, ?>> attributes;
-        final EfsFile<E> retval;
-
-        // Validate arguments.
         Objects.requireNonNull(key, NULL_TOPIC_KEY);
 
-        if (Strings.isNullOrEmpty(dispatcher) ||
-            dispatcher.isBlank())
-        {
-            throw (
-                new IllegalArgumentException(
-                    INVALID_DISPATCHER));
-        }
-
-        // Is this a known dispatcher.
-        if (!EfsDispatcher.isDispatcher(dispatcher))
-        {
-            throw (
-                new IllegalArgumentException(
-                    String.format(
-                        UNKNOWN_DISPATCHER, dispatcher)));
-        }
-
-        // Does this event file already exist?
-        if (sFiles.containsKey(key))
-        {
-            throw (
-                new IllegalStateException(
-                    String.format(
-                        FILE_PREVIOUSLY_CREATED, key)));
-        }
-
-        layout =
-            EfsEventLayout.getLayout(
-                (Class<E>) key.eventClass());
-
-        try
-        {
-            attributes =
-                CQAttributeGenerator.createAttributeMap(layout);
-        }
-        catch (Exception jex)
-        {
-            throw (
-                new IOException(
-                    String.format(
-                        "attempt to open %s event file failed",
-                        key),
-                    jex));
-        }
-
-        // Everything checks out. Clear to create new event file.
-        synchronized (sFiles)
-        {
-            retval =
-                new EfsFile<>(key, layout.fields(), attributes);
-            EfsDispatcher.register(retval, dispatcher);
-            sFiles.put(key, retval);
-        }
-
-        return (retval);
-    } // end of createEventFile(EfsTopicKey, String)
+        return (new Builder<>(key));
+    } // end of builder(EfsTopicKey<>)
 
     /**
      * Returns a previously created efs event file.
@@ -1031,7 +1113,7 @@ public final class EfsFile<E extends IEfsEvent>
      * @throws IllegalStateException
      * if there is no event file for {@code key}.
      *
-     * @see #createEventFile(EfsTopicKey, String)
+     * @see #builder(EfsTopicKey)
      */
     @SuppressWarnings ("unchecked")
     public static <E extends IEfsEvent> EfsFile<E> getEventFile(final EfsTopicKey<E> key)
@@ -1130,26 +1212,30 @@ retrievals from receiving the row.
         // Note: since this is a package-private method, caller
         // is guaranteed to pass a non-null addEvent.
 
-        // Is this file open?
-        // Note: it is possible that this efs event file was
-        // closed *after* addEvent posted to this file's event
-        // queue and *before* addEvent is processed.
-        if (!mOpenFlag.get())
-        {
-            // No. Do nothing.
-            return;
-        }
+        // NOTE: there is *no* need to check if this event file
+        // is open prior to performing add.
+        // Why?
+        // Consider this scenario: a close event is posted to
+        // this event file's event queue immediately followed
+        // by an add event. When this event file closes, it
+        // deregisters from its EfsDispatcher. This means the add
+        // event will never be delivered to this event file.
+        // Ergo: if we are processing a event, that means this
+        //       event file is open by definition.
 
         final Instant pubTime = addEvent.publishTimestamp();
         final Set<Integer> tags = addEvent.tags();
         final EfsRow<E> row =
-            new EfsRow<>(pubTime,
-                         mNextRowIndex.getAndIncrement(),
-                         tags,
-                         addEvent.event());
+            EfsRow.createRow(pubTime,
+                             mNextRowIndex.getAndIncrement(),
+                             tags,
+                             addEvent.event());
+
+        sLogger.debug("{}: adding row {}.", mTopicKey, row);
 
         mTable.add(row);
         mLatestRow = row;
+        mMetrics.incrementEventAdd();
 
         // Forward event row to agents whose request matches this
         // row.
@@ -1162,14 +1248,25 @@ retrievals from receiving the row.
             request = rIt.next();
 
             // Is this request still active?
-            if (!request.isCompleted())
+            if (request.isCompleted())
+            {
+                // That is strange. It should have been removed
+                // from the list before this. Remove it now.
+                sLogger.warn(
+                    "{}: removing defunct retrieval ({}).",
+                    mTopicKey,
+                    request);
+
+                rIt.remove();
+            }
+            else
             {
                 // Yes, request is active.
                 // Does this row satisfy the request?
                 if (request.matches(row))
                 {
                     // Yes. Forward row to agent.
-                    request.postRow(row);
+                    request.postRow(row, mMetrics);
                 }
 
                 // Has the retrieval request reached its end?
@@ -1183,12 +1280,16 @@ retrievals from receiving the row.
                     request.doClose(
                         pubTime,
                         CompletionType.RETRIEVAL_COMPLETED);
+                    mMetrics.retrievalCompleted();
                 }
             }
             // No, request was canceled by user.
             // Do not remove from active request lists. That
             // will be done in onCancel method.
         }
+
+        // Dispatch event row to exhaust agent.
+        mForwardExhaust.accept(row);
     } // end of onAdd(Instant, E)
 
     /**
@@ -1296,7 +1397,7 @@ must not block for long periods; callbacks invoked via
 postRow are scheduled onto agent event queues rather than
 executed inline here.
 </p>
-     * @param retrieveEvent nternal event wrapping
+     * @param retrieveEvent internal event wrapping
      * {@link EfsFileConnection.Retrieval} request to be
      * processed; must not be {@code null}.
      *
@@ -1307,98 +1408,64 @@ executed inline here.
      */
     /* package */ void onRetrieve(final RetrievalInternalEvent<E> retrieveEvent)
     {
-        final Instant now = (sClock.get()).instant();
+        final Instant now = (mClock.get()).instant();
         final Retrieval<E> retrieval = retrieveEvent.request();
         final EfsInterval interval = retrieval.interval();
 
-        // Is this file open?
-        if (!mOpenFlag.get())
-        {
-            // No. Inform agent that retrieval is completed due
-            // to event file being closed.
-            retrieval.doClose(now, CompletionType.FILE_CLOSED);
-        }
+        // NOTE: there is *no* need to check if this event file
+        // is open prior to performing retrieval.
+        // Why?
+        // Consider this scenario: a close event is posted to
+        // this event file's event queue immediately followed
+        // by a retrieval event. When this event file closes,
+        // it deregisters from its EfsDispatcher. This means the
+        // retrieval event will never be delivered to this event
+        // file.
+        // Ergo: if we are processing a retrieval event, that
+        //       means this event file is open by definition.
+
         // Was retrieval request canceled during hand-off to
         // dispatcher thread?
-        else if (retrieval.isCompleted())
+        if (!retrieval.isCompleted())
         {
-            // Yes, no-op.
+            // No. Perform the retrieval.
+            doRetrieve(now, retrieval, interval);
         }
-        // Is this file empty?
-        else if (mNextRowIndex.get() == 0)
-        {
-            // Yes. Does this retrieval for future events?
-            if (interval.isFutureInterval(now))
-            {
-                // Yes again. Store request away while waiting
-                // for those future events.
-                generateRowQuery(retrieval);
-                mActiveRequests.put(retrieval.id(), retrieval);
-            }
-            else
-            {
-                // No. Then this retrieval is completed because
-                // there are no historical events to retrieve.
-                retrieval.doClose(
-                    now, CompletionType.RETRIEVAL_COMPLETED);
-            }
-        }
-        else
-        {
-            // No, request is still active. Generate CQEngine
-            // query based on request interval and current time
-            // and row index.
-            final Query<EfsRow<E>> rowQuery =
-                generateRowQuery(retrieval);
-
-            // Retrieve events as per request. If request is for
-            // future events, then store retrieval.
-            try (ResultSet<EfsRow<E>> results =
-                     mTable.retrieve(rowQuery, mOrderByOpts))
-            {
-                // Dispatch matching rows to user.
-                for (EfsRow<E> r : results)
-                {
-                    retrieval.postRow(r);
-                }
-            }
-
-            // Does this request also include future events?
-            if (!retrieval.isAtEnd(mLatestRow))
-            {
-                // Yes. Store request away so it can be matched
-                // against those future events.
-                mActiveRequests.put(retrieval.id(), retrieval);
-            }
-            // Request is for past events only. Let the agent
-            // know this fact.
-            else
-            {
-                retrieval.doClose(
-                    now, CompletionType.RETRIEVAL_COMPLETED);
-            }
-        }
+        // Yes, request is cancled. Nothing else to do.
     } // end of onRetrieve(RetrieveEvent)
 
     /**
-     * TODO
-     * @param retrieveEvent contains user-defined event tag used
-     * to retrieve events.
+     * Handles a tag-based retrieval request for this file.
+     * <p>
+     * If the file has no rows, the request is completed
+     * immediately with a retrieval-completed status. Otherwise,
+     * the method looks up rows whose tags include the tag
+     * carried by the request, dispatches the matching rows to
+     * the retrieval event in ascending row-index order, and then
+     * completes the request.
+     * </p>
+     * @param retrieveEvent contains the user-defined tag used to
+     * select matching events and the callbacks used to deliver
+     * those rows and completion notification.
      */
     /* package */ void onRetrieve(final TagRetrieveInternalEvent<E> retrieveEvent)
     {
-        final Instant now = (sClock.get()).instant();
+        final Instant now = (mClock.get()).instant();
 
-        // Is this file open?
-        if (!mOpenFlag.get())
-        {
-            // No. Inform agent that retrieval is completed due
-            // to event file being closed.
-            retrieveEvent.postCompletion(
-                now, CompletionType.FILE_CLOSED);
-        }
+        // NOTE: there is *no* need to check if this event file
+        // is open prior to performing retrieval.
+        // Why?
+        // Consider this scenario: a close event is posted to
+        // this event file's event queue immediately followed
+        // by a retrieval event. When this event file closes,
+        // it deregisters from its EfsDispatcher. This means the
+        // retrieval event will never be delivered to this event
+        // file.
+        // Ergo: if we are processing a retrieval event, that
+        //       means this event file is open by definition.
+
         // Is this file empty?
-        else if (mNextRowIndex.get() == 0)
+        if (mNextRowIndex.get() == 0)
         {
             // Yes. This retrieval is completed because there are
             // no historical events to retrieve.
@@ -1410,6 +1477,7 @@ executed inline here.
             // Retrieve events with given user-defined event tag.
             final int tag = retrieveEvent.tag();
             final Query<EfsRow<E>> rowQuery = in(mTagIndex, tag);
+            EfsRow<E> row = null;
 
             // Retrieve events in ascending row index order.
             try (ResultSet<EfsRow<E>> results =
@@ -1418,8 +1486,21 @@ executed inline here.
                 // Dispatch matching rows to user.
                 for (EfsRow<E> r : results)
                 {
+                    row = r;
                     retrieveEvent.postRow(r);
                 }
+            }
+            catch (Exception jex)
+            {
+                // Row posting failure means that target agent's
+                // event queue is full, therefore there is no
+                // reason to continue posting rows to the agent.
+                sLogger.warn(
+                    "{}: attempt to post row {} to agent {} failed; event queue full; retrieval terminated.",
+                    mTopicKey,
+                    row,
+                    (retrieveEvent.agent()).name(),
+                    jex);
             }
 
             retrieveEvent.postCompletion(
@@ -1462,10 +1543,11 @@ executed inline here.
      * dispatcher thread.
      */
     @SuppressWarnings ({"unused"})
-    private void onClose(final CloseInternalEvent event)
+    @VisibleForTesting
+    /* package */ void onClose(final CloseInternalEvent event)
     {
         final List<EfsFileConnection<E>> connections;
-        final Instant now = (sClock.get()).instant();
+        final Instant now = (mClock.get()).instant();
 
         synchronized (mConnections)
         {
@@ -1498,6 +1580,96 @@ executed inline here.
     //
     // end of Event Handlers.
     //-----------------------------------------------------------
+
+    /**
+     * Performs actual work of matching retrieval against past
+     * and future events based on the given interval.
+     * @param currentTime time retrieval was posted.
+     * @param retrieval event retrieval.
+     * @param interval retrieve events over this interval.
+     */
+    private void doRetrieve(final Instant currentTime,
+                            final Retrieval<E> retrieval,
+                            final EfsInterval interval)
+    {
+        sLogger.debug(
+            "{}: retrieving events {}.",
+            mTopicKey,
+            retrieval);
+
+        mMetrics.retrievalStarted();
+
+        if (mNextRowIndex.get() == 0)
+        {
+            // Yes. Does this retrieval for future events?
+            if (interval.isFutureInterval(mNextRowIndex.get(),
+                                          currentTime))
+            {
+                // Yes again. Store request away while waiting
+                // for those future events.
+                generateRowQuery(retrieval);
+                storeRetrieval(currentTime, retrieval);
+            }
+            else
+            {
+                // No. Then this retrieval is completed because
+                // there are no historical events to retrieve.
+                retrieval.doClose(
+                    currentTime,
+                    CompletionType.RETRIEVAL_COMPLETED);
+                mMetrics.retrievalCompleted();
+            }
+        }
+        else
+        {
+            // No, request is still active. Generate CQEngine
+            // query based on request interval and current time
+            // and row index.
+            final Query<EfsRow<E>> rowQuery =
+                generateRowQuery(retrieval);
+            EfsRow<E> row = null;
+
+            // Retrieve events as per request. If request is for
+            // future events, then store retrieval.
+            try (ResultSet<EfsRow<E>> results =
+                     mTable.retrieve(rowQuery, mOrderByOpts))
+            {
+                // Dispatch matching rows to user.
+                for (EfsRow<E> r : results)
+                {
+                    row = r;
+                    retrieval.postRow(r, mMetrics);
+                }
+            }
+            catch (Exception jex)
+            {
+                // Row posting failure means that target agent's
+                // event queue is full, therefore there is no
+                // reason to continue posting rows to the agent.
+                sLogger.warn(
+                    "{}: attempt to post row {} to agent {} failed; event queue full; retrieval terminated.",
+                    mTopicKey,
+                    row,
+                    (retrieval.agent()).name(),
+                    jex);
+            }
+
+            // Does this request also include future events?
+            if (!retrieval.isAtEnd(mLatestRow))
+            {
+                storeRetrieval(currentTime, retrieval);
+            }
+            // Request is for past events only. Let the agent
+            // know this fact.
+            else
+            {
+                retrieval.doClose(
+                    currentTime,
+                    CompletionType.RETRIEVAL_COMPLETED);
+                mMetrics.retrievalCompleted();
+            }
+        }
+    } // end of doRetrieve(Instant, Retrieval, EfsInterval)
 
     /**
      * Returns efs row query for given retrieval request interval
@@ -1568,10 +1740,28 @@ executed inline here.
                     };
                 break;
 
+            case FIXED_INDEX:
+                final EfsIndexFixedEndpoint fep =
+                    (EfsIndexFixedEndpoint) beginning;
+
+                retval =
+                    switch (clusivity)
+                    {
+                        case INCLUSIVE ->
+                            greaterThanOrEqualTo(
+                                mRowIndex, fep.fixedIndex());
+
+                        // EXCLUSIVE
+                        default ->
+                            greaterThan(
+                                mRowIndex, fep.fixedIndex());
+                    };
+                break;
+
             // INDEX_OFFSET
             default:
-                final EfsIndexEndpoint iep =
-                    (EfsIndexEndpoint) beginning;
+                final EfsIndexOffsetEndpoint iep =
+                    (EfsIndexOffsetEndpoint) beginning;
                 final long beginRowIndex =
                     ((mLatestRow.getRowIndex()) +
                      iep.indexOffset());
@@ -1642,10 +1832,28 @@ executed inline here.
                     };
                 break;
 
+            case FIXED_INDEX:
+                final EfsIndexFixedEndpoint fep =
+                    (EfsIndexFixedEndpoint) ending;
+
+                retval =
+                    switch (clusivity)
+                    {
+                        case INCLUSIVE ->
+                            lessThanOrEqualTo(
+                                mRowIndex, fep.fixedIndex());
+
+                        // EXCLUSIVE
+                        default ->
+                            lessThan(
+                                mRowIndex, fep.fixedIndex());
+                    };
+                break;
+
             // INDEX_OFFSET
             default:
-                final EfsIndexEndpoint iep =
-                    (EfsIndexEndpoint) ending;
+                final EfsIndexOffsetEndpoint iep =
+                    (EfsIndexOffsetEndpoint) ending;
                 final long beginRowIndex =
                     (mLatestRow.getRowIndex() +
                      iep.indexOffset());
@@ -1666,4 +1874,947 @@ executed inline here.
 
         return (retval);
     } // end of generateEndQuery(...)
+
+    /**
+     * Stores given retrieval in active requests map after
+     * verifying that maximum allowed concurrent retrieval
+     * requests is not exceeded. If exceeded, then request is
+     * closed.
+     * @param currentTime retrieval placement timestamp.
+     * @param retrieval retrieval request.
+     */
+    private void storeRetrieval(final Instant currentTime,
+                                final Retrieval<E> retrieval)
+    {
+        // Has retrieval limit been reached?
+        if (mActiveRequests.size() == mMaxActiveRetrievals)
+        {
+            // Yes, cannot add another retrieval.
+            retrieval.doClose(currentTime,
+                              CompletionType.RESOURCE_EXHAUSTED);
+            mMetrics.retrievalCompleted();
+
+        }
+        else
+        {
+            sLogger.debug(
+                "{}: storing retrieval {} for future events.",
+                mTopicKey,
+                retrieval);
+
+            // Yes. Store request away so it can be matched
+            // against those future events.
+            mActiveRequests.put(retrieval.id(), retrieval);
+        }
+    } // end of storeRetrieval(Instant, Retrieval)
+
+    /**
+     * There is no exhaust agent configured, so do nothing.
+     * @param row exhaust this row.
+     */
+    private void doNoExhaust(final EfsRow<E> row)
+    {}
+
+    /**
+     * Forwards row to exhaust agent for persistent storage.
+     * @param row write this row to persistent store.
+     */
+    private void doExhaust(final EfsRow<E> row)
+    {
+        try
+        {
+            EfsDispatcher.dispatch(
+                mExhaustCB, row, mExhaustAgent);
+        }
+        catch (Exception jex)
+        {
+            sLogger.warn(
+                "{}: failed to dispatch event to exhaust agent {}.",
+                mTopicKey,
+                mExhaustAgent.name(),
+                jex);
+
+            mMetrics.incrementDispatchFailure();
+        }
+    } // end of doExhaust(EfsRow)
+
+//---------------------------------------------------------------
+// Inner classes.
+//
+
+    /**
+     * Fluent builder for creating and, optionally, populating an
+     * {@link EfsFile}.
+     * <p>
+     * Use {@link EfsFile#builder(EfsTopicKey)} to obtain a
+     * builder for a specific event type and topic, configure the
+     * file's dispatcher and limits, and then call
+     * {@link #build()} to create the file. The builder also sets
+     * up the CQEngine indexes required for row retrieval and can
+     * preload the table from a supplied initializer when the file
+     * represents persisted history.
+     * </p>
+     * <p>
+     * Typical usage is:
+     * </p>
+     * <pre>{@code
+     * EfsFile<MyEvent> file =
+     *     EfsFile.<MyEvent>builder(key)
+     *         .dispatcher("mainDispatcher")
+     *         .maxConnections(50)
+     *         .maxRetrievals(250)
+     *         .build();
+     * }</pre>
+     * <p>
+     * Builders may also be used to attach an exhaust callback for
+     * persistence, provide an initialization supplier for existing
+     * rows, or override the clock for testing.
+     * </p>
+     *
+     * @param <E> efs event type.
+     */
+    public static final class Builder<E extends IEfsEvent>
+    {
+    //-----------------------------------------------------------
+    // Member data.
+    //
+
+        //-------------------------------------------------------
+        // Locals.
+        //
+
+        /**
+         * Unique topic key defining this efs event file layout
+         * and topic.
+         */
+        private final EfsTopicKey<E> mTopicKey;
+
+        /**
+         * Event file table indexed by row index.
+         */
+        private final IndexedCollection<EfsRow<E>> mTable;
+
+        /**
+         * {@link EfsRow#getRowIndex()} row index.
+         */
+        private final Attribute<EfsRow<E>, Long> mRowIndex;
+
+        /**
+         * {@link EfsRow#getPublishTimestamp()} publish time
+         * index.
+         */
+        private final Attribute<EfsRow<E>, Instant> mPubTimeIndex;
+
+        /**
+         * {@link EfsRow#getTags()} user-defined tabs index.
+         */
+        private final Attribute<EfsRow<E>, Integer> mTagIndex;
+
+        /**
+         * Order retrieved events by ascending row index.
+         */
+        private final QueryOptions mOrderByOpts;
+
+        /**
+         * Connection policy defining which agents using which
+         * access modes may connect to event file. Defaults to
+         * {@link #DEFAULT_CONNECTION_POLICY}.
+         */
+        private IConnectionPolicy mConnectionPolicy;
+
+        /**
+         * Event file dispatcher. This data member must be
+         * set.
+         */
+        private String mDispatcher;
+
+        /**
+         * Total number of efs event file connections in place at
+         * any one time.
+         */
+        private int mMaxConnections;
+
+        /**
+         * Total number of event file retrievals active at any
+         * one time.
+         */
+        private int mMaxActiveRetrievals;
+
+        /**
+         * If not {@code null}, then used to initialize efs event
+         * file rows; otherwise an empty event file is created.
+         */
+        @Nullable private Supplier<Iterator<EfsRow<E>>> mInitializer;
+
+        /**
+         * If not {@code null}, then newly added rows are
+         * forwarded to this consumer callback for persistence.
+         *
+         * @see #mExhaustAgent
+         */
+        @Nullable private Consumer<EfsRow<E>> mExhaustCB;
+
+        /**
+         * Agent responsible for persisting newly added rows.
+         *
+         * @see #mExhaustCB
+         */
+        @Nullable private IEfsAgent mExhaustAgent;
+
+        /**
+         * Index used for next row added to table. This value
+         * should be used and then incremented.
+         */
+        private long mNextRowIndex;
+
+        /**
+         * Clock used to acquire current instant. Initialized to
+         * {@link #sClock}. Should be overridden only for testing
+         * purposes.
+         */
+        private Clock mClock;
+
+        /**
+         * The latest row in the efs event table.
+         */
+        private EfsRow<E> mLatestRow;
+
+        /**
+         * Event field names in lexicographic sorted order.
+         */
+        private SortedSet<String> mFields;
+
+        /**
+         * Event field attributes generated from field
+         * {@code CQAttribute} annotations.
+         */
+        private Map<String, Attribute<EfsRow<E>, ?>> mAttributes;
+
+    //-----------------------------------------------------------
+    // Member methods.
+    //
+
+        //-------------------------------------------------------
+        // Constructors.
+        //
+
+        /**
+         * Creates a new {@link EfsFile} builder for given
+         * event type + topic key. Sets data members to default
+         * values.
+         * @param key defines file event type and topic.
+         */
+        private Builder(final EfsTopicKey<E> key)
+        {
+            mTopicKey = key;
+            mTable = new ConcurrentIndexedCollection<>();
+
+            mConnectionPolicy = DEFAULT_CONNECTION_POLICY;
+            mMaxConnections = DEFAULT_MAX_CONNECTIONS;
+            mMaxActiveRetrievals = DEFAULT_MAX_ACTIVE_RETRIEVALS;
+            mNextRowIndex = 0L;
+            mClock = sClock;
+
+            mRowIndex =
+                new SimpleAttribute<EfsRow<E>, Long>(ROW_INDEX_ATTRIBUTE)
+                {
+                    @Override
+                    public Long getValue(final EfsRow<E> row,
+                                         final QueryOptions qo)
+                    {
+                        return (row.getRowIndex());
+                    }
+                };
+            mPubTimeIndex =
+                new SimpleAttribute<EfsRow<E>, Instant>(PUBLISH_TIMESTAMP_ATTRIBUTE)
+                {
+                    @Override
+                    public Instant getValue(final EfsRow<E> row,
+                                            final QueryOptions qo)
+                    {
+                        return (row.getPublishTimestamp());
+                    }
+                };
+            mTagIndex =
+                new MultiValueAttribute<EfsRow<E>, Integer>(TAGS_ATTRIBUTE)
+                {
+                    @Override
+                    public Iterable<Integer> getValues(final EfsRow<E> row,
+                                                       final QueryOptions qo)
+                    {
+                        return (row.getTags());
+                    } // end of getValues(EfsRow, QueryOptions)
+                };
+            mOrderByOpts =
+                queryOptions(orderBy(ascending(mRowIndex)));
+
+            // Index row and publish timestamp attributes.
+            mTable.addIndex(UniqueIndex.onAttribute(mRowIndex));
+            mTable.addIndex(
+                NavigableIndex.onAttribute(mPubTimeIndex));
+            mTable.addIndex(HashIndex.onAttribute(mTagIndex));
+        } // end of Builder(EfsTopicKey)
+
+        //
+        // end of Constructors.
+        //-------------------------------------------------------
+
+        //-------------------------------------------------------
+        // Set Methods.
+        //
+
+        /**
+         * Sets efs event file's connection policy.
+         * @param policy connection policy defining which agents
+         * may connect to event file using which access modes.
+         * @return {@code this Builder} instance.
+         * @throws NullPointerException
+         * if {@code policy} is {@code null}.
+         */
+        public Builder<E> connectionPolicy(final IConnectionPolicy policy)
+        {
+            mConnectionPolicy =
+                Objects.requireNonNull(policy, NULL_POLICY);
+
+            return (this);
+        } // end of connectionPolicy(IConnectionPolicy)
+
+        /**
+         * Sets efs event file's dispatcher.
+         * @param dispatcher register event file with this
+         * dispatcher.
+         * @return {@code this Builder} instance.
+         * @throws IllegalArgumentException
+         * if {@code dispatcher} is either {@code null}, an empty
+         * string, or blank or if there is no such
+         * {@link EfsDispatcher} named {@code dispatcher}.
+         */
+        public Builder<E> dispatcher(final String dispatcher)
+        {
+            if (Strings.isNullOrEmpty(dispatcher) ||
+                dispatcher.isBlank())
+            {
+                throw (
+                    new IllegalArgumentException(
+                        INVALID_DISPATCHER));
+            }
+
+            if (!EfsDispatcher.isDispatcher(dispatcher))
+            {
+                throw (
+                    new IllegalArgumentException(
+                        String.format(
+                            UNKNOWN_DISPATCHER,
+                            dispatcher)));
+            }
+
+            mDispatcher = dispatcher;
+
+            return (this);
+        } // end of dispatcher(String)
+
+        /**
+         * Sets maximum concurrent connection limit to given
+         * value.
+         * @param limit maximum concurrent connection limit.
+         * @return {@code this Builder} instance.
+         * @throws IllegalArgumentException
+         * if {@code limit} &le; zero.
+         */
+        public Builder<E> maxConnections(final int limit)
+        {
+            if (limit <= 0)
+            {
+                throw (
+                    new IllegalArgumentException(INVALID_LIMIT));
+            }
+
+            mMaxConnections = limit;
+
+            return (this);
+        } // end of maxConnections(int)
+
+        /**
+         * Sets maximum concurrent, active retrieval limit to
+         * given value.
+         * @param limit maximum concurrent, active retrievals
+         * limit.
+         * @return {@code this Builder} instance.
+         * @throws IllegalArgumentException
+         * if {@code limit} &le; zero.
+         */
+        public Builder<E> maxRetrievals(final int limit)
+        {
+            if (limit <= 0)
+            {
+                throw (
+                    new IllegalArgumentException(INVALID_LIMIT));
+            }
+
+            mMaxActiveRetrievals = limit;
+
+            return (this);
+        } // end of maxRetrievals(int)
+
+        /**
+         * Sets efs event file initializer. This
+         * supplier provides an event row {@code Iterator} used
+         * to place initial rows into the event file starting
+         * with row zero and up to the latest row.
+         * <p>
+         * The initializer provides an {@code Iterator} which,
+         * in turn, returns {@link EfsRow}s in row index
+         * ascending order. These indices are required to be
+         * sequential and ascending.
+         * </p>
+         * @param initializer initializes efs event file rows.
+         * @return {@code this Builder} instance.
+         * @throws NullPointerException
+         * if {@code initializer} is {@code null}.
+         */
+        public Builder<E> tableInitializer(final Supplier<Iterator<EfsRow<E>>> initializer)
+        {
+            mInitializer =
+                Objects.requireNonNull(
+                    initializer, NULL_INITIALIZER);
+
+            return (this);
+        } // end of tableInitializer(Supplier<>)
+
+        /**
+         * Sets efs event file exhaust callback and agent to
+         * given values. This pair is used to exhaust newly
+         * added event rows to persistent store.
+         * @param exhaustCB method used to persist given row.
+         * @param exhaustAgent agent performing event row
+         * persistence.
+         * @return {@code this Builder} instance.
+         * @throws NullPointerException
+         * if either {@code exhaustCB} or {@code exhaustAgent} is
+         * {@code null}.
+         */
+        public Builder<E> tableExhaust(final Consumer<EfsRow<E>> exhaustCB,
+                                       final IEfsAgent exhaustAgent)
+        {
+            Objects.requireNonNull(exhaustCB, NULL_EXHAUST_CB);
+            Objects.requireNonNull(
+                exhaustAgent, NULL_EXHAUST_AGENT);
+
+            mExhaustCB = exhaustCB;
+            mExhaustAgent = exhaustAgent;
+
+            return (this);
+        } // end of tableExhaust(Consumer<>, IEfsAgent)
+
+        /**
+         * Sets clock used by efs event file. Provided for unit
+         * testing purposes only.
+         * @param clock event file clock providing current
+         * {@code Instant}.
+         * @return {@code this Builder} instance.
+         * @throws NullPointerException
+         * if {@code clock} is {@code null}.
+         */
+        @VisibleForTesting
+        public Builder<E> clock(final Clock clock)
+        {
+            mClock = Objects.requireNonNull(clock, NULL_CLOCK);
+
+            return (this);
+        } // end of clock(Clock)
+
+        //
+        // end of Set Methods.
+        //-------------------------------------------------------
+
+        /**
+         *
+         * <p>
+         * <strong>Note:</strong> this method is synchronous.
+         * If an initializer is set, then this method call
+         * blocks until initialization completes. This could be
+         * a lengthy process depending on how event row
+         * retrieval from persistent store is implemented.
+         * This method also synchronizes on the global efs event
+         * file map, so building event files is done one at a
+         * time in arrival order. Therefore, it is
+         * <em>strongly</em> recommended that efs event file
+         * creation is performed on application start.
+         * </p>
+         * @return new {@code EfsFile} instance.
+         * @throws IllegalStateException
+         * if event file for topic key already exists.
+         * @throws EfsFileInitializationException
+         * if efs event file initialization fails due to:
+         * <ul>
+         *   <li>
+         *     returned row is {@code null},
+         *   </li>
+         *   <li>
+         *     returned row has index &lt; latest row index, or
+         *   </li>
+         *   <li>
+         *     returned row has publish timestamp &lt; latest row
+         *     publish timestamp.
+         *   </li>
+         * </ul>
+         */
+        @SuppressWarnings({"java:S1067", "unchecked"})
+        public EfsFile<E> build()
+            throws EfsFileInitializationException
+        {
+            final Validator problems = new Validator();
+            final EfsFile<E> retval;
+
+            // Make sure dispatcher is set.
+            problems.requireNotNull(mDispatcher, "dispatcher")
+                    .throwException(EfsFile.class);
+
+            synchronized (sFiles)
+            {
+                // Is there an efs event file for this topic key
+                // already?
+                if (sFiles.containsKey(mTopicKey))
+                {
+                    throw (
+                        new IllegalStateException(
+                            String.format(
+                                FILE_PREVIOUSLY_CREATED,
+                                mTopicKey)));
+                }
+
+                // If initializer is provided, then insert
+                // initial rows into table.
+                if (mInitializer == null)
+                {
+                    // No initializer means empty event file.
+                    // Create a default latest row.
+                    mLatestRow =
+                        EfsRow.createRow(mClock.instant());
+                }
+                else
+                {
+                    initializeEvents();
+                }
+
+                final EfsEventLayout<E> layout;
+
+                try
+                {
+                    layout =
+                        EfsEventLayout.getLayout(
+                            mTopicKey.eventClass());
+                    mFields = layout.fields();
+                    mAttributes =
+                        CQAttributeGenerator.createAttributeMap(
+                            layout);
+                }
+                catch (Exception jex)
+                {
+                    throw (
+                        new EfsFileInitializationException(
+                            String.format(
+                                "%s attribute creation failed",
+                                mTopicKey),
+                            jex));
+                }
+
+                // Create the event file, register with
+                // dispatcher, and store in map.
+                retval = new EfsFile<>(this);
+                EfsDispatcher.register(retval, mDispatcher);
+                sFiles.put(mTopicKey, retval);
+            }
+
+            return (retval);
+        } // end of build()
+
+        /**
+         * Initializes new efs event file using provided
+         * initializer.
+         * @throws EfsFileInitializationException
+         * if efs event file initialization fails due to:
+         * <ul>
+         *   <li>
+         *     returned row is {@code null},
+         *   </li>
+         *   <li>
+         *     returned row has index &lt; latest row index, or
+         *   </li>
+         *   <li>
+         *     returned row has publish timestamp &lt; latest row
+         *     publish timestamp.
+         *   </li>
+         * </ul>
+         */
+        private void initializeEvents()
+            throws EfsFileInitializationException
+        {
+            final Iterator<EfsRow<E>> rIt;
+            EfsRow<E> row;
+            Instant prevPubTime = Instant.MIN;
+            long rowIndex;
+            Instant rowPubTime;
+
+            sLogger.info("{}: initializing event file.",
+                         mTopicKey);
+
+            try
+            {
+                rIt = mInitializer.get();
+            }
+            catch (Throwable tex)
+            {
+                throw (
+                    new EfsFileInitializationException(
+                        String.format(
+                            "%s initialization failed: initializer exception",
+                            mTopicKey),
+                        tex));
+            }
+
+            while (rIt.hasNext())
+            {
+                row = rIt.next();
+
+                // Was a null row returned?
+                if (row == null)
+                {
+                    throw (
+                        new EfsFileInitializationException(
+                            String.format(
+                                "%s initialization failed: null row returned",
+                                mTopicKey)));
+                }
+
+                rowIndex = row.getRowIndex();
+                rowPubTime = row.getPublishTimestamp();
+
+                // Is row index in ascending order?
+                if (rowIndex < mNextRowIndex)
+                {
+                    // No. Fail initialization.
+                    throw (
+                        new EfsFileInitializationException(
+                            String.format(
+                                "%s initialization failed: row index %,d < expected index %,d",
+                                mTopicKey,
+                                rowIndex,
+                                mNextRowIndex)));
+                }
+
+                // Is row index in sequential order?
+                if (rowIndex > mNextRowIndex)
+                {
+                    // No. Fail initialization.
+                    throw (
+                        new EfsFileInitializationException(
+                            String.format(
+                                "%s initialization failed: row index %,d > expected index %,d",
+                                mTopicKey,
+                                rowIndex,
+                                mNextRowIndex)));
+                }
+
+                // Is the row publish timestamp in
+                // non-descending order?
+                if (rowPubTime.compareTo(prevPubTime) < 0)
+                {
+                    // No. Fail initialization.
+                    throw (
+                        new EfsFileInitializationException(
+                            String.format(
+                                "%s initialization failed: row publish timestamp %s < previous timestamp %s",
+                                mTopicKey,
+                                rowPubTime,
+                                prevPubTime)));
+                }
+
+                // All checks out. Add the row.
+                mTable.add(row);
+                mLatestRow = row;
+                mNextRowIndex = (rowIndex + 1);
+                prevPubTime = rowPubTime;
+            }
+        } // end of initializeEvents()
+    } // end of class Builder
+
+    /**
+     * Run time metrics for an {@link EfsFile} instance. These
+     * metrics track:
+     * <ul>
+     *   <li>
+     *     number of events added to the file,
+     *   </li>
+     *   <li>
+     *     number of event retrievals started,
+     *   </li>
+     *   <li>
+     *     number of event retrievals completed,
+     *   </li>
+     *   <li>
+     *     number of event retrievals in progress (retrievals
+     *     started - retrievals completed), and
+     *   </li>
+     *   <li>
+     *     event dispatch failures observed.
+     *   </li>
+     * </ul>
+     * <p>
+     * Please note that above counts may change while being
+     * accessed. Any count retrieval is a snapshot of event
+     * file's current state.
+     * </p>
+     * <p>
+     * Metrics are maintained after event file is closed allowing
+     * further examination.
+     * </p>
+     *
+     * @param <E> event type managed by owning file
+     */
+    public static final class Metrics<E extends IEfsEvent>
+    {
+    //-----------------------------------------------------------
+    // Member data.
+    //
+
+        //-------------------------------------------------------
+        // Constants.
+        //
+
+        /**
+         * Open timestamp is formatted at {@value}.
+         */
+        private static final String TIMESTAMP_FORMAT =
+            "yyyy-MM-dd HH:mm:ss.SSS";
+
+        /**
+         * Format open timestamp in GMT.
+         */
+        private static final ZoneId GMT = ZoneId.of("GMT");
+
+        //-------------------------------------------------------
+        // Statics.
+        //
+
+        /**
+         * Open timestamp formatter.
+         */
+        private static final DateTimeFormatter sTimeFormatter =
+            DateTimeFormatter.
+                ofPattern(TIMESTAMP_FORMAT).withZone(GMT);
+
+        //-------------------------------------------------------
+        // Locals.
+        //
+
+        /**
+         * Event file topic key.
+         */
+        private final EfsTopicKey<E> mTopicKey;
+
+        /**
+         * {@code EfsFile} opened at this time.
+         */
+        private final Instant mOpenTime;
+
+        /**
+         * Tracks number of events added to efs event file since
+         * opening.
+         */
+        private final AtomicLong mEventsAdded;
+
+        /**
+         * Tracks number of event retrievals started. Subtract
+         * {@link #mRetrievalsCompleted} to get number of
+         * in-progress retrievals.
+         *
+         * @see #mRetrievalsCompleted
+         */
+        private final AtomicLong mRetrievalsStarted;
+
+        /**
+         * Tracks number of event retrievals completed. Subtract
+         * this value from {@link #mRetrievalsStarted} to get
+         * number of in-progress retrievals.
+         *
+         * @see #mRetrievalsStarted
+         */
+        private final AtomicLong mRetrievalsCompleted;
+
+        /**
+         * Tracks number of calls to
+         * {@link EfsDispatcher#dispatch(Consumer, IEfsEvent, IEfsAgent) EfsDispatcher.dispatch}
+         * resulting in an exception and dispatch failure. Such
+         * failures are most likely due to the target agent's
+         * event queue being full.
+         */
+        private final AtomicLong mDispatchFailures;
+
+    //-----------------------------------------------------------
+    // Member methods.
+    //
+
+        //-------------------------------------------------------
+        // Constructors.
+        //
+
+        /* package */ Metrics(final EfsTopicKey<E> topicKey,
+                              final Instant openTime)
+        {
+            mTopicKey = topicKey;
+            mOpenTime = openTime;
+            mEventsAdded = new AtomicLong();
+            mRetrievalsStarted = new AtomicLong();
+            mRetrievalsCompleted = new AtomicLong();
+            mDispatchFailures = new AtomicLong();
+        } // end of Metrics(EfsTopicKey<>, Instant)
+
+        //
+        // end of Constructors.
+        //-------------------------------------------------------
+
+        //-------------------------------------------------------
+        // Object Method Overrides.
+        //
+
+        /**
+         * Returns efs event file metrics as text.
+         * @return efs event file metrics as text.
+         */
+        @Override
+        public String toString()
+        {
+            return (
+                String.format(
+                    "[key=%s, open time=%s, added=%,d, retrievals started=%,d, retrievals completed=%,d, dispatch failures=%,d]",
+                    mTopicKey,
+                    sTimeFormatter.format(mOpenTime),
+                    mEventsAdded.get(),
+                    mRetrievalsStarted.get(),
+                    mRetrievalsCompleted.get(),
+                    mDispatchFailures.get()));
+        } // end of toString()
+
+        //
+        // end of Object Method Overrides.
+        //-------------------------------------------------------
+
+        //-------------------------------------------------------
+        // Get Methods.
+        //
+
+        /**
+         * Returns efs event file topic key.
+         * @return efs event file topic key.
+         */
+        public EfsTopicKey<E> topicKey()
+        {
+            return (mTopicKey);
+        } // end of topicKey()
+
+        /**
+         * Returns efs event file opening timestamp.
+         * @return efs event file opening timestamp.
+         */
+        public Instant openTime()
+        {
+            return (mOpenTime);
+        } // end of openTime()
+
+        /**
+         * Returns number of events added to efs event file at
+         * this time.
+         * @return event add count.
+         */
+        public long eventsAdded()
+        {
+            return (mEventsAdded.get());
+        } // end of eventsAdded()
+
+        /**
+         * Returns number of event retrievals started at this
+         * time.
+         * @return event retrieval start count.
+         */
+        public long retrievalsStarted()
+        {
+            return (mRetrievalsStarted.get());
+        } // end of retrievalsStarted()
+
+        /**
+         * Returns number of event retrievals completed at this
+         * time.
+         * @return event retrieval completion count.
+         */
+        public long retrievalsCompleted()
+        {
+            return (mRetrievalsCompleted.get());
+        } // end of retrievalsCompleted()
+
+        /**
+         * Returns number of in-progress event retrievals at this
+         * time.
+         * @return event retrievals in-progress count.
+         */
+        public long retrievalsInProgress()
+        {
+            return (mRetrievalsStarted.get() -
+                    mRetrievalsCompleted.get());
+        } // end of retrievalsInProgress()
+
+        /**
+         * Returns number of event dispatch failures at this
+         * time.
+         * @return event dispatch failure count.
+         */
+        public long dispatchFailures()
+        {
+            return (mDispatchFailures.get());
+        } // end of dispatchFailures()
+
+        //
+        // end of Get Methods.
+        //-------------------------------------------------------
+
+        //-------------------------------------------------------
+        // Set Methods.
+        //
+
+        /**
+         * Increments event add count.
+         */
+        /* package */ void incrementEventAdd()
+        {
+            mEventsAdded.incrementAndGet();
+        } // end of incrementEventAdd()
+
+        /**
+         * Increments retrieval started count.
+         */
+        /* package */ void retrievalStarted()
+        {
+            mRetrievalsStarted.incrementAndGet();
+        } // end of retrievalStarted()
+
+        /**
+         * Increments retrieval completed count.
+         */
+        /* package */ void retrievalCompleted()
+        {
+            mRetrievalsCompleted.incrementAndGet();
+        } // end of retrievalCompleted()
+
+        /**
+         * Increments dispatch failure count.
+         */
+        /* package */ void incrementDispatchFailure()
+        {
+            mDispatchFailures.incrementAndGet();
+        } // end of incrementDispatchFailure()
+
+        //
+        // end of Set Methods.
+        //-------------------------------------------------------
+    } // end of class Metrics
 } // end of class EfsFile

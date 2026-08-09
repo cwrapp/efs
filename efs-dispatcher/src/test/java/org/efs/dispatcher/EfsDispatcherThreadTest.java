@@ -464,9 +464,9 @@ public class EfsDispatcherThreadTest
         final String dispatcherText =
             """
             [thread=abc-123, start time=null, state=NOT_STARTED, agent=(idle), run count=0,
-            (no agent statistics to report)
-            (no agent statistics to report)
-            (no agent statistics to report)]""";
+              ready time=(no agent statistics to report),
+              run time=(no agent statistics to report),
+              agent event=(no agent statistics to report)]""";
 
         assertThat(threadStats.threadName())
             .isEqualTo(threadName);

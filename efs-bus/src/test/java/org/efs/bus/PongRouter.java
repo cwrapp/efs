@@ -16,7 +16,6 @@
 
 package org.efs.bus;
 
-import org.efs.event.EfsTopicKey;
 import jakarta.annotation.Nullable;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -24,6 +23,7 @@ import java.util.List;
 import org.efs.dispatcher.EfsDispatchTarget;
 import org.efs.dispatcher.EfsDispatcher;
 import org.efs.dispatcher.IEfsAgent;
+import org.efs.event.EfsTopicKey;
 import org.efs.logging.AsyncLoggerFactory;
 import org.efs.util.LatencyTracker;
 import org.slf4j.Logger;
@@ -129,7 +129,7 @@ public final class PongRouter
      * Loop over this list, forwarding performance events to
      * each target in turn.
      */
-    private final List<EfsDispatchTarget<PerformanceEvent>> mTargets;
+    private final List<EfsDispatchTarget<EfsEnvelope<PerformanceEvent>>> mTargets;
 
     /**
      * Store caught exception causing a failure.
@@ -200,9 +200,9 @@ public final class PongRouter
      * @param event route this event to a child pong agent.
      * @return routing target.
      */
-    private EfsDispatchTarget<PerformanceEvent> doRouting(final PerformanceEvent event)
+    private EfsDispatchTarget<EfsEnvelope<PerformanceEvent>> doRouting(final EfsEnvelope<PerformanceEvent> event)
     {
-        final int index = (event.index % mChildCount);
+        final int index = ((event.event()).index % mChildCount);
 
         return (mTargets.get(index));
     } // end of doRouting(PerformanceEvent)
