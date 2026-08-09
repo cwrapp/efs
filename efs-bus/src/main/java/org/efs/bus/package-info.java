@@ -23,10 +23,15 @@
  * {@link org.efs.event.EfsTopicKey type+topic key} By combining
  * an efs event type with a topic, it allows the same topic to be
  * used with multiple event types. {@code EfsEventBus} divides
- * agents into publishers and subscribers. Please note that the
- * same agent may be both a publisher and a subscriber at the
- * same time, even to the same topic key (but why you would want
- * to do that outside of unit testing I cannot imagine).
+ * agents into publishers and subscribers. Published events are
+ * delivered to subscribers as
+ * {@link org.efs.bus.EfsEnvelope EfsEnvelope} instances, which
+ * carry the event payload together with metadata such as the
+ * bus name, publication timestamp, publisher, and logical
+ * timestamp. Please note that the same agent may be both a
+ * publisher and a subscriber at the same time, even to the same
+ * topic key (but why you would want to do that outside of unit
+ * testing I cannot imagine).
  * </p>
   <p style="background-color:#ffcccc;padding:5px;border: 2px solid darkred;">
     <strong>Note:</strong> all agents <em>must</em> be registered
@@ -81,7 +86,11 @@
  * The subscribing agent is informed of when a new publishing
  * agent advertises itself and when it updates its publish
  * status. This allows an subscriber to know if there are any
- * active publishers for a given topic key.
+ * active publishers for a given topic key. Event delivery
+ * callbacks receive an {@link org.efs.bus.EfsEnvelope EfsEnvelope}
+ * rather than the raw event payload; callers access the
+ * contained event via {@link org.efs.bus.EfsEnvelope#event()
+ * EfsEnvelope.event()}.
  * {@link org.efs.bus.EfsPublishStatus EfsPublishStatus} contains
  * a topic key, the number of <em>advertised</em> publishers and
  * the number of <em>active</em> publisher (that is, publishers
@@ -231,7 +240,8 @@ bus.subscribeAll(TopOfBook.class, "[A-I].*", true, this::onPublishStatus, this::
  *             System.out.println("No active publishers");
  *         }
  *     },
- *     order -&gt; {
+ *     envelope -&gt; {
+ *         OrderEvent order = envelope.event();
  *         // Receive and process each order event
  *         System.out.println("Received order: " + order.getOrderId() +
  *                           " for $" + order.getAmount());
@@ -274,7 +284,8 @@ bus.subscribeAll(TopOfBook.class, "[A-I].*", true, this::onPublishStatus, this::
  *                             e -&gt; {
  *                                 // handle publisher changes
  *                             },
- *                             latestTick -&gt; {
+ *                             envelope -&gt; {
+ *                                 PriceTickEvent latestTick = envelope.event();
  *                                 // Only receives the latest tick, skipping intermediate ones
  *                                 System.out.println("Latest ACME price: $" + latestTick.getPrice());
  *                                 updatePricingDisplay(latestTick);
@@ -291,12 +302,13 @@ bus.subscribeAll(TopOfBook.class, "[A-I].*", true, this::onPublishStatus, this::
  * (e.g., order priority).
  * </p>
  * <pre><code>// Create router that routes orders to different handlers based on priority
- * IEventRouter&lt;OrderEvent&gt; orderRouter = event -&gt; {
- *     if ("URGENT".equals(event.getPriority())) {
+ * IEventRouter&lt;OrderEvent&gt; orderRouter = envelope -&gt; {
+ *     OrderEvent order = envelope.event();
+ *     if ("URGENT".equals(order.getPriority())) {
  *         // Route urgent orders to priority handler
  *         return new EfsDispatchTarget&lt;&gt;(priorityWorkerAgent,
  *                                           priorityOrderHandler);
- *     } else if ("HIGH".equals(event.getPriority())) {
+ *     } else if ("HIGH".equals(order.getPriority())) {
  *         // Route high priority to expedited handler
  *         return new EfsDispatchTarget&lt;&gt;(expeditedWorkerAgent,
  *                                           expeditedOrderHandler);
@@ -367,7 +379,8 @@ bus.subscribeAll(TopOfBook.class, "[A-I].*", true, this::onPublishStatus, this::
  *             System.out.println("Publisher count: " +
  *                               publishStatus.activePublishers());
  *         },
- *         priceEvent -&gt; {
+ *         envelope -&gt; {
+ *             PriceTickEvent priceEvent = envelope.event();
  *             // Receive all TECH stock price updates
  *             System.out.println(priceEvent.getSymbol() + " -> $" +
  *                               priceEvent.getPrice());

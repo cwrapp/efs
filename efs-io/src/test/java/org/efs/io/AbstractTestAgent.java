@@ -131,6 +131,11 @@ public abstract class AbstractTestAgent
         return (mTradeConnection);
     } // end of connection()
 
+    public final long rowCount()
+    {
+        return (mTradeConnection.rowCount());
+    } // end of rowCount()
+
     //
     // end of Get Methods.
     //-----------------------------------------------------------

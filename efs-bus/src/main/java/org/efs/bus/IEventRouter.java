@@ -71,7 +71,7 @@ import org.efs.event.IEfsEvent;
  *     The event is received by the router subscription.
  *   </li>
  *   <li>
- *     {@link #routeTo(IEfsEvent)} method is called with event.
+ *     {@link #routeTo(EfsEnvelope)} method is called with event.
  *   </li>
  *   <li>
  *     Router returns an {@link EfsDispatchTarget} containing
@@ -208,7 +208,7 @@ import org.efs.event.IEfsEvent;
  * <ul>
  *   <li>
  *     <strong>Null Return Behavior:</strong> Returning
- *     {@code null} from {@link #routeTo(IEfsEvent)} indicates
+ *     {@code null} from {@link #routeTo(EfsEnvelope)} indicates
  *     event should not be dispatched. This is logged as a
  *     trace-level message by the router subscription.
  *   </li>
@@ -221,7 +221,7 @@ import org.efs.event.IEfsEvent;
  *   <li>
  *     <strong>Thread Safety:</strong> If your router maintains
  *     state, ensure it is thread-safe as multiple threads may
- *     call {@link #routeTo(IEfsEvent)} concurrently.
+ *     call {@link #routeTo(EfsEnvelope)} concurrently.
  *   </li>
  *   <li>
  *     <strong>Performance:</strong> Router logic should be
@@ -278,6 +278,6 @@ public interface IEventRouter<E extends IEfsEvent>
      * this event's values.
      * @return targeted agent and callback.
      */
-    @Nullable EfsDispatchTarget<E> routeTo(E event);
+    @Nullable EfsDispatchTarget<EfsEnvelope<E>> routeTo(EfsEnvelope<E> event);
 } // end of interface IEventRouter
 

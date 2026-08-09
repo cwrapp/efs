@@ -18,6 +18,7 @@ package org.efs.io;
 
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
+import org.assertj.core.api.Assertions;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import org.efs.io.EfsIntervalEndpoint.Clusivity;
 import org.efs.io.EfsIntervalEndpoint.IntervalLocation;
@@ -55,16 +56,11 @@ public final class EfsDurationEndpointTest
         final EfsDurationEndpoint.Builder builder =
             EfsDurationEndpoint.builder();
 
-        try
-        {
-            builder.timeOffset(offset, clusivity);
-        }
-        catch (NullPointerException nullex)
-        {
-            assertThat(nullex)
-                .hasMessage(
-                    EfsDurationEndpoint.Builder.TIME_OFFSET_NULL);
-        }
+        Assertions.assertThatThrownBy(
+            () -> builder.timeOffset(offset, clusivity))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(
+                EfsDurationEndpoint.Builder.TIME_OFFSET_NULL);
     } // end of builderDurationNullOffset()
 
     @Test
@@ -75,16 +71,11 @@ public final class EfsDurationEndpointTest
         final EfsDurationEndpoint.Builder builder =
             EfsDurationEndpoint.builder();
 
-        try
-        {
-            builder.timeOffset(offset, clusivity);
-        }
-        catch (NullPointerException nullex)
-        {
-            assertThat(nullex)
-                .hasMessage(
-                    EfsDurationEndpoint.Builder.CLUSIVITY_NULL);
-        }
+        Assertions.assertThatThrownBy(
+            () -> builder.timeOffset(offset, clusivity))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(
+                EfsDurationEndpoint.Builder.CLUSIVITY_NULL);
     } // end of builderDurationNullClusvity()
 
     @Test
@@ -147,16 +138,11 @@ public final class EfsDurationEndpointTest
         final EfsDurationEndpoint.Builder builder =
             EfsDurationEndpoint.builder();
 
-        try
-        {
-            builder.now(clusivity);
-        }
-        catch (NullPointerException nullex)
-        {
-            assertThat(nullex)
-                .hasMessage(
-                    EfsDurationEndpoint.Builder.CLUSIVITY_NULL);
-        }
+        Assertions.assertThatThrownBy(
+            () -> builder.now(clusivity))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(
+                EfsDurationEndpoint.Builder.CLUSIVITY_NULL);
     } // end of builderNowNullClusivity()
 
     @Test

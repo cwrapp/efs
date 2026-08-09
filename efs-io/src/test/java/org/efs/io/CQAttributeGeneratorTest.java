@@ -125,8 +125,7 @@ public final class CQAttributeGeneratorTest
                                               timestamp,
                                               false);
         final EfsRow<TestEvent> row =
-            new EfsRow<>(
-                timestamp, 101L, EfsFile.NO_TAGS, event);
+            EfsRow.createRow(timestamp, 101L, event);
 
         assertThat(attributes).isNotNull();
         assertThat(attributes).hasSize(8);
@@ -188,10 +187,7 @@ public final class CQAttributeGeneratorTest
                                   .volume(volume)
                                   .build();
         final EfsRow<TradeEvent> row =
-            new EfsRow<>(sTestClock.instant(),
-                         202L,
-                         EfsFile.NO_TAGS,
-                         event);
+            EfsRow.createRow(sTestClock.instant(), 202L, event);
 
         assertThat(attributes).isNotNull();
         assertThat(attributes).hasSize(5);

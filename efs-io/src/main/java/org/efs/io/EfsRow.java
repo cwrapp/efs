@@ -18,6 +18,7 @@ package org.efs.io;
 
 import jakarta.annotation.Nonnull;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.Set;
 import javax.annotation.concurrent.Immutable;
 import org.efs.event.IEfsEvent;
@@ -38,6 +39,38 @@ public final class EfsRow<E extends IEfsEvent>
 //---------------------------------------------------------------
 // Member data.
 //
+
+    //-----------------------------------------------------------
+    // Constants.
+    //
+
+    // Exception messages.
+
+    /**
+     * A {@code null timestamp} argument results in a
+     * {@code NullPointerException} with message {@value}.
+     */
+    public static final String NULL_TIMESTAMP =
+        "timestamp is null";
+
+    /**
+     * A {@code rowIndex} &lt; zero results in an
+     * {@code IllegalArgumentException} with message {@value}.
+     */
+    public static final String INVALID_ROW_INDEX =
+        "rowIndex < zero";
+
+    /**
+     * A {@code null tags} argument results in a
+     * {@code NullPointerException} with message {@value}.
+     */
+    public static final String NULL_TAGS = "tags is null";
+
+    /**
+     * A {@code null event} argument results in a
+     * {@code NullPointerException} with message {@value}.
+     */
+    public static final String NULL_EVENT = "event is null";
 
     //-----------------------------------------------------------
     // Locals.
@@ -81,10 +114,10 @@ public final class EfsRow<E extends IEfsEvent>
      * @param tags user-defined tags associated with this row.
      * @param event actual efs event.
      */
-    /* package */ EfsRow(final Instant timestamp,
-                         final long rowIndex,
-                         final Set<Integer> tags,
-                         final E event)
+    private EfsRow(final Instant timestamp,
+                   final long rowIndex,
+                   final Set<Integer> tags,
+                   final E event)
     {
         mPublishTimestamp = timestamp;
         mRowIndex = rowIndex;
@@ -166,4 +199,88 @@ public final class EfsRow<E extends IEfsEvent>
     //
     // end of Get Methods.
     //-----------------------------------------------------------
+
+    /**
+     * Returns a new efs event row generated from the given
+     * arguments. The event tags are an empty set.
+     * @param <E> efs event type.
+     * @param timestamp event timestamp.
+     * @param rowIndex event row index.
+     * @param event efs event contained in row.
+     * @return efs event row.
+     * @throws NullPointerException
+     * if either {@code timestamp} or {@code event} is
+     * {@code null}.
+     * @throws IllegalArgumentException
+     * if {@code rowIndex} &lt; zero.
+     */
+    public static <E extends IEfsEvent> EfsRow<E> createRow(@Nonnull final Instant timestamp,
+                                                            final long rowIndex,
+                                                            @Nonnull final E event)
+    {
+        return (
+            createRow(
+                timestamp, rowIndex, EfsFile.NO_TAGS, event));
+    } // end of createRow(Instant, long, E)
+
+    /**
+     * Returns a new efs event row generated from the given
+     * arguments.
+     * @param <E> efs event type.
+     * @param timestamp event timestamp.
+     * @param rowIndex event row index.
+     * @param tags optional event tags. May be empty but not
+     * {@code null}.
+     * @param event efs event contained in row.
+     * @return efs event row.
+     * @throws NullPointerException
+     * if either {@code timestamp}, {@code tags}, or
+     * {@code event} is {@code null}.
+     * @throws IllegalArgumentException
+     * if {@code rowIndex} &lt; zero.
+     */
+    public static <E extends IEfsEvent> EfsRow<E> createRow(@Nonnull final Instant timestamp,
+                                                            final long rowIndex,
+                                                            @Nonnull final Set<Integer> tags,
+                                                            @Nonnull final E event)
+    {
+        Objects.requireNonNull(timestamp, NULL_TIMESTAMP);
+        Objects.requireNonNull(tags, NULL_TAGS);
+        Objects.requireNonNull(event, NULL_EVENT);
+
+        if (rowIndex < 0L)
+        {
+            throw (
+                new IllegalArgumentException(INVALID_ROW_INDEX));
+        }
+
+        return (new EfsRow<>(timestamp, rowIndex, tags, event));
+    } // end of createRow(Instant, long, Set<>, E)
+
+    /**
+     * Returns a dummy row for an empty efs event file. This
+     * row has a zero index, no tags, and
+     * <em>{@code null} event</em>. This is because:
+     * <ol>
+     *   <li>
+     *     this row is never forwarded to an agent and
+     *   </li>
+     *   <li>
+     *     there is no reliable way to create {@code E} event
+     *     class instance.
+     *   </li>
+     * </ol>
+     * <p>
+     * Since only {@code EfsFile} sees this row and does not
+     * use this row's event, a {@code null} event is acceptable.
+     * </p>
+     * @param <E> efs event type.
+     * @param timestamp current timestamp.
+     * @return an efs event row with a {@code null} event.
+     */
+    /* package */ static <E extends IEfsEvent> EfsRow<E> createRow(@Nonnull final Instant timestamp)
+    {
+        return (
+            new EfsRow<>(timestamp, 0L, EfsFile.NO_TAGS, null));
+    } // end of createRow(Instant)
 } // end of class EfsRow

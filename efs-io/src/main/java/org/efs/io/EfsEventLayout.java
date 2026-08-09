@@ -262,7 +262,7 @@ import org.reflections.ReflectionUtils;
      */
     @SuppressWarnings ("unchecked")
     @Nonnull
-    public static <E extends IEfsEvent> EfsEventLayout<E> getLayout(final Class<E> eventClass)
+    public static <E extends IEfsEvent> EfsEventLayout<E> getLayout(@Nonnull final Class<E> eventClass)
     {
         Objects.requireNonNull(eventClass, NULL_EVENT_CLASS);
 

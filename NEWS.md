@@ -1,3 +1,62 @@
+# 0.7.3: August 9, 2026
+
+  - EfsFile
+    * Changed index on EfsRow publish timestamp from HashIndex to
+      NavigableIndex which is superior in finding intervals.
+    * EfsFile instances are now created using an `EfsFile.Builder`
+      instance. A Builder instance is acquired via
+      `EfsFile.builder(EfsTopicKey<E>)`.
+    * EfsFile may now be configured with a exhaust agent which may
+      be used to write all newly added rows to persistent store.
+    * EfsFile may now be configured with an initializer `Supplier`
+      lambda used to fill in a newly opened EfsFile with
+    * EfsFile may now be configured to support a maximum number of
+      simultaneous active connections and retrievals. Defaults to
+      100 concurrent connections and 1,000 concurrent retrievals.
+      Attempts to exceed these allowed maximums results a thrown
+      IllegalStateException.
+    * EfsFile may now be configured with a connection policy which
+      decides which agents may connect with which access modes.
+      Defaults to all agents using all modes. If a connections is
+      attempted with a disallowed agent, access mode pair, the
+      attempt fails with a thrown IllegalStateException.
+    * EfsFile Clock is now configurable on a per file basis.
+    * Added EfsFile.Metrics inner class used to track:
+        + EfsFile opening timestamp.
+        + Total number of events added since opening.
+        + Total number of event retrievals started since opening.
+        + Total number of event retrievals completed since opening.
+        + Number of in-progress event retrievals.
+        + Total number of event dispatch failures to retrieval
+          agents since opening.
+
+  - EfsFileConnection
+    * Added method `rowCount` which returns a snapshot count of
+      total number of rows added to event file.
+
+  - EfsIntervalEndpoint
+    * Added fixed row index interval type
+      `org.efs.io.EfsIndexFixedEndpoint` This allows intervals
+      to reference an event row with a concrete row index.
+
+  - EfsEventBus
+    * Event bus instances may now be configured with a
+      `java.time.Clock` used to provide publish timestamps.
+      Defaults to `Clock.systemUTC()`.
+    * Events are now delivered within an `org.efs.bus.EfsEnvelope`
+      which contains a wallclock publish timestamp, a logical
+      timestamp, publishing agent, and the event. Subscription
+      callback must now be `Consumer<EfsEnvelope<E>>`. This
+      envelope supports a "Lamport timestamp" which can be used
+      to order event delivery between agents within a JVM.
+    * Event bus instances are now created using an
+      `EfsEventBus.Builder` instance. A Builder instance is
+      acquired via `EfsEventBus.builder(String busName)`.
+
+  - ConflationEvent
+    * Added metric tracking total number of missed events over an
+      inbox subscription's lifetime.
+
 # 0.7.2: July 11, 2026
 
   - Added `Set<Integer>` tags to `EfsRow`. These tags are set

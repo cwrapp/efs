@@ -16,15 +16,12 @@
 
 package org.efs.io;
 
-import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneId;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import org.efs.io.EfsIntervalEndpoint.Clusivity;
 import org.efs.io.EfsIntervalEndpoint.IntervalLocation;
 import org.efs.io.EfsIntervalEndpoint.IntervalSide;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -56,18 +53,6 @@ public final class EfsTimeEndpointTest
     private static final String TEST_TIME =
         "2026-05-26T11:10:45.000Z";
 
-    /**
-     * Use Greenwich Mean Time for testing.
-     */
-    private static final ZoneId GMT = ZoneId.of("GMT");
-
-    //-----------------------------------------------------------
-    // Statics.
-    //
-
-    private static Clock sTestClock;
-    private static Clock sSystemClock;
-
     //-----------------------------------------------------------
     // Locals.
     //
@@ -82,13 +67,6 @@ public final class EfsTimeEndpointTest
     // JUnit Initialization.
     //
 
-    @BeforeAll
-    public static void setUpAll()
-    {
-        sTestClock = Clock.fixed(Instant.parse(TEST_TIME), GMT);
-        sSystemClock = EfsFile.setSystemClock(sTestClock);
-    } // end of setUpAll()
-
     @BeforeEach
     public void setUp()
     {
@@ -96,15 +74,6 @@ public final class EfsTimeEndpointTest
         mCurrentTime =
             (Instant.parse(TEST_TIME)).minusNanos(10_000L);
     } // end of setUp()
-
-    @AfterAll
-    public static void tearDownAll()
-    {
-        if (sSystemClock != null)
-        {
-            EfsFile.setSystemClock(sSystemClock);
-        }
-    } // end of tearDownAll()
 
     //
     // end of JUnit Initialization.
@@ -119,22 +88,26 @@ public final class EfsTimeEndpointTest
     //
 
     @Test
+    public void builderNullTime()
+    {
+        final Instant time = null;
+
+        assertThatThrownBy(() -> EfsTimeEndpoint.builder(time))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(EfsTimeEndpoint.TIME_NULL);
+    } // end of builderNullTime()
+
+    @Test
     public void builderTimeNullTime()
     {
         final Instant time = null;
         final Clusivity clusivity = Clusivity.INCLUSIVE;
         final EfsTimeEndpoint.Builder builder =
-            EfsTimeEndpoint.builder();
+            EfsTimeEndpoint.builder(mCurrentTime);
 
-        try
-        {
-            builder.time(time, clusivity);
-        }
-        catch (NullPointerException nullex)
-        {
-            assertThat(nullex)
-                .hasMessage(EfsTimeEndpoint.Builder.TIME_NULL);
-        }
+        assertThatThrownBy(() -> builder.time(time, clusivity))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(EfsTimeEndpoint.TIME_NULL);
     } // end of builderTimeNullTime()
 
     @Test
@@ -143,18 +116,11 @@ public final class EfsTimeEndpointTest
         final Instant time = mCurrentTime;
         final Clusivity clusivity = null;
         final EfsTimeEndpoint.Builder builder =
-            EfsTimeEndpoint.builder();
+            EfsTimeEndpoint.builder(mCurrentTime);
 
-        try
-        {
-            builder.time(time, clusivity);
-        }
-        catch (NullPointerException nullex)
-        {
-            assertThat(nullex)
-                .hasMessage(
-                    EfsTimeEndpoint.Builder.CLUSIVITY_NULL);
-        }
+        assertThatThrownBy(() -> builder.time(time, clusivity))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(EfsTimeEndpoint.Builder.CLUSIVITY_NULL);
     } // end of builderTimeNullClusivity()
 
     @Test
@@ -164,7 +130,7 @@ public final class EfsTimeEndpointTest
             mCurrentTime.minusSeconds(DELTA_SECONDS);
         final Clusivity clusivity = Clusivity.INCLUSIVE;
         final EfsTimeEndpoint.Builder builder =
-            EfsTimeEndpoint.builder();
+            EfsTimeEndpoint.builder(mCurrentTime);
         final EfsTimeEndpoint ep =
             builder.time(time, clusivity).build();
 
@@ -182,7 +148,7 @@ public final class EfsTimeEndpointTest
             mCurrentTime.plusSeconds(DELTA_SECONDS);
         final Clusivity clusivity = Clusivity.INCLUSIVE;
         final EfsTimeEndpoint.Builder builder =
-            EfsTimeEndpoint.builder();
+            EfsTimeEndpoint.builder(mCurrentTime);
         final EfsTimeEndpoint ep =
             builder.time(time, clusivity).build();
 
@@ -198,18 +164,11 @@ public final class EfsTimeEndpointTest
     {
         final Clusivity clusivity = null;
         final EfsTimeEndpoint.Builder builder =
-            EfsTimeEndpoint.builder();
+            EfsTimeEndpoint.builder(mCurrentTime);
 
-        try
-        {
-            builder.now(clusivity);
-        }
-        catch (NullPointerException nullex)
-        {
-            assertThat(nullex)
-                .hasMessage(
-                    EfsTimeEndpoint.Builder.CLUSIVITY_NULL);
-        }
+        assertThatThrownBy(() -> builder.now(clusivity))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(EfsTimeEndpoint.Builder.CLUSIVITY_NULL);
     } // end of builderNowNullClusivity()
 
     @Test
@@ -217,7 +176,7 @@ public final class EfsTimeEndpointTest
     {
         final Clusivity clusivity = Clusivity.EXCLUSIVE;
         final EfsTimeEndpoint.Builder builder =
-            EfsTimeEndpoint.builder();
+            EfsTimeEndpoint.builder(mCurrentTime);
         final EfsTimeEndpoint ep =
             builder.now(clusivity).build();
         final String text =
@@ -227,7 +186,7 @@ public final class EfsTimeEndpointTest
                 (ep.location()).name());
 
         assertThat(ep).isNotNull();
-        assertThat(ep.time()).isAfter(mCurrentTime);
+        assertThat(ep.time()).isEqualTo(mCurrentTime);
         assertThat(ep.clusivity()).isEqualTo(clusivity);
         assertThat(ep.location())
             .isEqualTo(IntervalLocation.NOW);
@@ -239,7 +198,7 @@ public final class EfsTimeEndpointTest
     public void builderEndNeverSuccess()
     {
         final EfsTimeEndpoint.Builder builder =
-            EfsTimeEndpoint.builder();
+            EfsTimeEndpoint.builder(mCurrentTime);
         final EfsTimeEndpoint ep =
             builder.endNever().build();
 
@@ -375,7 +334,7 @@ public final class EfsTimeEndpointTest
     {
         final Instant time = mCurrentTime.plusSeconds(delta);
         final EfsTimeEndpoint.Builder builder =
-            EfsTimeEndpoint.builder();
+            EfsTimeEndpoint.builder(mCurrentTime);
 
         return (builder.time(time, clusivity).build());
     } // end of createEndpoint(long, Clusivity)

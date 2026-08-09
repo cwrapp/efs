@@ -22,17 +22,18 @@ import javax.annotation.concurrent.Immutable;
 import net.sf.eBus.util.Validator;
 
 /**
- * An interval endpoint based on event index offset. This offset
- * is applied when {@link EfsFile} processes the associated
- * subscription.
+ * An interval endpoint based on relative event index offset.
+ * This offset is applied when {@link EfsFile} processes the
+ * associated subscription, using the latest row index to
+ * determine the actual index values used.
  *
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
 
 @Immutable
-public final class EfsIndexEndpoint
+public final class EfsIndexOffsetEndpoint
     extends EfsIntervalEndpoint
-    implements Comparable<EfsIndexEndpoint>
+    implements Comparable<EfsIndexOffsetEndpoint>
 {
 //---------------------------------------------------------------
 // Member data.
@@ -57,14 +58,16 @@ public final class EfsIndexEndpoint
     //
 
     /**
-     * Creates a new instance of EfsIndexEndpoint.
+     * Creates a new relative efs event index endpoint based on
+     * builder settings.
+     * @param builder contains validated index offset.
      */
-    private EfsIndexEndpoint(final Builder builder)
+    private EfsIndexOffsetEndpoint(final Builder builder)
     {
         super (builder);
 
         mIndexOffset = builder.mIndexOffset;
-    } // end of EfsIndexEndpoint(Builder)
+    } // end of EfsIndexOffsetEndpoint(Builder)
 
     //
     // end of Constructors.
@@ -75,10 +78,11 @@ public final class EfsIndexEndpoint
     //
 
     @Override
-    public boolean isFuture(final Instant now)
+    public boolean isFuture(final long nextIndex,
+                            final Instant now)
     {
-        return (mIndexOffset >= 0);
-    } // end of isFuture(Instant)
+        return (mIndexOffset > 0);
+    } // end of isFuture(long, Instant)
 
     //
     // end of Abstract Method Implementations.
@@ -90,7 +94,7 @@ public final class EfsIndexEndpoint
 
     /**
      * Returns integer value &lt;, equal to, or &gt; zero if
-     * {@code this EfsIndexEndpoint} is &lt;, equal to, or &gt;
+     * {@code this EfsIndexOffsetEndpoint} is &lt;, equal to, or &gt;
      * given time endpoint argument. Comparison is based on
      * {@link #location() location} first,
      * {@link #indexOffset() ()} second, and {@link #clusivity()}
@@ -99,7 +103,7 @@ public final class EfsIndexEndpoint
      * @return integer value &lt;, equal to, or &gt; zero.
      */
     @Override
-    public int compareTo(final EfsIndexEndpoint ep)
+    public int compareTo(final EfsIndexOffsetEndpoint ep)
     {
         int retval =
             IntervalLocation.compare(mLocation, ep.mLocation);
@@ -110,7 +114,7 @@ public final class EfsIndexEndpoint
         }
 
         return (retval);
-    } // end of compareTo(EfsIndexEndpoint)
+    } // end of compareTo(EfsIndexOffsetEndpoint)
 
     //
     // end of Comparable Interface Implementation.
@@ -132,21 +136,22 @@ public final class EfsIndexEndpoint
 
     /**
      * Returns {@code true} if {@code o} is an
-     * {@code EfsIndexEndpoint} instance with the same index
+     * {@code EfsIndexOffsetEndpoint} instance with the same index
      * offset, clusivity, and interval location as
-     * {@code this EfsIndexEndpoint} instance.
+     * {@code this EfsIndexOffsetEndpoint} instance.
      * @param o comparison object.
      * @return {@code true} if {@code o} equals
-     * {@code this EfsIndexEndpoint}.
+     * {@code this EfsIndexOffsetEndpoint}.
      */
     @Override
     public boolean equals(final Object o)
     {
         boolean retcode = (this == o);
 
-        if (!retcode && o instanceof EfsIndexEndpoint)
+        if (!retcode && o instanceof EfsIndexOffsetEndpoint)
         {
-            final EfsIndexEndpoint ep = (EfsIndexEndpoint) o;
+            final EfsIndexOffsetEndpoint ep =
+                (EfsIndexOffsetEndpoint) o;
 
             retcode = (super.equals(ep) &&
                        mIndexOffset == ep.mIndexOffset);
@@ -175,8 +180,8 @@ public final class EfsIndexEndpoint
     //
 
     /**
-     * Returns event store index offset.
-     * @return index offset.
+     * Returns relative event row index offset.
+     * @return relative index offset.
      */
     public long indexOffset()
     {
@@ -188,10 +193,10 @@ public final class EfsIndexEndpoint
     //-----------------------------------------------------------
 
     /**
-     * Returns a new {@code EfsIndexEndpoint} builder instance
-     * used to create an {@code EfsIndexEndpoint} object. It is
+     * Returns a new {@code EfsIndexOffsetEndpoint} builder instance
+     * used to create an {@code EfsIndexOffsetEndpoint} object. It is
      * recommended that a new builder be used for each new
-     * {@code EfsIndexEndpoint} instance and not re-use the same
+     * {@code EfsIndexOffsetEndpoint} instance and not re-use the same
      * {@code Builder} instance to create multiple intervals.
      * @return interval builder instance.
      */
@@ -205,10 +210,10 @@ public final class EfsIndexEndpoint
 //
 
     /**
-     * Builder class for {@link EfsIndexEndpoint}.
+     * Builder class for {@link EfsIndexOffsetEndpoint}.
      */
     public static final class Builder
-        extends EfsIntervalEndpoint.EndpointBuilder<EfsIndexEndpoint>
+        extends EfsIntervalEndpoint.EndpointBuilder<EfsIndexOffsetEndpoint>
     {
     //-----------------------------------------------------------
     // Member data.
@@ -219,7 +224,7 @@ public final class EfsIndexEndpoint
         //
 
         /**
-         * Event store index offset.
+         * Event row index offset.
          */
         private long mIndexOffset;
 
@@ -252,14 +257,14 @@ public final class EfsIndexEndpoint
         //
 
         /**
-         * Returns a new {@code EfsIndexEndpoint} instance based
+         * Returns a new {@code EfsIndexOffsetEndpoint} instance based
          * on this builder's settings.
-         * @return new {@code EfsIndexEndpoint} instance.
+         * @return new {@code EfsIndexOffsetEndpoint} instance.
          */
         @Override
-        protected EfsIndexEndpoint buildImpl()
+        protected EfsIndexOffsetEndpoint buildImpl()
         {
-            return (new EfsIndexEndpoint(this));
+            return (new EfsIndexOffsetEndpoint(this));
         } // end of buildImpl()
 
         //
@@ -308,7 +313,7 @@ public final class EfsIndexEndpoint
         } // end of indexOffset(long, Clusivity)
 
         /**
-         * Sets index offset to zero with the given clusivity.
+         * Sets index offset to zero with given clusivity.
          * @param clusivity endpoint clusivity.
          * @return {@code this Builder} instance.
          * @throws NullPointerException
@@ -366,4 +371,4 @@ public final class EfsIndexEndpoint
                                       Validator.NOT_SET));
         } // end of validate(Validator)
     } // end of class Builder
-} // end of class EfsIndexEndpoint
+} // end of class EfsIndexOffsetEndpoint

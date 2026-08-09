@@ -58,15 +58,22 @@ public final class ConflationEvent<E extends IEfsEvent>
     private final AtomicReference<E> mEvent;
 
     /**
-     * Contains number of missing events.
+     * Contains total number of missed events over conflation
+     * event life time.
      */
     private final AtomicInteger mCurrentMissedCount;
 
     /**
-     * Contains current missed count when conflation event is
-     * {@link #poll() polled}.
+     * Contains current missed count for latest conflation event
+     * {@link #poll() poll}.
      */
-    private volatile int mMissedCount;
+    private final AtomicInteger mLatestMissedCount;
+
+    /**
+     * Contains total number of missed events over conflation
+     * event life time.
+     */
+    private final AtomicInteger mTotalMissedCount;
 
 //---------------------------------------------------------------
 // Member methods.
@@ -83,6 +90,8 @@ public final class ConflationEvent<E extends IEfsEvent>
     {
         mEvent = new AtomicReference<>();
         mCurrentMissedCount = new AtomicInteger();
+        mLatestMissedCount = new AtomicInteger();
+        mTotalMissedCount = new AtomicInteger();
     } // end of ConflationEvent()
 
     //
@@ -149,7 +158,11 @@ public final class ConflationEvent<E extends IEfsEvent>
      */
     @Nullable public E poll()
     {
-        mMissedCount = mCurrentMissedCount.getAndSet(0);
+        final int missedCount = mCurrentMissedCount.getAndSet(0);
+
+        mLatestMissedCount.set(missedCount);
+        mTotalMissedCount.accumulateAndGet(
+            missedCount, (a, b) -> (a + b));
 
         return (mEvent.getAndSet(null));
     } // end of poll()
@@ -172,10 +185,20 @@ public final class ConflationEvent<E extends IEfsEvent>
      * then returns zero.
      * @return missed event count.
      */
-    public int missedEventCount()
+    public int latestMissedEventCount()
     {
-        return (mMissedCount);
-    } // end of missedEventCount()
+        return (mLatestMissedCount.get());
+    } // end of latestMissedEventCount()
+
+    /**
+     * Returns total number of missed events over this conflation
+     * event's lifetime.
+     * @return total number of missed events.
+     */
+    public int totalMissedEventCount()
+    {
+        return (mTotalMissedCount.get());
+    } // end of totalMissedEventCount()
 
     //
     // end of Get Methods.

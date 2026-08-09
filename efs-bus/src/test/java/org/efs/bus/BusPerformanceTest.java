@@ -16,7 +16,10 @@
 
 package org.efs.bus;
 
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.efs.dispatcher.EfsDispatcher;
@@ -88,6 +91,17 @@ public class BusPerformanceTest
     private static final String PONG_TOPIC = "/test/pong!";
     private static final EfsTopicKey<PerformanceEvent> PONG_KEY =
         EfsTopicKey.getKey(PerformanceEvent.class, PONG_TOPIC);
+
+    /**
+     * Fixed test timestamp.
+     */
+    private static final String TEST_TIME =
+        "2026-08-01T07:00:00.000Z";
+
+    /**
+     * Use Greenwich Mean Time for testing.
+     */
+    private static final ZoneId GMT = ZoneId.of("GMT");
 
     //-----------------------------------------------------------
     // Statics.
@@ -221,7 +235,7 @@ public class BusPerformanceTest
     public void performanceTestMultiAgentMultiDispatcher()
     {
         final EfsEventBus bus =
-            EfsEventBus.findOrCreateBus(BUS_NAME);
+            (EfsEventBus.builder(BUS_NAME)).build();
         final int totalEventCount = 5_000_000;
         final CountDownLatch doneSignal;
         final int maxEvents = MAX_EVENT_QUEUE_SIZE;
@@ -312,7 +326,7 @@ public class BusPerformanceTest
         doneSignal = pinger.doneSignal();
 
 
-        // Register spinning, sping+park, and blocking agents.
+        // Register spinning, spin+park, and blocking agents.
         for (i = 0, numAgents = (i + fastAgents0);
              i < numAgents;
              ++i)
@@ -469,7 +483,7 @@ public class BusPerformanceTest
         createDispatcher(pongDispatcher, ThreadType.SPINPARK);
 
         runRouterTest(pingDispatcher,
-                      pongDispatcher,
+                      pingDispatcher,
                       eventCount,
                       childCount,
                       delay,
@@ -632,7 +646,7 @@ public class BusPerformanceTest
                          final TimeUnit timeUnit)
     {
         final EfsEventBus bus =
-            EfsEventBus.findOrCreateBus(BUS_NAME);
+            (EfsEventBus.builder(BUS_NAME)).build();
         final PingAgent pinger =
             new PingAgent(PINGER_AGENT,
                           bus,
@@ -692,7 +706,7 @@ public class BusPerformanceTest
                                final TimeUnit timeUnit)
     {
         final EfsEventBus bus =
-            EfsEventBus.findOrCreateBus(BUS_NAME);
+            (EfsEventBus.builder(BUS_NAME)).build();
         final PingAgent pinger =
             new PingAgent(PINGER_AGENT,
                           bus,
@@ -753,7 +767,9 @@ public class BusPerformanceTest
                                 final TimeUnit timeUnit)
     {
         final EfsEventBus bus =
-            EfsEventBus.findOrCreateBus(BUS_NAME);
+            (EfsEventBus.builder(BUS_NAME)).build();
+        final Clock testClock =
+            Clock.fixed(Instant.parse(TEST_TIME), GMT);
         final PingAgent pinger =
             new PingAgent(PINGER_AGENT,
                           bus,
@@ -767,7 +783,8 @@ public class BusPerformanceTest
                            bus,
                            eventCount,
                            PING_KEY,
-                           PONG_KEY);
+                           PONG_KEY,
+                           testClock);
         final CountDownLatch doneSignal = pinger.doneSignal();
 
         sLogger.info("\n\nTesting {}.", pingDispatcher);

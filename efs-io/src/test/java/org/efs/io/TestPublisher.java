@@ -49,18 +49,18 @@ public final class TestPublisher
     // Constants.
     //
 
-    private static final Decimal2f INITIAL_PRICE =
+    /* package */ static final Decimal2f INITIAL_PRICE =
         Decimal2f.valueOfUnscaled(1234, 2);
-    private static final Decimal2f INITIAL_PRICE_DELTA =
+    /* package */ static final Decimal2f INITIAL_PRICE_DELTA =
         Decimal2f.valueOfUnscaled(0L);
 
-    private static final int MIN_PRICE_DELTA = -4;
-    private static final int MAX_PRICE_DELTA = 4;
-    private static final int PRICE_SCALE = 2;
+    /* package */ static final int MIN_PRICE_DELTA = -4;
+    /* package */ static final int MAX_PRICE_DELTA = 4;
+    /* package */ static final int PRICE_SCALE = 2;
 
-    private static final int MIN_SIZE = 1;
-    private static final int MAX_SIZE = 11;
-    private static final int LOT_SIZE = 100;
+    /* package */ static final int MIN_SIZE = 1;
+    /* package */ static final int MAX_SIZE = 11;
+    /* package */ static final int LOT_SIZE = 100;
 
     //-----------------------------------------------------------
     // Statics.
@@ -240,7 +240,7 @@ public final class TestPublisher
                 Clock.fixed(
                     (mTestClock.instant()).plus(timeDelta),
                     GMT);
-            EfsFile.setSystemClock(mTestClock);
+            mTradeFile.setSystemClock(mTestClock);
 
             LockSupport.parkNanos(timeDelta.toNanos());
         }

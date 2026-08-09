@@ -9,11 +9,11 @@
   <parent>
     <groupId>io.github.cwrapp</groupId>
     <artifactId>efs-parent</artifactId>
-    <version>0.7.2</version>
+    <version>0.7.3</version>
   </parent>
 
   <artifactId>efs-bom</artifactId>
-  <version>0.7.2</version>
+  <version>0.7.3</version>
   <packaging>pom</packaging>
 
   <name>efs-bom</name>

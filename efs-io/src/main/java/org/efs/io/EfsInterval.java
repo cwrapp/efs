@@ -174,13 +174,15 @@ public final class EfsInterval
     /**
      * Returns {@code true} if this interval references future
      * events and {@code false} if references past events only.
+     * @param nextIndex next event row index.
      * @param now current timestamp.
      * @return {@code true} if interval references future events.
      */
-    public boolean isFutureInterval(final Instant now)
+    public boolean isFutureInterval(final long nextIndex,
+                                    final Instant now)
     {
-        return (mEnding.isFuture(now));
-    } // end of isFutureInterval(Instant)
+        return (mEnding.isFuture(nextIndex, now));
+    } // end of isFutureInterval(long, Instant)
 
     //
     // end of Get Methods.
@@ -379,12 +381,21 @@ public final class EfsInterval
 
                 retval = dBegin.compareTo(dEnd);
             }
+            else if (beginType == EndpointType.FIXED_INDEX)
+            {
+                final EfsIndexFixedEndpoint fBegin =
+                    (EfsIndexFixedEndpoint) begin;
+                final EfsIndexFixedEndpoint fEnd =
+                    (EfsIndexFixedEndpoint) end;
+
+                retval = fBegin.compareTo(fEnd);
+            }
             else
             {
-                final EfsIndexEndpoint iBegin =
-                    (EfsIndexEndpoint) begin;
-                final EfsIndexEndpoint iEnd =
-                    (EfsIndexEndpoint) end;
+                final EfsIndexOffsetEndpoint iBegin =
+                    (EfsIndexOffsetEndpoint) begin;
+                final EfsIndexOffsetEndpoint iEnd =
+                    (EfsIndexOffsetEndpoint) end;
 
                 retval = iBegin.compareTo(iEnd);
             }

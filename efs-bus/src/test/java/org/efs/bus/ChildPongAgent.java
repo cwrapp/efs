@@ -20,7 +20,6 @@ import org.efs.dispatcher.IEfsAgent;
 import org.efs.logging.AsyncLoggerFactory;
 import org.slf4j.Logger;
 
-
 /**
  * A child pong agent is encapsulated within a {@link PongRouter}
  * and receives performance events when said events are routed
@@ -35,10 +34,6 @@ public final class ChildPongAgent
 //---------------------------------------------------------------
 // Member data.
 //
-
-    //-----------------------------------------------------------
-    // Constants.
-    //
 
     //-----------------------------------------------------------
     // Statics.
@@ -96,42 +91,20 @@ public final class ChildPongAgent
     //-----------------------------------------------------------
 
     //-----------------------------------------------------------
-    // Object Method Overrides.
-    //
-
-    //
-    // end of Object Method Overrides.
-    //-----------------------------------------------------------
-
-    //-----------------------------------------------------------
-    // Get Methods.
-    //
-
-    //
-    // end of Get Methods.
-    //-----------------------------------------------------------
-
-    //-----------------------------------------------------------
-    // Set Methods.
-    //
-
-    //
-    // end of Set Methods.
-    //-----------------------------------------------------------
-
-    //-----------------------------------------------------------
     // Event Methods.
     //
 
-    /* package */ void onEvent(final PerformanceEvent event)
+    /* package */ void onEvent(final EfsEnvelope<PerformanceEvent> event)
     {
-        final long delta = (System.nanoTime() - event.nanotime);
+        final long now = System.nanoTime();
+        final PerformanceEvent pEvent = event.event();
+        final long delta = (now - pEvent.nanotime);
 
         if (mRouter.updateLatency(delta, mAgentName))
         {
-            final int eventIndex = event.index;
+            final int eventIndex = pEvent.index;
 
-            mRouter.echo(event, mAgentName);
+            mRouter.echo(pEvent, mAgentName);
         }
     } // end of onEvent(PerformanceEvent)
 

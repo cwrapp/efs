@@ -1168,11 +1168,11 @@ public final class EfsDispatcherThread
                           .append(mAgentName.get())
                           .append(", run count=")
                           .append(mAgentRunCount.get())
-                          .append(",\n")
+                          .append(",\n  ready time=")
                           .append(mAgentReadyTime)
-                          .append('\n')
+                          .append(",\n  run time=")
                           .append(mAgentRunTime)
-                          .append('\n')
+                          .append(",\n  agent event=")
                           .append(mAgentEvent)
                           .append(']')
                           .toString());
@@ -1473,31 +1473,32 @@ public final class EfsDispatcherThread
 
                 try (final Formatter output = new Formatter())
                 {
-                    output.format(
-                        "%s %s stats:%n", getName(), mStatsName);
-                    output.format(" min: %,d %s%n",
+                    output.format("%s %s stats:%n",
+                                  getName(),
+                                  mStatsName)
+                          .format("    min: %,d %s%n",
                                   stats[0],
-                                  mUnit);
-                    output.format(" max: %,d %s%n",
-                                  stats[size - 1],
-                                  mUnit);
-                    output.format(" med: %,d %s%n",
+                                  mUnit)
+                          .format("    med: %,d %s%n",
                                   stats[p50],
-                                  mUnit);
-                    output.format(" 75%%: %,d %s%n",
-                                  stats[p75],
-                                  mUnit);
-                    output.format(" 90%%: %,d %s%n",
-                                  stats[p90],
-                                  mUnit);
-                    output.format(" 95%%: %,d %s%n",
-                                  stats[p95],
-                                  mUnit);
-                    output.format(" 99%%: %,d %s%n",
-                                  stats[p99],
-                                  mUnit);
-                    output.format(" avg: %,d %s",
+                                  mUnit)
+                          .format("    avg: %,d %s%n",
                                   mMovingAverage.get(),
+                                  mUnit)
+                          .format("    75%%: %,d %s%n",
+                                  stats[p75],
+                                  mUnit)
+                          .format("    90%%: %,d %s%n",
+                                  stats[p90],
+                                  mUnit)
+                          .format("    95%%: %,d %s%n",
+                                  stats[p95],
+                                  mUnit)
+                          .format("    99%%: %,d %s%n",
+                                  stats[p99],
+                                  mUnit)
+                          .format("    max: %,d %s",
+                                  stats[size - 1],
                                   mUnit);
 
                     retval = output.toString();

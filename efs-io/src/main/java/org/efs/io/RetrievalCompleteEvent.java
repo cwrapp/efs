@@ -39,7 +39,8 @@ public final class RetrievalCompleteEvent<E extends IEfsEvent>
 
     /**
      * A retrieval request ends either due to it reaching its
-     * ending point, user cancellation, {@link EfsFileConnection}
+     * ending point, user cancellation, maximum allowed
+     * concurrent retrievals exceeded, {@link EfsFileConnection}
      * closing, or {@link EfsFile} closing.
      */
     public enum CompletionType
@@ -54,6 +55,11 @@ public final class RetrievalCompleteEvent<E extends IEfsEvent>
          * Retrieval terminated due to user cancellation.
          */
         USER_CANCEL,
+
+        /**
+         * Allowed concurrent retrieval limit exceeded.
+         */
+        RESOURCE_EXHAUSTED,
 
         /**
          * Retrieve terminated due to connection closing.

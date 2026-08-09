@@ -38,6 +38,21 @@ public final class EfsTimeEndpoint
 //
 
     //-----------------------------------------------------------
+    // Constants.
+    //
+
+    //
+    // Exception messages.
+    //
+
+    /**
+     * When attempting to set endpoint time to {@code null},
+     * then {@code NullPointerException} contains message
+     * {@value}.
+     */
+    public static final String TIME_NULL = "time is null";
+
+    //-----------------------------------------------------------
     // Locals.
     //
 
@@ -73,10 +88,11 @@ public final class EfsTimeEndpoint
     //
 
     @Override
-    public boolean isFuture(final Instant now)
+    public boolean isFuture(final long nextIndex,
+                            final Instant now)
     {
         return (mTime.compareTo(now) >= 0);
-    } // end of isFuture(Instant)
+    } // end of isFuture(long, Instant)
 
     //
     // end of Abstract Method Implementations.
@@ -191,12 +207,15 @@ public final class EfsTimeEndpoint
      * recommended that a new builder be used for each new
      * {@code EfsTimeEndpoint} instance and not re-use the same
      * {@code Builder} instance to create multiple intervals.
+     * @param time time when time endpoint created.
      * @return interval builder instance.
      */
-    public static Builder builder()
+    public static Builder builder(final Instant time)
     {
-        return (new Builder());
-    } // end of builder()
+        Objects.requireNonNull(time, TIME_NULL);
+
+        return (new Builder(time));
+    } // end of builder(Instant)
 
 //---------------------------------------------------------------
 // Inner classes.
@@ -211,21 +230,6 @@ public final class EfsTimeEndpoint
     //-----------------------------------------------------------
     // Member data.
     //
-
-        //-------------------------------------------------------
-        // Constants.
-        //
-
-        //
-        // Exception messages.
-        //
-
-        /**
-         * When attempting to set endpoint time to {@code null},
-         * then {@code NullPointerException} contains message
-         * {@value}.
-         */
-        public static final String TIME_NULL = "time is null";
 
         //-------------------------------------------------------
         // Locals.
@@ -249,12 +253,12 @@ public final class EfsTimeEndpoint
         // Constructors.
         //
 
-        private Builder()
+        private Builder(final Instant currentTime)
         {
             super (EndpointType.FIXED_TIME);
 
-            mNow = (EfsFile.getSystemClock()).instant();
-        } // end of Builder()
+            mNow = currentTime;
+        } // end of Builder(Instant)
 
         //
         // end of Constructors.

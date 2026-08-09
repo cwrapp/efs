@@ -515,6 +515,18 @@ public final class EfsFileConnection<E extends IEfsEvent>
     } // end of accessMode()
 
     /**
+     * Returns <em>approximate</em> number of rows in efs file.
+     * These reason this value is approximate is due to rows
+     * are added asynchronously to file. It is possible that at
+     * the time of this call, new rows are being added.
+     * @return approximate row count.
+     */
+    public long rowCount()
+    {
+        return (mEventFile.rowCount());
+    } // end of rowCount()
+
+    /**
      * Returns current instant as per the current {@code Clock}.
      * @return clock's current instant.
      */
@@ -1279,7 +1291,16 @@ subscription.doClose();
     } // end of retrieve(...)
 
     /**
-     * TODO
+     * Retrieves all rows in this file whose tags include the
+     * supplied user-defined tag.
+     * <p>
+     * This convenience overload dispatches a tag-based retrieval
+     * request to the underlying file and delivers matching rows
+     * to the provided event callback in ascending row-index
+     * order. It is equivalent to constructing a tag query
+     * manually and using the interval-based overload, but it is
+     * simpler for the common case of retrieving by a single tag.
+     * </p>
      * @param tag retrieve events with this user-defined event
      * tag.
      * @param eventCB a {@link Consumer} invoked on the agent's
@@ -1300,9 +1321,9 @@ subscription.doClose();
      * @throws IllegalStateException
      * if this connection does not have read access
      * (opened with {@code WRITE_ONLY} mode), if this connection
-is closed, or if underlying file is closed. Also thrown
-if attempt to postRow retrieval request to
-{@code EfsFile} fails. In all cases, no events are
+     * is closed, or if underlying file is closed. Also thrown
+     * if attempt to postRow retrieval request to
+     * {@code EfsFile} fails. In all cases, no events are
      * retrieved from event file.
      */
     public void retrieve(final int tag,
@@ -1366,24 +1387,26 @@ if attempt to postRow retrieval request to
             mActiveRequests.clear();
 
             // Close retrievals on event file dispatcher thread.
-            EfsDispatcher.dispatch(() ->
-                {
-                    for (Retrieval<E> r : copy)
+            EfsDispatcher.dispatch(
+                () ->
                     {
-                        try
+                        for (Retrieval<E> r : copy)
                         {
-                            r.doClose(mEventFile.instant(),
+                            try
+                            {
+                                r.doClose(
+                                    mEventFile.instant(),
                                     CompletionType.CONNECTION_CLOSED);
+                            }
+                            catch (Exception jex)
+                            {
+                                sLogger.warn(
+                                    "Error closing retrieval {}",
+                                    r.id(),
+                                    jex);
+                            }
                         }
-                        catch (Exception jex)
-                        {
-                            sLogger.warn(
-                                "Error closing retrieval {}",
-                                r.id(),
-                                jex);
-                        }
-                    }
-                },
+                    },
                 mEventFile);
 
             // Since connections are added to the efs event
@@ -1618,7 +1641,7 @@ if attempt to postRow retrieval request to
      * they are added (if the interval extends into the future).
      * The file invokes package-private methods
      * ({@link #matches(EfsRow)}, {@link #isAtEnd(EfsRow)},
-     * {@link #postRow(EfsRow)},
+     * {@link #postRow(EfsEnvelope, Metrics)},
      * {@link #doClose(Instant, CompletionType)}) to match
      * incoming events and notify the retrieval of completion.
      * </p>
@@ -1723,8 +1746,10 @@ try (Retrieval<TradeEvent> subscription = connection.retrieve(
      *     past the interval's ending point.
      *   </li>
      *   <li>
-     *     {@link #postRow(EfsRow)}: Dispatches a matching row
-     *     to the event callback on the agent's thread.
+     *     {@link #postRow(EfsEnvelope, Metrics)}: Dispatches a
+     *     matching row to the event callback on the agent's
+     *     thread, updating the efs event file metrics as a side
+     *     effect.
      *   </li>
      *   <li>
      *     {@link #doClose(Instant, CompletionType)}: Marks
@@ -2055,8 +2080,12 @@ try (Retrieval<TradeEvent> subscription = connection.retrieve(
         /**
          * Dispatches event row to retrieval agent.
          * @param row postRow this row to agent.
+         * @param metrics used to track event dispatch failures.
+         * @throws IllegalStateException
+         * if target agent's event queue is full.
          */
-        /* package */ void postRow(final EfsRow<E> row)
+        /* package */ void postRow(final EfsRow<E> row,
+                                   final EfsFile.Metrics<E> metrics)
         {
             try
             {
@@ -2064,13 +2093,13 @@ try (Retrieval<TradeEvent> subscription = connection.retrieve(
             }
             catch (Exception jex)
             {
-                        sLogger.warn(
-                            "{}: attempt to post row {} to agent {} failed; event queue full.",
-                            (mEventFile.mEventFile).topicKey(),
-                            row,
-                            mAgent.name());
+                // Increment dispatch failure and re-throw
+                // exception to caller.
+                metrics.incrementDispatchFailure();
+
+                throw (jex);
             }
-        } // end of postRow(EfsRow)
+        } // end of postRow(EfsRow<>, Metrics<>)
 
         /**
          * Returns {@code true} if this retrieval was closed and

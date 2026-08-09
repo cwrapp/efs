@@ -127,6 +127,15 @@ import org.slf4j.Logger;
         return (mTag);
     } // end of tag()
 
+    /**
+     * Returns agent retrieving rows.
+     * @return retrieving agent.
+     */
+    public IEfsAgent agent()
+    {
+        return (mAgent);
+    } // end of agent()
+
     //
     // end of Get Methods.
     //-----------------------------------------------------------

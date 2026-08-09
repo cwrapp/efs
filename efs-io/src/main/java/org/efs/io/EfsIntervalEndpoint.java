@@ -291,8 +291,14 @@ public abstract class EfsIntervalEndpoint
         TIME_OFFSET,
 
         /**
-         * An index offset endpoint is relative to feed's current
-         * index.
+         * A fixed event index endpoint specifies a specific
+         * event row index.
+         */
+        FIXED_INDEX,
+
+        /**
+         * A relative event index offset endpoint is relative to
+         * feed's current latest index.
          */
         INDEX_OFFSET
     } // end of enum EndpointType
@@ -367,10 +373,12 @@ public abstract class EfsIntervalEndpoint
     /**
      * Returns {@code true} if this endpoint references future
      * events and {@code false} if past events only.
+     * @param nextIndex next event row index.
      * @param now current timestamp.
      * @return {@code true} if endpoint is for future events.
      */
-    public abstract boolean isFuture(final Instant now);
+    public abstract boolean isFuture(final long nextIndex,
+                                     final Instant now);
 
     //
     // end of Abstract Method Declarations.

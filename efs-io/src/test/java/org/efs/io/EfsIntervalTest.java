@@ -19,6 +19,7 @@ package org.efs.io;
 import java.time.Duration;
 import java.time.Instant;
 import net.sf.eBus.util.ValidationException;
+import org.assertj.core.api.Assertions;
 import static org.assertj.core.api.Assertions.assertThat;
 import org.efs.io.EfsIntervalEndpoint.Clusivity;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,6 +53,16 @@ public final class EfsIntervalTest
      */
     private static final String TEST_TIME =
         "2026-05-26T11:10:45.000Z";
+
+    /**
+     * Number of events in efs event file.
+     */
+    private static final int ROW_COUNT = 50;
+
+    private static final String VALIDATION_MESSAGE =
+        """
+        org.efs.io.EfsInterval failed to build due to the following problems:
+        beginning: beginning > ending""";
 
     //-----------------------------------------------------------
     // Locals.
@@ -148,78 +159,54 @@ public final class EfsIntervalTest
     public void builderBeginningAfterEnding0()
     {
         final EfsIntervalEndpoint beginning =
-            createEndpoint(10, Clusivity.INCLUSIVE);
+            createOffsetEndpoint(10, Clusivity.INCLUSIVE);
         final EfsIntervalEndpoint ending =
-            createEndpoint(-10, Clusivity.INCLUSIVE);
+            createOffsetEndpoint(-10, Clusivity.INCLUSIVE);
         final EfsInterval.Builder builder =
             EfsInterval.builder();
 
-        try
-        {
-            builder.beginning(beginning)
-                   .ending(ending)
-                   .build();
-        }
-        catch (ValidationException vex)
-        {
-            assertThat(vex)
-                .hasMessage(
-                    """
-                    org.efs.io.EfsInterval failed to build due to the following problems:
-                    beginning: beginning > ending""");
-        }
+        Assertions.assertThatThrownBy(
+            () -> builder.beginning(beginning)
+                         .ending(ending)
+                         .build())
+            .isInstanceOf(ValidationException.class)
+            .hasMessage(VALIDATION_MESSAGE);
     } // end of builderBeginningAfterEnding0()
 
     @Test
     public void builderBeginningAfterEnding1()
     {
         final EfsIntervalEndpoint beginning =
-            createEndpoint(DELTA_SECONDS, Clusivity.INCLUSIVE);
+            createDeltaEndpoint(DELTA_SECONDS, Clusivity.INCLUSIVE);
         final EfsIntervalEndpoint ending =
-            createEndpoint(-DELTA_SECONDS, Clusivity.INCLUSIVE);
+            createDeltaEndpoint(-DELTA_SECONDS, Clusivity.INCLUSIVE);
         final EfsInterval.Builder builder =
             EfsInterval.builder();
 
-        try
-        {
-            builder.beginning(beginning)
-                   .ending(ending)
-                   .build();
-        }
-        catch (ValidationException vex)
-        {
-            assertThat(vex)
-                .hasMessage(
-                    """
-                    org.efs.io.EfsInterval failed to build due to the following problems:
-                    beginning: beginning > ending""");
-        }
+        Assertions.assertThatThrownBy(
+            () -> builder.beginning(beginning)
+                         .ending(ending)
+                         .build())
+            .isInstanceOf(ValidationException.class)
+            .hasMessage(VALIDATION_MESSAGE);
     } // end of builderBeginningAfterEnding1()
 
     @Test
     public void builderBeginningAfterEnding2()
     {
         final EfsIntervalEndpoint beginning =
-            createEndpoint(0, Clusivity.INCLUSIVE);
+            createDeltaEndpoint(1L, Clusivity.INCLUSIVE);
         final EfsIntervalEndpoint ending =
-            createEndpoint(0L, Clusivity.INCLUSIVE);
+            createDeltaEndpoint(0L, Clusivity.INCLUSIVE);
         final EfsInterval.Builder builder =
             EfsInterval.builder();
 
-        try
-        {
-            builder.beginning(beginning)
-                   .ending(ending)
-                   .build();
-        }
-        catch (ValidationException vex)
-        {
-            assertThat(vex)
-                .hasMessage(
-                    """
-                    org.efs.io.EfsInterval failed to build due to the following problems:
-                    beginning: beginning > ending""");
-        }
+        Assertions.assertThatThrownBy(
+            () -> builder.beginning(beginning)
+                         .ending(ending)
+                         .build())
+            .isInstanceOf(ValidationException.class)
+            .hasMessage(VALIDATION_MESSAGE);
     } // end of builderBeginningAfterEnding2()
 
     @Test
@@ -230,35 +217,48 @@ public final class EfsIntervalTest
         final Duration endOffset = Duration.ofMinutes(-10L);
         final EfsIntervalEndpoint beginning =
             createEndpoint(beginOffset, Clusivity.EXCLUSIVE);
-        final EfsIntervalEndpoint ending=
+        final EfsIntervalEndpoint ending =
             createEndpoint(endOffset, Clusivity.INCLUSIVE);
         final EfsInterval.Builder builder =
             EfsInterval.builder();
 
-        try
-        {
-            builder.beginning(beginning)
-                   .ending(ending)
-                   .build();
-        }
-        catch (ValidationException vex)
-        {
-            assertThat(vex)
-                .hasMessage(
-                    """
-                    org.efs.io.EfsInterval failed to build due to the following problems:
-                    beginning: beginning > ending""");
-        }
+        Assertions.assertThatThrownBy(
+            () -> builder.beginning(beginning)
+                         .ending(ending)
+                         .build())
+            .isInstanceOf(ValidationException.class)
+            .hasMessage(VALIDATION_MESSAGE);
     } // end of builderBeginningAfterEnding3()
+
+    @Test
+    @DisplayName ("begin fixed index offset > end offset")
+    public void builderBeginningAfterEnding4()
+    {
+        final long beginIndex = 37L;
+        final long endIndex = 32L;
+        final EfsIntervalEndpoint beginning =
+            createFixedEndpoint(beginIndex, Clusivity.EXCLUSIVE);
+        final EfsIntervalEndpoint ending =
+            createFixedEndpoint(endIndex, Clusivity.INCLUSIVE);
+        final EfsInterval.Builder builder =
+            EfsInterval.builder();
+
+        Assertions.assertThatThrownBy(
+            () -> builder.beginning(beginning)
+                         .ending(ending)
+                         .build())
+            .isInstanceOf(ValidationException.class)
+            .hasMessage(VALIDATION_MESSAGE);
+    } // end of builderBeginningAfterEnding4()
 
     @Test
     @DisplayName ("successful interval build")
     public void builderSuccess()
     {
         final EfsIntervalEndpoint beginning =
-            createEndpoint(-10, Clusivity.EXCLUSIVE);
+            createOffsetEndpoint(-10, Clusivity.EXCLUSIVE);
         final EfsIntervalEndpoint ending =
-            createEndpoint(DELTA_SECONDS, Clusivity.INCLUSIVE);
+            createDeltaEndpoint(DELTA_SECONDS, Clusivity.INCLUSIVE);
         final EfsInterval.Builder builder =
             EfsInterval.builder();
         final EfsInterval interval =
@@ -285,8 +285,8 @@ public final class EfsIntervalTest
         final Clusivity endClusivity = Clusivity.EXCLUSIVE;
         final EfsInterval interval =
             createInterval(
-                createEndpoint(-DELTA_SECONDS, beginClusivity),
-                createEndpoint(DELTA_SECONDS, endClusivity));
+                createDeltaEndpoint(-DELTA_SECONDS, beginClusivity),
+                createDeltaEndpoint(DELTA_SECONDS, endClusivity));
         final Object o = null;
 
         assertThat(interval).isNotEqualTo(o);
@@ -299,8 +299,8 @@ public final class EfsIntervalTest
         final Clusivity endClusivity = Clusivity.EXCLUSIVE;
         final EfsInterval interval =
             createInterval(
-                createEndpoint(-DELTA_SECONDS, beginClusivity),
-                createEndpoint(DELTA_SECONDS, endClusivity));
+                createDeltaEndpoint(-DELTA_SECONDS, beginClusivity),
+                createDeltaEndpoint(DELTA_SECONDS, endClusivity));
         final Object o = interval;
 
         assertThat(interval).isEqualTo(o);
@@ -313,8 +313,8 @@ public final class EfsIntervalTest
         final Clusivity endClusivity = Clusivity.EXCLUSIVE;
         final EfsInterval interval =
             createInterval(
-                createEndpoint(-DELTA_SECONDS, beginClusivity),
-                createEndpoint(DELTA_SECONDS, endClusivity));
+                createDeltaEndpoint(-DELTA_SECONDS, beginClusivity),
+                createDeltaEndpoint(DELTA_SECONDS, endClusivity));
         final Object o = Boolean.TRUE;
 
         assertThat(interval).isNotEqualTo(o);
@@ -327,13 +327,13 @@ public final class EfsIntervalTest
         final Clusivity endClusivity = Clusivity.EXCLUSIVE;
         final EfsInterval interval =
             createInterval(
-                createEndpoint(-DELTA_SECONDS, beginClusivity),
-                createEndpoint(DELTA_SECONDS, endClusivity));
+                createDeltaEndpoint(-DELTA_SECONDS, beginClusivity),
+                createDeltaEndpoint(DELTA_SECONDS, endClusivity));
         final Object o =
             createInterval(
-                createEndpoint((DELTA_SECONDS * -2),
+                createDeltaEndpoint((DELTA_SECONDS * -2),
                                beginClusivity),
-                createEndpoint(DELTA_SECONDS, endClusivity));
+                createDeltaEndpoint(DELTA_SECONDS, endClusivity));
 
         assertThat(interval).isNotEqualTo(o);
         assertThat(interval.hashCode())
@@ -347,12 +347,12 @@ public final class EfsIntervalTest
         final Clusivity endClusivity = Clusivity.EXCLUSIVE;
         final EfsInterval interval =
             createInterval(
-                createEndpoint(-DELTA_SECONDS, beginClusivity),
-                createEndpoint(DELTA_SECONDS, endClusivity));
+                createDeltaEndpoint(-DELTA_SECONDS, beginClusivity),
+                createDeltaEndpoint(DELTA_SECONDS, endClusivity));
         final Object o =
             createInterval(
-                createEndpoint(-DELTA_SECONDS, beginClusivity),
-                createEndpoint(100, endClusivity));
+                createDeltaEndpoint(-DELTA_SECONDS, beginClusivity),
+                createOffsetEndpoint(100, endClusivity));
 
         assertThat(interval).isNotEqualTo(o);
         assertThat(interval.hashCode())
@@ -366,12 +366,12 @@ public final class EfsIntervalTest
         final Clusivity endClusivity = Clusivity.EXCLUSIVE;
         final EfsInterval interval =
             createInterval(
-                createEndpoint(-DELTA_SECONDS, beginClusivity),
-                createEndpoint(DELTA_SECONDS, endClusivity));
+                createDeltaEndpoint(-DELTA_SECONDS, beginClusivity),
+                createDeltaEndpoint(DELTA_SECONDS, endClusivity));
         final Object o =
             createInterval(
-                createEndpoint(-DELTA_SECONDS, beginClusivity),
-                createEndpoint(DELTA_SECONDS, endClusivity));
+                createDeltaEndpoint(-DELTA_SECONDS, beginClusivity),
+                createDeltaEndpoint(DELTA_SECONDS, endClusivity));
 
         assertThat(interval).isEqualTo(o);
         assertThat(interval.hashCode()).isEqualTo(o.hashCode());
@@ -384,92 +384,146 @@ public final class EfsIntervalTest
     @Test
     public void pastTimeEndpoint()
     {
+        final long nextIndex = 20L;
         final long delta = -30L;
         final EfsIntervalEndpoint ep =
-            createEndpoint(delta, Clusivity.INCLUSIVE);
+            createDeltaEndpoint(delta, Clusivity.INCLUSIVE);
 
-        assertThat(ep.isFuture(mCurrentTime)).isFalse();
+        assertThat(ep.isFuture(nextIndex, mCurrentTime))
+            .isFalse();
     } // end of pastTimeEndpoint()
 
     @Test
     public void currentTimeEndpoint()
     {
+        final long nextIndex = 20L;
         final long delta = 0L;
         final EfsIntervalEndpoint ep =
-            createEndpoint(delta, Clusivity.INCLUSIVE);
+            createDeltaEndpoint(delta, Clusivity.INCLUSIVE);
 
-        assertThat(ep.isFuture(mCurrentTime)).isTrue();
+        assertThat(ep.isFuture(nextIndex, mCurrentTime))
+            .isTrue();
     } // end of currentTimeEndpoint()
 
     @Test
     public void futureTimeEndpoint()
     {
+        final long nextIndex = 20L;
         final long delta = 30L;
         final EfsIntervalEndpoint ep =
-            createEndpoint(delta, Clusivity.INCLUSIVE);
+            createDeltaEndpoint(delta, Clusivity.INCLUSIVE);
 
-        assertThat(ep.isFuture(mCurrentTime)).isTrue();
+        assertThat(ep.isFuture(nextIndex, mCurrentTime))
+            .isTrue();
     } // end of futureTimeEndpoint()
 
     @Test
     public void pastTimeOffsetEndpoint()
     {
+        final long nextIndex = 20L;
         final Duration offset = Duration.ofSeconds(-30L);
         final EfsIntervalEndpoint ep =
             createEndpoint(offset, Clusivity.INCLUSIVE);
 
-        assertThat(ep.isFuture(mCurrentTime)).isFalse();
+        assertThat(ep.isFuture(nextIndex, mCurrentTime))
+            .isFalse();
     } // end of pastTimeOffsetEndpoint()
 
     @Test
     public void zeroTimeOffsetEndpoint()
     {
+        final long nextIndex = 20L;
         final Duration offset = Duration.ZERO;
         final EfsIntervalEndpoint ep =
             createEndpoint(offset, Clusivity.INCLUSIVE);
 
-        assertThat(ep.isFuture(mCurrentTime)).isTrue();
+        assertThat(ep.isFuture(nextIndex, mCurrentTime))
+            .isTrue();
     } // end of zeroTimeOffsetEndpoint()
 
     @Test
     public void futureTimeOffsetEndpoint()
     {
+        final long nextIndex = 20L;
         final Duration offset = Duration.ofSeconds(30L);
         final EfsIntervalEndpoint ep =
             createEndpoint(offset, Clusivity.INCLUSIVE);
 
-        assertThat(ep.isFuture(mCurrentTime)).isTrue();
+        assertThat(ep.isFuture(nextIndex, mCurrentTime))
+            .isTrue();
     } // end of futureTimeOffsetEndpoint()
 
     @Test
     public void pastIndexOffsetEndpoint()
     {
+        final long rowCount = 20L;
         final int offset = -10;
         final EfsIntervalEndpoint ep =
-            createEndpoint(offset, Clusivity.INCLUSIVE);
+            createOffsetEndpoint(offset, Clusivity.INCLUSIVE);
 
-        assertThat(ep.isFuture(mCurrentTime)).isFalse();
+        assertThat(ep.isFuture(rowCount, mCurrentTime))
+            .isFalse();
     } // end of pastIndexOffsetEndpoint()
 
     @Test
     public void zeroIndexOffsetEndpoint()
     {
+        final long rowCount = 20L;
         final int offset = 0;
         final EfsIntervalEndpoint ep =
-            createEndpoint(offset, Clusivity.INCLUSIVE);
+            createOffsetEndpoint(offset, Clusivity.INCLUSIVE);
 
-        assertThat(ep.isFuture(mCurrentTime)).isTrue();
+        assertThat(ep.isFuture(rowCount, mCurrentTime))
+            .isFalse();
     } // end of zeroIndexOffsetEndpoint()
 
     @Test
     public void futureIndexOffsetEndpoint()
     {
+        final long rowCount = 20L;
         final int offset = 10;
         final EfsIntervalEndpoint ep =
-            createEndpoint(offset, Clusivity.INCLUSIVE);
+            createOffsetEndpoint(offset, Clusivity.INCLUSIVE);
 
-        assertThat(ep.isFuture(mCurrentTime)).isTrue();
+        assertThat(ep.isFuture(rowCount, mCurrentTime))
+            .isTrue();
     } // end of futureIndexOffsetEndpoint()
+
+    @Test
+    public void pastIndexFixedEndpoint()
+    {
+        final long rowCount = 20L;
+        final long index = 10L;
+        final EfsIntervalEndpoint ep =
+            createFixedEndpoint(index, Clusivity.INCLUSIVE);
+
+        assertThat(ep.isFuture(rowCount, mCurrentTime))
+            .isFalse();
+    } // end of pastIndexFixedEndpoint()
+
+    @Test
+    public void zeroIndexFixedEndpoint()
+    {
+        final long rowCount = 20L;
+        final long index = 19L;
+        final EfsIntervalEndpoint ep =
+            createFixedEndpoint(index, Clusivity.INCLUSIVE);
+
+        assertThat(ep.isFuture(rowCount, mCurrentTime))
+            .isFalse();
+    } // end of zeroIndexFixedEndpoint()
+
+    @Test
+    public void futureIndexFixedEndpoint()
+    {
+        final long rowCount = 20L;
+        final long index = 30L;
+        final EfsIntervalEndpoint ep =
+            createFixedEndpoint(index, Clusivity.INCLUSIVE);
+
+        assertThat(ep.isFuture(rowCount, mCurrentTime))
+            .isTrue();
+    } // end of futureIndexFixedEndpoint()
 
     //
     // end of JUnit Tests.
@@ -486,15 +540,15 @@ public final class EfsIntervalTest
                        .build());
     } // end of createInterval(...)
 
-    private EfsTimeEndpoint createEndpoint(final long delta,
-                                           final Clusivity clusivity)
+    private EfsTimeEndpoint createDeltaEndpoint(final long delta,
+                                                final Clusivity clusivity)
     {
         final Instant time = mCurrentTime.plusSeconds(delta);
         final EfsTimeEndpoint.Builder builder =
-            EfsTimeEndpoint.builder();
+            EfsTimeEndpoint.builder(mCurrentTime);
 
         return (builder.time(time, clusivity).build());
-    } // end of createEndpoint(long, Clusivity)
+    } // end of createDeltaEndpoint(long, Clusivity)
 
     private EfsDurationEndpoint createEndpoint(final Duration offset,
                                                final Clusivity clusivity)
@@ -503,14 +557,23 @@ public final class EfsIntervalTest
             EfsDurationEndpoint.builder();
 
         return (builder.timeOffset(offset, clusivity)).build();
-    } // end of createEndpoint(Duration, Clusivity)
+    } // end of createOffsetEndpoint(Duration, Clusivity)
 
-    private EfsIndexEndpoint createEndpoint(final int offset,
-                                            final Clusivity clusivity)
+    private EfsIndexFixedEndpoint createFixedEndpoint(final long index,
+                                                      final Clusivity clusivity)
     {
-        final EfsIndexEndpoint.Builder builder =
-            EfsIndexEndpoint.builder();
+        final EfsIndexFixedEndpoint.Builder builder =
+            EfsIndexFixedEndpoint.builder(ROW_COUNT);
+
+        return (builder.fixedIndex(index, clusivity).build());
+    } // end of createFixedEndpoint(long, Clusivity)
+
+    private EfsIndexOffsetEndpoint createOffsetEndpoint(final int offset,
+                                                        final Clusivity clusivity)
+    {
+        final EfsIndexOffsetEndpoint.Builder builder =
+            EfsIndexOffsetEndpoint.builder();
 
         return (builder.indexOffset(offset, clusivity).build());
-    } // end of createEndpoint(int, Clusivity)
+    } // end of createOffsetEndpoint(int, Clusivity)
 } // end of class EfsIntervalTest

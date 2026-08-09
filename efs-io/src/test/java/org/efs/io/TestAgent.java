@@ -17,9 +17,11 @@
 package org.efs.io;
 
 import com.googlecode.cqengine.query.Query;
+import jakarta.annotation.Nullable;
 import java.util.concurrent.CountDownLatch;
 import org.efs.io.EfsFile.AccessMode;
 import org.efs.io.EfsFileConnection.Retrieval;
+import org.efs.io.RetrievalCompleteEvent.CompletionType;
 
 /**
  * Test agent
@@ -40,6 +42,8 @@ public final class TestAgent
 
     private CountDownLatch mContinueSignal;
     private CountDownLatch mDoneSignal;
+    private boolean mIsCompleted;
+    private CompletionType mCompletionType;
 
 //---------------------------------------------------------------
 // Member methods.
@@ -58,6 +62,25 @@ public final class TestAgent
 
     //
     // end of Constructors.
+    //-----------------------------------------------------------
+
+    //-----------------------------------------------------------
+    // Get Methods.
+    //
+
+    public boolean isCompleted()
+    {
+        return (mIsCompleted);
+    } // end of isCompleted()
+
+    @Nullable
+    public CompletionType completionType()
+    {
+        return (mCompletionType);
+    } // end of completionType()
+
+    //
+    // end of Get Methods.
     //-----------------------------------------------------------
 
     //-----------------------------------------------------------
@@ -96,7 +119,13 @@ public final class TestAgent
 
     public void onDone(final RetrievalCompleteEvent<TradeEvent> event)
     {
-        mDoneSignal.countDown();
+        mIsCompleted = true;
+        mCompletionType = event.completionType();
+
+        if (mDoneSignal != null)
+        {
+            mDoneSignal.countDown();
+        }
     } // end of onDone(RetrievalCompleteEvent<>)
 
     //

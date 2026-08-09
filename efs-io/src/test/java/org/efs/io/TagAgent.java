@@ -99,14 +99,6 @@ public final class TagAgent
     //-----------------------------------------------------------
 
     //-----------------------------------------------------------
-    // Object Method Overrides.
-    //
-
-    //
-    // end of Object Method Overrides.
-    //-----------------------------------------------------------
-
-    //-----------------------------------------------------------
     // Get Methods.
     //
 
@@ -193,7 +185,7 @@ public final class TagAgent
                 Clock.fixed(
                     (mTestClock.instant()).plus(timeDelta),
                     GMT);
-            EfsFile.setSystemClock(mTestClock);
+            mTradeFile.setSystemClock(mTestClock);
 
             LockSupport.parkNanos(timeDelta.toNanos());
         }

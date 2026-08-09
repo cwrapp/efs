@@ -19,5 +19,7 @@ Any value defined here will override the pom.xml file value but is only applicab
         <word>closeable</word>
         <word>compilable</word>
         <word>efs</word>
+        <word>Lamport</word>
+        <word>uncompiled</word>
     </spellchecker-wordlist>
 </project-shared-configuration>
