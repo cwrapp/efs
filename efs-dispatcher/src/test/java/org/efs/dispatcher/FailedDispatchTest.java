@@ -22,7 +22,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
-import org.efs.dispatcher.EfsDispatcher.DispatcherType;
+import org.efs.dispatcher.IEfsDispatcher.DispatcherType;
 import org.efs.dispatcher.config.ThreadType;
 import org.efs.event.IEfsEvent;
 import org.junit.jupiter.api.AfterAll;

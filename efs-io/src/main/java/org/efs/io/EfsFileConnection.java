@@ -386,7 +386,15 @@ public final class EfsFileConnection<E extends IEfsEvent>
         "\"%s\" event file is closed";
 
     /**
-     * If attempt to postRow event to an {@code EfsFile}, then
+     * If attempt to event to an {@code EfsFile} that is at
+     * is size limit, then an {@code IllegalStateException} is
+     * thrown with message {@value}.
+     */
+    public static final String FILE_AT_SIZE_LIMIT =
+        "\"%s\" at size limit (%,d)";
+
+    /**
+     * If attempt to post event to an {@code EfsFile}, then
      * an {@code IllegalStateException} is thrown with message
      * {@value}.
      */
@@ -701,6 +709,10 @@ public final class EfsFileConnection<E extends IEfsEvent>
      * attempt to postRow retrieval request to {@code EfsFile}
      * fails. In all cases, event is <em>not</em> added to event
      * file.
+     * @throws EfsFileInitializationException
+     * if this event file has a fixed maximum size limit and
+     * size policy is
+     * {@link EfsFile.SizePolicy#FAIL_ON_LIMIT_REACHED}.
      *
      * @see EfsFile.AccessMode
      * @see #retrieve(EfsInterval, Query, Consumer, Consumer)
@@ -851,12 +863,34 @@ public final class EfsFileConnection<E extends IEfsEvent>
      * @throws NullPointerException
      * if either {@code tags} or {@code event} is {@code null}.
      * @throws IllegalStateException
-     * if this connection does not have write access (opened with
-     * {@code READ_ONLY} mode), or if this connection is closed,
-     * or if underlying event file is closed. Also thrown if
-     * attempt to postRow retrieval request to {@code EfsFile}
-     * fails. In all cases, event is <em>not</em> added to event
-     * file.
+     * <ul>
+     *   <li>
+     *     if this connection does not have write access (opened
+     *     with {@code READ_ONLY} mode), or
+     *   </li>
+     *   <li>
+     *     if this connection is closed, or
+     *   </li>
+     *   <li>
+     *     if underlying event file is closed, or
+     *   </li>
+     *   <li>
+     *     if underlying event file is full and the file size
+     *     policy is
+     *     {@link EfsFile.SizePolicy#FAIL_ON_LIMIT_REACHED}, or
+     *   </li>
+     *   <li>
+     *     if attempt to post add request to {@code EfsFile}
+     *     fails.
+     *   </li>
+     * </ul>
+     * <p>
+     * In all cases, event is <em>not</em> added to event file.
+     * </p>
+     * @throws EfsFileInitializationException
+     * if this event file has a fixed maximum size limit and
+     * size policy is
+     * {@link EfsFile.SizePolicy#FAIL_ON_LIMIT_REACHED}.
      *
      * @see EfsFile.AccessMode
      * @see #retrieve(EfsInterval, Query, Consumer, Consumer)
@@ -873,6 +907,18 @@ public final class EfsFileConnection<E extends IEfsEvent>
         // Validate that agent has proper access and that
         // connection and file are open.
         validateState(AccessMode.WRITE_ONLY, READ_ONLY_ACCESS);
+
+        // Clear to add this event to file?
+        if (!mEventFile.isOkToAdd())
+        {
+            // No.
+            throw (
+                new IllegalStateException(
+                    String.format(FILE_AT_SIZE_LIMIT,
+                                  mEventFile.name(),
+                                  mEventFile.sizeLimit())));
+        }
+
 
         final Instant pubTime = mEventFile.instant();
         final Set<Integer> tagscopy = ImmutableSet.copyOf(tags);

@@ -193,7 +193,7 @@ bus.subscribeAll(TopOfBook.class, "[A-I].*", true, this::onPublishStatus, this::
  * events on a concrete topic.
  * </p>
  * <pre><code>// Publisher side - advertise ability to publish OrderEvent on "orders" topic
- * EfsEventBus eventBus = EfsEventBus.findOrCreateBus("orderBus");
+ * EfsEventBus eventBus = (EfsEventBus.builder("orderBus")).build();
  * EfsTopicKey&lt;OrderEvent&gt; orderTopic =
  *     EfsTopicKey.getKey(OrderEvent.class, "orders");
  *

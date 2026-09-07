@@ -103,7 +103,7 @@ public final class TestPublisher
         mTradeCount = 0;
 
         mTestClock = testClock;
-    } // end of TestPublisher(String, EfsFile<>)
+    } // end of TestPublisher(String, EfsFile<>, Clock)
 
     //
     // end of Constructors.

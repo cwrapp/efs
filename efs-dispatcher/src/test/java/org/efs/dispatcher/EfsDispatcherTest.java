@@ -21,11 +21,12 @@ import java.util.function.Consumer;
 import net.sf.eBus.util.ValidationException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import org.efs.dispatcher.EfsDispatcher.DispatcherType;
+import org.efs.dispatcher.IEfsDispatcher.DispatcherType;
 import org.efs.dispatcher.config.EfsDispatcherConfig;
 import org.efs.dispatcher.config.ThreadAffinityConfig;
 import org.efs.dispatcher.config.ThreadAffinityConfig.AffinityType;
 import org.efs.dispatcher.config.ThreadType;
+import org.efs.logging.AsyncLoggerFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.Logger;
 
 /**
  * Tests {@code EfsDispatcher} construction and start up.
@@ -66,6 +68,9 @@ public final class EfsDispatcherTest
     private static IEfsAgent sEfsAgentBlankName;
     private static IEfsAgent sEfsAgentNotRegistered;
     private static int sDispatcherIndex = 0;
+
+    private static final Logger sLogger =
+        AsyncLoggerFactory.getLogger(EfsDispatcherTest.class);
 
 //---------------------------------------------------------------
 // Member methods.
@@ -586,6 +591,108 @@ public final class EfsDispatcherTest
     } // end of isDispatcherEmptyName()
 
     //
+    // Pinned dispatcher tests.
+    //
+
+    @Test
+    public void pinnedBuilderNullAgent()
+    {
+        final String dispatcherName = generateDispatcherName();
+        final IEfsAgent agent = null;
+        final EfsDispatcher.Builder builder =
+            EfsDispatcher.builder(dispatcherName);
+
+        assertThatThrownBy(
+            () -> builder.pinnedAgent(agent))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage(EfsDispatcher.NULL_AGENT);
+    } // end of pinnedBuilderNullAgent()
+
+    @Test
+    public void pinnedBuilderInvalidSettings()
+    {
+        final String dispatcherName = generateDispatcherName();
+        final DispatcherType dispatcherType =
+            DispatcherType.EFS_PINNED;
+        final int numThreads = 8;
+        final ThreadType threadType = ThreadType.SPINPARK;
+        final int priority = 8;
+        final long spinLimit = 2_500_000L;
+        final Duration parkTime = Duration.ofNanos(500L);
+        final int eventQueueCapacity = 128;
+        final int maxEvents = eventQueueCapacity;
+        final EfsDispatcher.Builder builder =
+            EfsDispatcher.builder(dispatcherName);
+
+        assertThatThrownBy(
+            () -> builder.dispatcherType(dispatcherType)
+                         .numThreads(numThreads)
+                         .threadType(threadType)
+                         .priority(priority)
+                         .spinLimit(spinLimit)
+                         .parkTime(parkTime)
+                         .eventQueueCapacity(eventQueueCapacity)
+                         .maxEvents(maxEvents)
+                         .build())
+            .isInstanceOf(ValidationException.class);
+    } // end of pinnedBuilderInvalidSettings()
+
+    @Test
+    public void pinnedBuilderSuccess()
+    {
+        final String dispatcherName = generateDispatcherName();
+        final DispatcherType dispatcherType =
+            DispatcherType.EFS_PINNED;
+        final int eventQueueCapacity = 128;
+        final ThreadAffinityConfig affinityConfig =
+            createAffinityConfig();
+        final List<EfsAgent.AgentStats> runStats;
+        final EfsDispatcher.Builder builder =
+            EfsDispatcher.builder(dispatcherName);
+        final EfsDispatcher dispatcher =
+            (EfsDispatcher)
+                builder.dispatcherType(dispatcherType)
+                       .pinnedAgent(sEfsAgent)
+                       .eventQueueCapacity(eventQueueCapacity)
+                       .threadAffinity(affinityConfig)
+                       .build();
+
+        assertThat(dispatcher.dispatcherState())
+            .isEqualTo(EfsDispatcher.DispatcherState.STARTED);
+        assertThat(dispatcher.threadType())
+            .isEqualTo(ThreadType.SPINNING);
+        assertThat(dispatcher.priority())
+            .isEqualTo(Thread.MAX_PRIORITY);
+        assertThat(dispatcher.toString())
+            .startsWith("[" + dispatcherName);
+
+        assertThat(EfsDispatcher.isRegistered(sEfsAgent))
+            .isTrue();
+        assertThat(EfsDispatcher.agent("fubar")).isNull();
+        assertThat(EfsDispatcher.agent(EFS_AGENT_NAME))
+            .isEqualTo(sEfsAgent);
+
+        assertThatThrownBy(
+            () -> EfsDispatcher.register(sEfsAgentNotRegistered,
+                                         dispatcherName))
+            .isInstanceOf(IllegalStateException.class);
+
+        EfsDispatcher.dispatch(
+            () -> System.out.println("Do it!"), sEfsAgent);
+
+        runStats = EfsAgent.runTimeStats();
+
+        assertThat(runStats).isNotNull();
+        assertThat(runStats).isNotEmpty();
+
+        assertThatThrownBy(
+            () -> EfsDispatcher.deregister(sEfsAgent))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage(String.format(EfsDispatcher.PINNED_AGENT,
+                                      sEfsAgent.name()));
+    } // end of pinnedBuilderSuccess()
+
+    //
     // end of JUnit Test Methods.
     //-----------------------------------------------------------
 
@@ -594,15 +701,18 @@ public final class EfsDispatcherTest
         return (DISPATCHER_NAME_PREFIX + sDispatcherIndex++);
     } // end of generateDispatcherName()
 
+    /**
+     * Returns a no-op affinity configuration. This is used when
+     * configuration requires an affinity configuration but
+     * testing does not require acquiring an affinity lock.
+     * @return no-op affinity configuration.
+     */
     private static ThreadAffinityConfig createAffinityConfig()
     {
         final ThreadAffinityConfig retval =
             new ThreadAffinityConfig();
 
-        retval.setAffinityType(AffinityType.CPU_ID);
-        retval.setCpuId(7);
-        retval.setBindFlag(true);
-        retval.setWholeCoreFlag(true);
+        retval.setAffinityType(AffinityType.NO_OP);
 
         return (retval);
     } // end of createAffinityConfig()

@@ -31,6 +31,7 @@ import com.googlecode.cqengine.index.navigable.NavigableIndex;
 import com.googlecode.cqengine.index.unique.UniqueIndex;
 import com.googlecode.cqengine.query.Query;
 import static com.googlecode.cqengine.query.QueryFactory.ascending;
+import static com.googlecode.cqengine.query.QueryFactory.equal;
 import static com.googlecode.cqengine.query.QueryFactory.greaterThan;
 import static com.googlecode.cqengine.query.QueryFactory.greaterThanOrEqualTo;
 import static com.googlecode.cqengine.query.QueryFactory.in;
@@ -137,6 +138,68 @@ import org.slf4j.Logger;
  *     to remove it from the global registry.
  *   </li>
  * </ul>
+ *
+ * <h2>Size Limits and Initialization</h2>
+ * <p>
+ * An {@code EfsFile} may optionally enforce a maximum allowed
+ * file size using a {@link SizePolicy} and a size limit set on
+ * the builder. When the file reaches its configured limit,
+ * policy behavior is either to fail new inserts or to evict the
+ * oldest rows in FIFO order depending on the selected size
+ * policy. This cap is enforced as rows are appended and is
+ * checked during initialization when builder rows are loaded.
+ * </p>
+ * <p>
+ * {@link EfsFile.Builder} provides a mechanism to place rows
+ * into the target event file when that file is created. This
+ * {@link Supplier initializer} supplies those initial rows.
+ * These rows <em>must</em> be in ascending row index and publish
+ * timestamp order. Further, row indices are required
+ * to be sequential. Builder performs initialization
+ * synchronously so that the event file contains the desired
+ * rows upon return.
+ * </p>
+ * <p>
+ * Note that an initialized event file may still accept new
+ * events.
+ * </p>
+ * <p>
+ * Initialization fails if:
+ * </p>
+ * <ul>
+ *   <li>
+ *     row indices are not strictly increasing,
+ *   </li>
+ *   <li>
+ *     row publish times are decreasing, or
+ *   </li>
+ *   <li>
+ *     initializer exceeds a fixed event file size limit.
+ *   </li>
+ * </ul>
+ * <p>
+ * In all cases, {@link Builder#build()} throws an
+ * {@link EfsFileInitializationException} to report the failure.
+ * </p>
+ *
+ * <h2>Event File Exhaust</h2>
+ * <p>
+ * A newly added row may also be forwarded to a persistence
+ * pipeline by configuring an exhaust callback and an agent which
+ * receive those rows. This is done via
+ * {@link Builder#fileExhaust(Consumer, IEfsAgent)} and is
+ * designed for use cases where each appended {@link EfsRow} must
+ * be written to a durable store or an external sink. The file's
+ * dispatcher thread invokes the configured exhaust path after the
+ * row has been accepted into the in-memory table, preserving the
+ * same single-threaded ordering model used for file updates.
+ * </p>
+ * <p>
+ * If no exhaust agent is configured, the file silently ignores the
+ * exhaust step and keeps the row only in memory. The exhaust path
+ * is best used for asynchronous persistence or downstream
+ * processing that should not block the thread posting the row.
+ * </p>
  *
  * <h2>Ordering and Consistency Guarantees</h2>
  * <ul>
@@ -372,6 +435,42 @@ public final class EfsFile<E extends IEfsEvent>
         //-------------------------------------------------------
     } // end of enum AccessMode
 
+    /**
+     * Specifies whether efs file has a size limit restriction
+     * and, if so, how to respond when limit is reached.
+     */
+    public enum SizePolicy
+    {
+        /**
+         * {@code EfsFile} instance has no size limit
+         * restriction. This policy is best used if file is of
+         * fixed size. Otherwise it is better to use one of the
+         * other policies even if the file thought to always be
+         * "small".
+         * <p>
+         * This is default setting.
+         * </p>
+         */
+        NO_SIZE_RESTRICTION,
+
+        /**
+         * {@code EfsFile} instance has a size limit. When
+         * limit is reached, any further attempt to post events
+         * to the file will result in a thrown
+         * {@code IllegalStateException}.
+         */
+        FAIL_ON_LIMIT_REACHED,
+
+        /**
+         * {@code EfsFile} instance has a size limit. When
+         * limit is reached, any further attempt to post events
+         * to the file will result in the oldest event (event
+         * with minimum row index) being removed prior to adding
+         * the newest event.
+         */
+        FIFO_ON_LIMIT_REACHED
+    } // end of enum SizePolicy
+
 //---------------------------------------------------------------
 // Member data.
 //
@@ -379,6 +478,12 @@ public final class EfsFile<E extends IEfsEvent>
     //-----------------------------------------------------------
     // Constants.
     //
+
+    /**
+     * By default there is no size restriction to an efs file.
+     */
+    public static final SizePolicy DEFAULT_SIZE_POLICY =
+        SizePolicy.NO_SIZE_RESTRICTION;
 
     /**
      * Default maximum concurrent {@link EfsFileConnection}s is
@@ -568,6 +673,20 @@ public final class EfsFile<E extends IEfsEvent>
     public static final String ACCESS_DENIED =
         "%s may not connect to %s with %s access mode";
 
+    /**
+     * A {@code null} size restriction results in a
+     * {@code NullPointerException} with message {@value}.
+     */
+    public static final String NULL_SIZE_POLICY =
+        "policy is null";
+
+    /**
+     * A size limit &lt; zero results in an
+     * {@code IllegalArgumentException} with message {@value}.
+     */
+    public static final String INVALID_SIZE_LIMIT =
+        "size limit < zero";
+
     //-----------------------------------------------------------
     // Statics.
     //
@@ -615,6 +734,27 @@ public final class EfsFile<E extends IEfsEvent>
     private final String mFileName;
 
     /**
+     * Number of events currently in this file.
+     */
+    private final AtomicLong mSize;
+
+    /**
+     * Specifies if this efs file has a size limit restriction.
+     *
+     * @see #mSizeLimit.
+     */
+    private final SizePolicy mSizePolicy;
+
+    /**
+     * If there is a size limit restriction in place, then this
+     * is the size limit. Set to zero if there is no size limit
+     * in place.
+     *
+     * @see #mSizePolicy
+     */
+    private final long mSizeLimit;
+
+    /**
      * Set to {@code true} if this event file is open and
      * {@code false} if not. Initialized to {@code true}
      */
@@ -652,6 +792,19 @@ public final class EfsFile<E extends IEfsEvent>
      * Order retrieved events by ascending row index.
      */
     private final QueryOptions mOrderByOpts;
+
+    /**
+     * Tracks first row's index in event file. This value is used
+     * when performing
+     * {@link SizePolicy#FIFO_ON_LIMIT_REACHED} size limit
+     * policy by providing the first row index on the list.
+     * <p>
+     * Note that this value is <em>not</em> concurrent nor
+     * synchronized because it is accessed from withing this
+     * event file's dispatcher only.
+     * </p>
+     */
+    private long mFirstRowIndex;
 
     /**
      * When adding an event to file, use this value as row index
@@ -739,6 +892,9 @@ public final class EfsFile<E extends IEfsEvent>
     {
         mTopicKey = builder.mTopicKey;
         mFileName = mTopicKey.toString();
+        mSize = builder.mSize;
+        mSizePolicy = builder.mSizePolicy;
+        mSizeLimit = builder.mSizeLimit;
         mFields = builder.mFields;
         mAttributes = builder.mAttributes;
         mOpenFlag = new AtomicBoolean(true);
@@ -762,6 +918,7 @@ public final class EfsFile<E extends IEfsEvent>
         mTagIndex = builder.mTagIndex;
         mOrderByOpts = builder.mOrderByOpts;
 
+        mFirstRowIndex = builder.mFirstRowIndex;
         mNextRowIndex = new AtomicLong(builder.mNextRowIndex);
         mLatestRow = builder.mLatestRow;
     } // end of EfsFile(Builder)
@@ -833,6 +990,43 @@ public final class EfsFile<E extends IEfsEvent>
     } // end of attribute(String)
 
     /**
+     * Returns efs file size limit policy.
+     * @return size limit policy.
+     *
+     * @see #sizeLimit()
+     */
+    public SizePolicy sizePolicy()
+    {
+        return (mSizePolicy);
+    } // end of sizePolicy()
+
+    /**
+     * Returns efs file size limit. If size limit policy is
+     * {@link SizePolicy#NO_SIZE_RESTRICTION}, then returns
+     * zero.
+     * @return size limit.
+     *
+     * @see #sizePolicy()
+     */
+    public long sizeLimit()
+    {
+        return (mSizeLimit);
+    } // end of sizeLimit()
+
+    /**
+     * Returns {@code true} if this efs file's size is at the
+     * size limit. If {@link #sizePolicy()} is
+     * {@link SizePolicy#NO_SIZE_RESTRICTION}, then returns
+     * {@code false} because there is no limit.
+     * @return {@code true} if at file size limit.
+     */
+    public boolean isAtSizeLimit()
+    {
+        return (mSizePolicy != SizePolicy.NO_SIZE_RESTRICTION &&
+                mSize.get() == mSizeLimit);
+    } // end of isAtSizeLimit()
+
+    /**
      * Returns <em>approximate</em> number of rows in efs file.
      * These reason this value is approximate is due to rows
      * are added asynchronously to file. It is possible that at
@@ -841,8 +1035,28 @@ public final class EfsFile<E extends IEfsEvent>
      */
     public long rowCount()
     {
-        return (mNextRowIndex.get());
+        return (mSize.get());
     } // end of rowCount()
+
+    /**
+     * Returns {@code true} if a new row may be added to this
+     * file and {@code false} otherwise. A row may be added if
+     * size policy is <em>not</em>
+     * {@link SizePolicy#FAIL_ON_LIMIT_REACHED} or
+     * current size &lt; current limit.
+     * <p>
+     * Note: because an event is added asynchronously to a file,
+     * it may be that {@code true} is returned but is not added
+     * due to in-flight adds reaching the size limit.
+     * </p>
+     * @return {@code true} if new row may be added to this file.
+     */
+    /* package */ boolean isOkToAdd()
+    {
+        return (
+            mSizePolicy != SizePolicy.FAIL_ON_LIMIT_REACHED ||
+            mSize.get() < mSizeLimit);
+    } // end of isOkToAdd()
 
     /**
      * Returns current instant as per the current {@code Clock}.
@@ -1194,19 +1408,24 @@ public final class EfsFile<E extends IEfsEvent>
      *   </li>
      * </ol>
      * <p>
-Note: this method does not throw checked exceptions and
-performs minimal per-retrieval exception handling so a
-single failing retrieval postRow does not prevent other
-retrievals from receiving the row.
-</p>
+     * Note: this method does not throw checked exceptions and
+     * performs minimal per-retrieval exception handling so a
+     * single failing retrieval postRow does not prevent other
+     * retrievals from receiving the row.
+     * </p>
      * @param addEvent internal add event containing publish
      * timestamp and the event to append (must be
      * non-{@code null}).
+     * @throws EfsFileInitializationException
+     * if this event file has a fixed maximum size limit and
+     * size policy is {@link SizePolicy#FAIL_ON_LIMIT_REACHED}.
      *
      * @see AddInternalEvent
      * @see #onRetrieve(RetrievalInternalEvent)
      * @see #onCancel(CancelInternalEvent)
      */
+    // Size check is *not* collapsible.
+    @SuppressWarnings({"java:S1066", "java:S3776"})
     /* package */ void onAdd(final AddInternalEvent<E> addEvent)
     {
         // Note: since this is a package-private method, caller
@@ -1223,6 +1442,14 @@ retrievals from receiving the row.
         // Ergo: if we are processing a event, that means this
         //       event file is open by definition.
 
+        mFirstRowIndex = checkFileSize(mTopicKey,
+                                       mSize,
+                                       mSizePolicy,
+                                       mSizeLimit,
+                                       mFirstRowIndex,
+                                       mRowIndex,
+                                       mTable);
+
         final Instant pubTime = addEvent.publishTimestamp();
         final Set<Integer> tags = addEvent.tags();
         final EfsRow<E> row =
@@ -1235,6 +1462,7 @@ retrievals from receiving the row.
 
         mTable.add(row);
         mLatestRow = row;
+        mSize.incrementAndGet();
         mMetrics.incrementEventAdd();
 
         // Forward event row to agents whose request matches this
@@ -1912,6 +2140,8 @@ executed inline here.
      * There is no exhaust agent configured, so do nothing.
      * @param row exhaust this row.
      */
+    // Deliberately empty to serve as a no-op method.
+    @SuppressWarnings({"java:S1186", "no"})
     private void doNoExhaust(final EfsRow<E> row)
     {}
 
@@ -1937,6 +2167,95 @@ executed inline here.
             mMetrics.incrementDispatchFailure();
         }
     } // end of doExhaust(EfsRow)
+
+    /**
+     * Checks if table has a maximum size limit. If not, nothing
+     * is done. If this limit is fifo-on-limit-reached, then
+     * removes first row from the table. Otherwise throws an
+     * exception indicating that limit is reached.
+     * @param <E> efs event type.
+     * @param size number of rows currently in {@code table}.
+     * @param policy maximum file size policy.
+     * @param sizeLimit file size limit.
+     * @param indices row indices currently in table.
+     * @param rowIndex table row index attribute.
+     * @param table table containing efs rows.
+     * @throws EfsFileInitializationException
+     * if file size limit is reached and policy is
+     * {@link SizePolicy#FAIL_ON_LIMIT_REACHED}.
+     */
+    private static <E extends IEfsEvent> long checkFileSize(final EfsTopicKey<E> topicKey,
+                                                            final AtomicLong size,
+                                                            final SizePolicy policy,
+                                                            final long sizeLimit,
+                                                            final long firstRowIndex,
+                                                            final Attribute<EfsRow<E>, Long> rowIndex,
+                                                            final IndexedCollection<EfsRow<E>> table)
+        throws EfsFileInitializationException
+    {
+        long retval = firstRowIndex;
+
+        // Is there a size limit for this event file?
+        // Has that limit been reached?
+        if (policy != SizePolicy.NO_SIZE_RESTRICTION &&
+            size.get() == sizeLimit)
+        {
+            // Is size policy remove first row on limit reached?
+            if (policy == SizePolicy.FIFO_ON_LIMIT_REACHED)
+            {
+                // Yes. Remove oldest (first) row and substract
+                // one from size.
+                retval = removeFirstRow(firstRowIndex,
+                                        rowIndex,
+                                        table);
+                size.decrementAndGet();
+            }
+            else
+            {
+                // NO, throw an exception.
+                throw (
+                    new EfsFileInitializationException(
+                        String.format(
+                            "%s row add failed: maximum row limit %,d exceeded",
+                            topicKey,
+                            sizeLimit)));
+            }
+        }
+
+        return (retval);
+    } // end of checkFileSize(...)
+
+    /**
+     * Removes first row in given event file based on the index
+     * list and attribute. This is done as part of
+     * fifo-on-limit-reached size policy.
+     * @param <E> efs event type.
+     * @param indices row indices appearing in event file,
+     * ordered from smallest to largest.
+     * @param rowIndex table's row index attribute.
+     * @param table event file underlying table.
+     */
+    private static <E extends IEfsEvent> long removeFirstRow(final long firstRowIndex,
+                                                             final Attribute<EfsRow<E>, Long> rowIndex,
+                                                             final IndexedCollection<EfsRow<E>> table)
+    {
+        // Remove first row and then advance to the
+        // next row - which is the new first row.
+        final Query<EfsRow<E>> firstRowQuery =
+            equal(rowIndex, firstRowIndex);
+        final ResultSet<EfsRow<E>> results =
+            table.retrieve(firstRowQuery);
+        final Iterator<EfsRow<E>> rIt = results.iterator();
+        long retval = firstRowIndex;
+
+        if (rIt.hasNext())
+        {
+            table.remove(rIt.next());
+            ++retval;
+        }
+
+        return (retval);
+    } // end of removeFirstRow(List, Attribute, IndexedCollection)
 
 //---------------------------------------------------------------
 // Inner classes.
@@ -2029,6 +2348,19 @@ executed inline here.
         private String mDispatcher;
 
         /**
+         * Specifies if this efs file has a size limit
+         * restriction.
+         */
+        private SizePolicy mSizePolicy;
+
+        /**
+         * If there is a size limit restriction in place, then
+         * this is the size limit. Set to zero if there is no
+         * size limit in place.
+         */
+        private long mSizeLimit;
+
+        /**
          * Total number of efs event file connections in place at
          * any one time.
          */
@@ -2062,6 +2394,15 @@ executed inline here.
         @Nullable private IEfsAgent mExhaustAgent;
 
         /**
+         * Row index of first entry in event file. This
+         * value is initialized to zero but is advanced if this
+         * event file is configured for
+         * {@link SizePolicy#FIFO_ON_LIMIT_REACHED} and an
+         * initializer which attempts to exceed that size limit.
+         */
+        private long mFirstRowIndex;
+
+        /**
          * Index used for next row added to table. This value
          * should be used and then incremented.
          */
@@ -2078,6 +2419,11 @@ executed inline here.
          * The latest row in the efs event table.
          */
         private EfsRow<E> mLatestRow;
+
+        /**
+         * Tracks number of rows added by initializer.
+         */
+        private AtomicLong mSize;
 
         /**
          * Event field names in lexicographic sorted order.
@@ -2110,9 +2456,13 @@ executed inline here.
             mTable = new ConcurrentIndexedCollection<>();
 
             mConnectionPolicy = DEFAULT_CONNECTION_POLICY;
+            mSizePolicy = DEFAULT_SIZE_POLICY;
+            mSizeLimit = 0;
             mMaxConnections = DEFAULT_MAX_CONNECTIONS;
             mMaxActiveRetrievals = DEFAULT_MAX_ACTIVE_RETRIEVALS;
+            mFirstRowIndex = 0L;
             mNextRowIndex = 0L;
+            mSize = new AtomicLong();
             mClock = sClock;
 
             mRowIndex =
@@ -2162,6 +2512,50 @@ executed inline here.
         //-------------------------------------------------------
         // Set Methods.
         //
+
+        /**
+         * Sets efs event file's size limit restriction policy.
+         * If restriction policy is either
+         * {@link SizePolicy#FAIL_ON_LIMIT_REACHED} or
+         * {@link SizePolicy#FIFO_ON_LIMIT_REACHED}, then
+         * size limit must be set to a value &gt; zero.
+         * @param policy event file size policy.
+         * @return {@code this Builder} instance.
+         * @throws NullPointerException
+         * if {@code policy} is {@code null}.
+         *
+         * @see #sizeLimit(int)
+         */
+        public Builder<E> sizePolicy(final SizePolicy policy)
+        {
+            mSizePolicy =
+                Objects.requireNonNull(policy, NULL_SIZE_POLICY);
+
+            return (this);
+        } // end of sizePolicy(SizePolicy)
+
+        /**
+         * Sets efs event file's size limit. This value is
+         * ignored if size limit restriction is
+         * {@link SizePolicy#NO_SIZE_RESTRICTION}.
+         * @param limit file size limit restriction.
+         * @return {@code this Builder} instance.
+         *
+         * @see #sizePolicy(SizePolicy)
+         */
+        public Builder<E> sizeLimit(final long limit)
+        {
+            if (limit < 0)
+            {
+                throw (
+                    new IllegalArgumentException(
+                        INVALID_SIZE_LIMIT));
+            }
+
+            mSizeLimit = limit;
+
+            return (this);
+        } // end of sizeLimit(long)
 
         /**
          * Sets efs event file's connection policy.
@@ -2264,22 +2658,25 @@ executed inline here.
          * <p>
          * The initializer provides an {@code Iterator} which,
          * in turn, returns {@link EfsRow}s in row index
-         * ascending order. These indices are required to be
-         * sequential and ascending.
+         * sequential,  ascending order and publish timestamps
+         * in non-descending order. <strong>Failure to provide
+         * rows meeting these requirements will result in
+         * {@code build} failing with a
+         * {@link EfsFileInitializationException}</strong>.
          * </p>
          * @param initializer initializes efs event file rows.
          * @return {@code this Builder} instance.
          * @throws NullPointerException
          * if {@code initializer} is {@code null}.
          */
-        public Builder<E> tableInitializer(final Supplier<Iterator<EfsRow<E>>> initializer)
+        public Builder<E> initializer(final Supplier<Iterator<EfsRow<E>>> initializer)
         {
             mInitializer =
                 Objects.requireNonNull(
                     initializer, NULL_INITIALIZER);
 
             return (this);
-        } // end of tableInitializer(Supplier<>)
+        } // end of initializer(Supplier<>)
 
         /**
          * Sets efs event file exhaust callback and agent to
@@ -2293,8 +2690,8 @@ executed inline here.
          * if either {@code exhaustCB} or {@code exhaustAgent} is
          * {@code null}.
          */
-        public Builder<E> tableExhaust(final Consumer<EfsRow<E>> exhaustCB,
-                                       final IEfsAgent exhaustAgent)
+        public Builder<E> fileExhaust(final Consumer<EfsRow<E>> exhaustCB,
+                                      final IEfsAgent exhaustAgent)
         {
             Objects.requireNonNull(exhaustCB, NULL_EXHAUST_CB);
             Objects.requireNonNull(
@@ -2304,7 +2701,7 @@ executed inline here.
             mExhaustAgent = exhaustAgent;
 
             return (this);
-        } // end of tableExhaust(Consumer<>, IEfsAgent)
+        } // end of fileExhaust(Consumer<>, IEfsAgent)
 
         /**
          * Sets clock used by efs event file. Provided for unit
@@ -2368,6 +2765,11 @@ executed inline here.
 
             // Make sure dispatcher is set.
             problems.requireNotNull(mDispatcher, "dispatcher")
+                    .requireTrue(((mSizePolicy ==
+                              SizePolicy.NO_SIZE_RESTRICTION) ||
+                        mSizeLimit > 0),
+                        "sizeLimit",
+                        "size limit not set")
                     .throwException(EfsFile.class);
 
             synchronized (sFiles)
@@ -2439,20 +2841,26 @@ executed inline here.
          *     returned row is {@code null},
          *   </li>
          *   <li>
-         *     returned row has index &lt; latest row index, or
+         *     returned row has index &lt; latest row index,
          *   </li>
          *   <li>
          *     returned row has publish timestamp &lt; latest row
-         *     publish timestamp.
+         *     publish timestamp, or
+         *   </li>
+         *   <li>
+         *    initializer attempts to place more rows than size
+         *    limit into event file configured for
+         *    {@link SizePolicy#FAIL_ON_LIMIT_REACHED}.
          *   </li>
          * </ul>
          */
+        @SuppressWarnings({"java:S3776"})
         private void initializeEvents()
-            throws EfsFileInitializationException
         {
             final Iterator<EfsRow<E>> rIt;
             EfsRow<E> row;
             Instant prevPubTime = Instant.MIN;
+            boolean firstRowSet = false;
             long rowIndex;
             Instant rowPubTime;
 
@@ -2463,15 +2871,21 @@ executed inline here.
             {
                 rIt = mInitializer.get();
             }
-            catch (Throwable tex)
+            catch (Exception jex)
             {
                 throw (
                     new EfsFileInitializationException(
                         String.format(
                             "%s initialization failed: initializer exception",
                             mTopicKey),
-                        tex));
+                        jex));
             }
+
+            // In case this builder is being re-used, clear out
+            // previous events.
+            mTable.clear();
+            mSize.set(0L);
+            mLatestRow = null;
 
             while (rIt.hasNext())
             {
@@ -2489,6 +2903,13 @@ executed inline here.
 
                 rowIndex = row.getRowIndex();
                 rowPubTime = row.getPublishTimestamp();
+
+                if (!firstRowSet)
+                {
+                    mFirstRowIndex = rowIndex;
+                    mNextRowIndex = rowIndex;
+                    firstRowSet = true;
+                }
 
                 // Is row index in ascending order?
                 if (rowIndex < mNextRowIndex)
@@ -2530,10 +2951,20 @@ executed inline here.
                                 prevPubTime)));
                 }
 
+                // Does row exceed maximum event file size?
+                mFirstRowIndex = checkFileSize(mTopicKey,
+                                               mSize,
+                                               mSizePolicy,
+                                               mSizeLimit,
+                                               mFirstRowIndex,
+                                               mRowIndex,
+                                               mTable);
+
                 // All checks out. Add the row.
                 mTable.add(row);
                 mLatestRow = row;
                 mNextRowIndex = (rowIndex + 1);
+                mSize.incrementAndGet();
                 prevPubTime = rowPubTime;
             }
         } // end of initializeEvents()

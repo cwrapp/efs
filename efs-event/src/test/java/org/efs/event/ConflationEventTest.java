@@ -72,6 +72,7 @@ public final class ConflationEventTest
         assertThat(ce.contains(TestEvent.class))
             .isFalse();
         assertThat(ce.latestMissedEventCount()).isOne();
+        assertThat(ce.totalMissedEventCount()).isGreaterThan(0);
         assertThat(ce.currentMissedEventCount()).isZero();
     } // end of testConflationEvent()
 

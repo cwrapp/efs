@@ -1,3 +1,44 @@
+# 0.7.4: September 7, 2026
+
+  - org.efs.io.EfsFile
+    * Added optional size policy and size limit.
+        + Default is there is no enforced size limit allowing
+          event file to continue growing.
+        + Size limit is enforced via a FIFO strategy. When limit
+          is reached, the oldest event is removed before new
+          event is added.
+        + Attempt to exceed size limit results in an
+          IllegalStateException being thrown.
+    * Added event file initializer to EfsFile.Builder. This
+      initializer adds events to file while being built. Results
+      in new event file containing rows from start. Note: size
+      policy is applied to initializer. If size policy is
+      "fail-on-limit-reached" and initializer attempts to exceed
+      size limit, then event file build fails.
+
+  - org.efs.io.EfsFileInitializationException
+    Thrown when adding a new event would exceed event file size
+    limit and size policy is "fail-on-limit-reached".
+
+  - org.efs.dispatcher.EfsDispatcher
+    * Added a new EFS_PINNED dispatcher type. A pinned dispatcher
+      has a single dispatcher thread and a single agent. The
+      agent constantly busy spins on its event queue, waiting for
+      an event to arrive. There is no run queue.
+    * Created class EfsDispatcherThreadPinned specifically for
+      pinned dispatcher. This thread *must* have core affinity
+      specified.
+    * Pinned agents must be registered with its pinned dispatcher
+      when dispatcher is built. This is only time an agent must
+      be created prior to building the dispatcher. A pinned agent
+      may *not* be deregistered from its dispatcher.
+
+  - org.efs.event.EfsTopicKey
+    Corrected synchronization error when creating a new topic
+    key.
+
+  - Continued correcting and improving javadoc comments.
+
 # 0.7.3: August 9, 2026
 
   - EfsFile

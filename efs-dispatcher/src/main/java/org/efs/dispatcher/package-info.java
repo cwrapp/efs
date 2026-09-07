@@ -1,5 +1,5 @@
 //
-// Copyright 2025 Charles W. Rapp
+// Copyright 2025, 2026 Charles W. Rapp
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -683,6 +683,85 @@ EfsDispatcher.dispatch(agent::onNewOrder, new NewOrderEvent(...), agent);</code>
  *   explicit control over threading, queue management, and
  *   low-latency scheduling.
  * </strong>
+ * </p>
+ * <h3>Agrona</h3>
+ * <p>
+ * <a href="https://aeron.io/">Aeron (Adaptive Financial Consulting</a>
+ * maintains the
+ * <a href="https://theaeronfiles.com/misc/agrona-agents/">Agrona Agent</a>
+ * library. An agent is encapsulated within a single thread. That
+ * thread cycles the agent between its {@code doWork} method
+ * (agent duty cycle) and its configured {@code IdleStrategy}.
+ * The out-of-the-box idle strategies are:
+ * </p>
+ * <ul>
+ *   <li>
+ *     {@code SleepingIdleStrategy}: Uses
+ *     {@code LockSupport.parkNanos(long)} to park agent thread
+ *     for a specified delay.
+ *   </li>
+ *   <li>
+ *     {@code SleepingMillisIdleStrategy}: Uses
+ *     {@code Thread.sleep(long)} to pause agent thread for a
+ *     specified delay.
+ *   </li>
+ *   <li>
+ *     {@code YieldingIdleStrategy}: Uses {@code Thread.yield()}
+ *     to yield agent thread control.
+ *   </li>
+ *   <li>
+ *     {@code BackOffIdleStrategy}: Alternates agent thread
+ *     between spinning, yielding, and parking for configurable
+ *     nanosecond delay.
+ *   </li>
+ *   <li>
+ *     {@code NoOpIdleStrategy}: Agent thread uses busy spin
+ *     only.
+ *   </li>
+ *   <li>
+ *     {@code BusySpinIdleStrategy}: Agent thread uses busy spin
+ *     combined with {@code Thread.onSpinWait()}.
+ *   </li>
+ * </ul>
+ * <p>
+ * Agrona is agent-based like efs with similar idle strategies.
+ * Where Agrona differs in that each agent has its own thread and
+ * is focused on doing work rather than processing events. Every
+ * time an agent is created, a thread is fired up to run the
+ * agent's duty cycle. Agrona provides weak thread discipline.
+ * Unless an agent's thread is pinned to a code, the agent must
+ * wait for an available core to become available followed by a
+ * context switch to bring its thread on core before the agent
+ * can {@code doWork}. With one thread per agent, an agent will
+ * wait an indeterminate amount of time before it can perform its
+ * work. There is also the real possibility that the agent will
+ * experience a number of cache misses because previous agent
+ * updated the cache with its data.
+ * </p>
+ * <p>
+ * efs provides the user with strong thread discipline by
+ * dividing the world between
+ * {@link org.efs.dispatcher.IEfsDispatcher dispatchers} and
+ * {@link org.efs.dispatcher.IEfsAgent agents}. A dispatcher has
+ * a fixed number of threads and an agents are registered with a
+ * dispatcher. Dispatcher threads are able to run multiple agent
+ * "duty cycles". An agent waits for a <em>thread</em> to become
+ * available - and that thread may be busy spinning on a pinned
+ * core. The agent's wait time has a fixed maximum by limiting
+ * the agents registered with the dispatcher and the number of
+ * events an agent may process per run. Finally, cache misses
+ * can be ameliorated (but not avoided) by registering the same
+ * agent type with the dispatcher. Meaning that these agents all
+ * use the same data when processing events.
+ * </p>
+ * <p>
+ * The point here is: uncontrolled thread creation results in
+ * high latency applications with non-deterministic times because
+ * there is no knowing when a run-ready thread will go on core.
+ * Low latency requires having strict control over the number of
+ * threads and what agents run on those threads. It is far
+ * quicker for efs to switch between agents than the operating
+ * system to switch between threads.
  * </p>
  */
 

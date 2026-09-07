@@ -51,24 +51,23 @@ import jakarta.annotation.Nullable;
 public enum ThreadType
 {
     /**
-     * The thread blocks while waiting for the desired event
-     * to occur. The thread continues if either the event
-     * happened or an interrupt was caught. It is likely that a
-     * thread using this type will be moved off core when
-     * blocked.
+     * Thread blocks while waiting for an event to arrive.
+     * Thread continues if either the event arrived or an
+     * interrupt was caught. It is likely that a thread using
+     * this type will be moved off core when blocked.
      */
     BLOCKING ("blocking"),
 
     /**
-     * The thread repeatedly checks if the event has arrived
-     * using a non-blocking call without pausing in between
-     * checks. This thread type effectively monopolizes a core and
-     * keeps the thread on core.
+     * Thread repeatedly checks if an event arrived using a
+     * non-blocking call without pausing in between checks. This
+     * thread type effectively monopolizes a core and keeps the
+     * thread on core.
      */
     SPINNING ("spinning"),
 
     /**
-     * This thread repeatedly checks for the event using a
+     * Thread repeatedly checks for the event using a
      * non-blocking call but only for a fixed number of times
      * (the spin limit). When the spin limit is reached, the
      * thread

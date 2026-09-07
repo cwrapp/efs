@@ -17,14 +17,15 @@
 package org.efs.io;
 
 /**
- * Exception is throws when {@link EfsFile.Builder} encounters
- * an error when initializing a {@link EfsFile} instance.
+ * Exception thrown when {@link EfsFile.Builder} encounters
+ * an error when initializing a {@link EfsFile} instance or
+ * adding new row to event file.
  *
  * @author <a href="mailto:rapp@acm.org">Charles W. Rapp</a>
  */
 
 public final class EfsFileInitializationException
-    extends Exception
+    extends RuntimeException
 {
 //---------------------------------------------------------------
 // Member data.

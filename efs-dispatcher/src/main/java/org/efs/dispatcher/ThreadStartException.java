@@ -92,7 +92,7 @@ public class ThreadStartException
                                 final String threadName,
                                 final String msg)
     {
-        super(msg);
+        super (msg);
 
         mDispatcherName = dispatcherName;
         mThreadName = threadName;
@@ -106,20 +106,20 @@ public class ThreadStartException
      * @param msg detail message.
      * @param cause this exception's underlying cause (which is
      * saved for later retrieval by the
-     * {@code Throwable.getCause()} method). A {@code null}
+     * {@code Exception.getCause()} method). A {@code null}
      * value is permitted, and indicates that the cause is
      * nonexistent or unknown.
      */
     public ThreadStartException(final String dispatcherName,
                                 final String threadName,
                                 final String msg,
-                                @Nullable final Throwable cause)
+                                @Nullable final Exception cause)
     {
-        super(msg, cause);
+        super (msg, cause);
 
         mDispatcherName = dispatcherName;
         mThreadName = threadName;
-    } // end of ThreadStartException(String, Throwable)
+    } // end of ThreadStartException(String, Exception)
 
     //
     // end of Constructors.

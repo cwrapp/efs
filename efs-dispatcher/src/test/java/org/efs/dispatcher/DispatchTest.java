@@ -17,13 +17,15 @@
 package org.efs.dispatcher;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.efs.dispatcher.EfsDispatcher.DispatcherStats;
-import org.efs.dispatcher.EfsDispatcher.DispatcherType;
-import org.efs.dispatcher.EfsDispatcherThread.DispatcherThreadStats;
+import org.efs.dispatcher.EfsDispatcherThreadAbstract.DispatcherThreadStats;
+import org.efs.dispatcher.IEfsDispatcher.DispatcherType;
+import org.efs.dispatcher.config.ThreadAffinityConfig;
 import org.efs.dispatcher.config.ThreadType;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -50,6 +52,8 @@ public final class DispatchTest
 
     private static final String DISPATCHER_NAME =
         "test-dispatcher-101";
+    private static final String PINNED_DISPATCHER_NAME =
+        "dispatcher-pinned-";
     private static final String SPECIAL_DISPATCHER_NAME =
         "test-dispatcher-special";
     private static final ThreadType THREAD_TYPE =
@@ -60,6 +64,8 @@ public final class DispatchTest
     private static final int MAX_EVENTS = 4;
 
     private static final String AGENT_NAME = "test-agent-101";
+    private static final String PRODUCER_NAME =
+        "producer-agent-102";
     private static final int EVENT_COUNT = 100;
     private static final int EVENT_DELAY = 100; // milliseconds.
     private static final TimeUnit DELAY_UNIT =
@@ -127,7 +133,8 @@ public final class DispatchTest
         mAgent = new PerformanceAgent(AGENT_NAME,
                                       EVENT_COUNT,
                                       doneSignal);
-        mProducer = new ProducerAgent(EVENT_COUNT,
+        mProducer = new ProducerAgent(PRODUCER_NAME,
+                                      EVENT_COUNT,
                                       EVENT_DELAY,
                                       DELAY_UNIT,
                                       mAgent);
@@ -276,6 +283,73 @@ public final class DispatchTest
     } // end of dispatchTest()
 
     @Test
+    @DisplayName("pinned dispatch test")
+    public void pinnedDispatchTest()
+    {
+        final String dispatcherName0 =
+            PINNED_DISPATCHER_NAME + 0;
+        final String dispatcherName1 =
+            PINNED_DISPATCHER_NAME + 1;
+        final EfsDispatcher dispatcher0;
+        final EfsDispatcher dispatcher1;
+        EfsDispatcher.Builder builder;
+        final ThreadAffinityConfig affinity =
+            new ThreadAffinityConfig();
+        final int eventCount = 25;
+        final CountDownLatch doneSignal =
+            new CountDownLatch(eventCount);
+        final PerformanceAgent agent =
+            new PerformanceAgent("test-agent-201",
+                                 eventCount,
+                                 doneSignal);
+        final ProducerAgent producer =
+            new ProducerAgent("producer-agent-202",
+                              eventCount,
+                              EVENT_DELAY,
+                              DELAY_UNIT,
+                              agent);
+
+        affinity.setAffinityType(ThreadAffinityConfig.AffinityType.ANY_CPU);
+        affinity.setBindFlag(false);
+
+        builder = EfsDispatcher.builder(dispatcherName0);
+        dispatcher0 =
+            (EfsDispatcher)
+                builder.dispatcherType(DispatcherType.EFS_PINNED)
+                       .threadAffinity(affinity)
+                       .pinnedAgent(agent)
+                       .build();
+
+        builder = EfsDispatcher.builder(dispatcherName1);
+        dispatcher1 =
+            (EfsDispatcher)
+                builder.dispatcherType(DispatcherType.EFS_PINNED)
+                       .threadAffinity(affinity)
+                       .pinnedAgent(producer)
+                       .build();
+
+        agent.start();
+        producer.start();
+
+        try
+        {
+            doneSignal.await();
+        }
+        catch (InterruptedException interrupt)
+        {}
+
+        agent.stop();
+        producer.stop();
+        dispatcher0.stopDispatcher();
+        dispatcher1.stopDispatcher();
+
+        assertThat(doneSignal.getCount()).isZero();
+        assertThat(agent.eventCount()).isEqualTo(eventCount);
+        assertThat(producer.eventCount())
+            .isBetween((eventCount - 2), eventCount);
+    } // end of pinnedDispatchTest()
+
+    @Test
     @DisplayName("JavaFX special dispatch test")
     public void specialDispatchTest()
     {
@@ -303,6 +377,45 @@ public final class DispatchTest
         assertThat(mProducer.eventCount())
             .isBetween((EVENT_COUNT - 2), EVENT_COUNT);
     } // end of specialDispatchTest()
+
+    @Test
+    @DisplayName("Run queue overflow test")
+    public void runQueueOverflowTest()
+    {
+        final NoopEvent event = new NoopEvent();
+        int i;
+
+        for (i = 0; i < EVENT_COUNT; ++i)
+        {
+            // Ignore dispatch failures.
+            try
+            {
+                EfsDispatcher.dispatch(
+                    mAgent::onEvent, event, mAgent);
+            }
+            catch (IllegalStateException statex)
+            {}
+
+            try
+            {
+                EfsDispatcher.dispatch(
+                    mProducer::onEvent, event, mProducer);
+            }
+            catch (IllegalStateException statex)
+            {}
+        }
+
+        final List<EfsAgentAbstract.AgentStats> agentInfo =
+            EfsAgent.runTimeStats();
+        int missedDispatchCount = 0;
+
+        for (EfsAgentAbstract.AgentStats s : agentInfo)
+        {
+            missedDispatchCount += s.getMissedDispatchCount();
+        }
+
+        assertThat(missedDispatchCount).isGreaterThan(0);
+    } // end of runQueueOverflowTest()
 
     //
     // end of JUnit Tests.

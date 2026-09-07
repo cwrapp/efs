@@ -41,6 +41,12 @@ public abstract class AbstractTestAgent
     //
 
     /**
+     * Park thread for {@value} nanoseconds when processing
+     * {@code NoopEvent}.
+     */
+    protected static final long PARK_TIME = 10_000L;
+
+    /**
      * Each bucket represents this many nanoseconds-worth of
      * data.
      */
@@ -222,6 +228,17 @@ public abstract class AbstractTestAgent
 
     //
     // end of Set Methods.
+    //-----------------------------------------------------------
+
+    //-----------------------------------------------------------
+    // Event Methods.
+    //
+
+    public void onEvent(final NoopEvent event)
+    {}
+
+    //
+    // end of Event Methods.
     //-----------------------------------------------------------
 
     public final String generateResults()

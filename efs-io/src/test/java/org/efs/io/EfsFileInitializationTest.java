@@ -29,15 +29,17 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
+import net.sf.eBus.util.ValidationException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.decimal4j.immutable.Decimal2f;
 import org.efs.dispatcher.EfsDispatcher;
-import org.efs.dispatcher.EfsDispatcher.DispatcherType;
+import org.efs.dispatcher.IEfsDispatcher.DispatcherType;
 import org.efs.dispatcher.config.ThreadType;
 import org.efs.event.EfsTopicKey;
 import static org.efs.io.AbstractTestAgent.sRandomizer;
 import org.efs.io.EfsFile.AccessMode;
+import org.efs.io.EfsFile.SizePolicy;
 import static org.efs.io.EfsFileTest.AGENT_DISPATCHER;
 import static org.efs.io.EfsFileTest.EVENT_QUEUE_SIZE;
 import static org.efs.io.EfsFileTest.EXCHANGE;
@@ -264,7 +266,7 @@ public class EfsFileInitializationTest
                 EfsFile.builder(mTradeKey);
 
             assertThatThrownBy(
-                () -> builder.tableInitializer(initializer))
+                () -> builder.initializer(initializer))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessage(EfsFile.NULL_INITIALIZER);
         } // end of buildNullInitializer()
@@ -288,11 +290,55 @@ public class EfsFileInitializationTest
 
             assertThatThrownBy(
                 () -> builder.dispatcher(FILE_DISPATCHER)
-                             .tableInitializer(initializer)
+                             .initializer(initializer)
                              .build())
                 .isInstanceOf(EfsFileInitializationException.class)
                 .hasMessage(text);
         } // end of initialzerException()
+
+        @Test
+        @DisplayName("builder EfsFile null size restriction")
+        public void buildNullSizePolicy()
+        {
+            final SizePolicy policy = null;
+            final EfsFile.Builder<TradeEvent> builder =
+                EfsFile.builder(mTradeKey);
+
+            assertThatThrownBy(
+                () -> builder.sizePolicy(policy))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage(EfsFile.NULL_SIZE_POLICY);
+        } // end of buildNullSizePolicy()
+
+        @Test
+        @DisplayName("builder EfsFile, negative size limit")
+        public void buildInvalidSizeLimit()
+        {
+            final int sizeLimit = -1;
+            final EfsFile.Builder<TradeEvent> builder =
+                EfsFile.builder(mTradeKey);
+
+            assertThatThrownBy(
+                () -> builder.sizeLimit(sizeLimit))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(EfsFile.INVALID_SIZE_LIMIT);
+        } // end of buildInvalidSizeLimit()
+
+        @Test
+        @DisplayName("builder EfsFile, size limit not set")
+        public void buildSizeLimitNotSet()
+        {
+            final SizePolicy policy =
+                SizePolicy.FIFO_ON_LIMIT_REACHED;
+            final EfsFile.Builder<TradeEvent> builder =
+                EfsFile.builder(mTradeKey);
+
+            assertThatThrownBy(
+                () -> builder.sizePolicy(policy)
+                             .build())
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("size limit not set");
+        } // end of buildSizeLimitNotSet()
 
         @Test
         @DisplayName("Initialze EfsFile, initializer returns null row")
@@ -316,7 +362,7 @@ public class EfsFileInitializationTest
 
             assertThatThrownBy(
                 () -> builder.dispatcher(FILE_DISPATCHER)
-                             .tableInitializer(initializer)
+                             .initializer(initializer)
                              .build())
                 .isInstanceOf(EfsFileInitializationException.class)
                 .hasMessage(text);
@@ -375,7 +421,7 @@ public class EfsFileInitializationTest
 
             assertThatThrownBy(
                 () -> builder.dispatcher(FILE_DISPATCHER)
-                             .tableInitializer(initializer)
+                             .initializer(initializer)
                              .build())
                 .isInstanceOf(EfsFileInitializationException.class)
                 .hasMessage(text);
@@ -422,7 +468,7 @@ public class EfsFileInitializationTest
 
             assertThatThrownBy(
                 () -> builder.dispatcher(FILE_DISPATCHER)
-                             .tableInitializer(initializer)
+                             .initializer(initializer)
                              .build())
                 .isInstanceOf(EfsFileInitializationException.class)
                 .hasMessage(text);
@@ -481,7 +527,7 @@ public class EfsFileInitializationTest
 
             assertThatThrownBy(
                 () -> builder.dispatcher(FILE_DISPATCHER)
-                             .tableInitializer(initializer)
+                             .initializer(initializer)
                              .build())
                 .isInstanceOf(EfsFileInitializationException.class)
                 .hasMessage(text);
@@ -577,7 +623,7 @@ public class EfsFileInitializationTest
             initializer = () -> { return (rows.iterator()); };
 
             tradeFile = builder.dispatcher(FILE_DISPATCHER)
-                               .tableInitializer(initializer)
+                               .initializer(initializer)
                                .clock(sTestClock)
                                .build();
 
