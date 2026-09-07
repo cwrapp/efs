@@ -19,7 +19,7 @@ import java.util.function.Consumer;
 import net.sf.eBus.util.ValidationException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import org.efs.dispatcher.EfsAgent.RunState;
+import org.efs.dispatcher.EfsAgentAbstract.RunState;
 import org.efs.event.IEfsEvent;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;

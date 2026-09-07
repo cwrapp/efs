@@ -45,8 +45,6 @@ public final class ProducerAgent
     // Constants.
     //
 
-    private static final String AGENT_NAME = "ProducerAgent";
-
     //-----------------------------------------------------------
     // Statics.
     //
@@ -116,12 +114,14 @@ public final class ProducerAgent
     // Constructors.
     //
 
-    public ProducerAgent(final int totalEventCount,
+    public ProducerAgent(final String agentName,
+                         final int totalEventCount,
                          final long delay,
                          final TimeUnit timeUnit,
                          final PerformanceAgent agent)
     {
-        this(totalEventCount,
+        this(agentName,
+             totalEventCount,
              delay,
              timeUnit,
              new PerformanceAgent[] { agent },
@@ -130,7 +130,8 @@ public final class ProducerAgent
              1);
     } // end of ProducerAgent(int,long,TimeUnit,PerformanceAgent)
 
-    public ProducerAgent(final int totalEventCount,
+    public ProducerAgent(final String agentName,
+                         final int totalEventCount,
                          final long delay,
                          final TimeUnit timeUnit,
                          final PerformanceAgent[] agents,
@@ -138,7 +139,7 @@ public final class ProducerAgent
                          final int minEvent,
                          final int maxEvent)
     {
-        super (AGENT_NAME, totalEventCount);
+        super (agentName, totalEventCount);
 
         mDelay = delay;
         mTimeUnit = timeUnit;

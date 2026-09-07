@@ -70,10 +70,10 @@ public class ThreadAffinityTest
     public static void setUpClass()
     {
         final int numCpus =
-            ((Runtime.getRuntime()).availableProcessors() - 2);
+            (Runtime.getRuntime()).availableProcessors();
         int cpuId;
 
-        sAvailableCpus = new ArrayList<>(numCpus);
+        sAvailableCpus = new ArrayList<>(numCpus - 2);
 
         for (cpuId = 2; cpuId < numCpus; ++cpuId)
         {
@@ -118,7 +118,7 @@ public class ThreadAffinityTest
     {
         final AffinityLock affinityLock = null;
         final ThreadAffinityConfig config =
-            createAnyCoreAffinity();
+            createAnyCoreAffinity(false);
 
         assertThatThrownBy(
             () -> ThreadAffinity.acquireLock(affinityLock,
@@ -133,7 +133,8 @@ public class ThreadAffinityTest
     {
         final ThreadAffinityConfig config = null;
         final AffinityLock affinityLock =
-            ThreadAffinity.acquireLock(createAnyCoreAffinity());
+            ThreadAffinity.acquireLock(
+                createAnyCoreAffinity(false));
 
         assertThatThrownBy(
             () -> ThreadAffinity.acquireLock(affinityLock,
@@ -146,7 +147,7 @@ public class ThreadAffinityTest
     public void aquireLockAnyCore()
     {
         final ThreadAffinityConfig config =
-            createAnyCoreAffinity();
+            createAnyCoreAffinity(false);
 
         mAffinityLock = ThreadAffinity.acquireLock(config);
 
@@ -157,7 +158,7 @@ public class ThreadAffinityTest
     public void acquireLockAnyCpu()
     {
         final ThreadAffinityConfig config =
-            createAnyCpuAffinity();
+            createAnyCpuAffinity(false, false);
 
         mAffinityLock = ThreadAffinity.acquireLock(config);
 
@@ -168,7 +169,7 @@ public class ThreadAffinityTest
     public void acquireLockCpuId()
     {
         final ThreadAffinityConfig config =
-            createCpuIdAffinity();
+            createCpuIdAffinity(false, false);
 
         try
         {
@@ -188,7 +189,7 @@ public class ThreadAffinityTest
         try
         {
             final ThreadAffinityConfig config =
-                createCpuLastMinusAffinity();
+                createCpuLastMinusAffinity(false, false);
 
             mAffinityLock = ThreadAffinity.acquireLock(config);
 
@@ -204,18 +205,16 @@ public class ThreadAffinityTest
     public void acquireLockAndBind()
     {
         final ThreadAffinityConfig config =
-            createCpuIdAffinity();
-
-        config.setBindFlag(true);
-        config.setWholeCoreFlag(true);
+            createAnyCoreAffinity(true);
 
         try
         {
-            ThreadAffinity.acquireLock(config);
+            mAffinityLock = ThreadAffinity.acquireLock(config);
         }
         catch (Exception jex)
         {
             // Ignore.
+            jex.printStackTrace(System.err);
         }
     } // end of acquireLockAndBind()
 
@@ -223,7 +222,7 @@ public class ThreadAffinityTest
     public void aquireLockCpuStrategiesWithoutLock()
     {
         final ThreadAffinityConfig config =
-            createCpuStrategiesAffinity();
+            createCpuStrategiesAffinity(false, false);
 
         assertThatThrownBy(
             () -> ThreadAffinity.acquireLock(config))
@@ -237,7 +236,7 @@ public class ThreadAffinityTest
     {
         final AffinityLock affinityLock = null;
         final ThreadAffinityConfig config =
-            createCpuStrategiesAffinity();
+            createCpuStrategiesAffinity(false, false);
 
         assertThatThrownBy(
             () -> ThreadAffinity.acquireLock(affinityLock,
@@ -250,9 +249,10 @@ public class ThreadAffinityTest
     public void acquireLockCpuStrategiesWrongType()
     {
         final AffinityLock affinityLock =
-            ThreadAffinity.acquireLock(createCpuIdAffinity());
+            ThreadAffinity.acquireLock(
+                createCpuIdAffinity(false, false));
         final ThreadAffinityConfig config =
-            createAnyCoreAffinity();
+            createAnyCoreAffinity(false);
 
         assertThatThrownBy(
             () -> ThreadAffinity.acquireLock(affinityLock,
@@ -269,9 +269,9 @@ public class ThreadAffinityTest
         {
             final AffinityLock affinityLock =
                 ThreadAffinity.acquireLock(
-                    createCpuIdAffinity());
+                    createCpuIdAffinity(false, false));
             final ThreadAffinityConfig config =
-                createCpuStrategiesAffinity();
+                createCpuStrategiesAffinity(false, false);
 
             mAffinityLock =
                 ThreadAffinity.acquireLock(affinityLock, config);
@@ -294,11 +294,12 @@ public class ThreadAffinityTest
         {
             final AffinityLock affinityLock =
                 ThreadAffinity.acquireLock(
-                    createAnyCoreAffinity());
+                    createAnyCoreAffinity(false));
             final ThreadAffinityConfig config =
-                createCpuStrategiesAffinity();
+                createCpuStrategiesAffinity(true, true);
 
-            ThreadAffinity.acquireLock(affinityLock, config);
+            mAffinityLock =
+                ThreadAffinity.acquireLock(affinityLock, config);
         }
         catch (Exception jex)
         {
@@ -310,57 +311,61 @@ public class ThreadAffinityTest
     // end of JUnit Tests.
     //-----------------------------------------------------------
 
-    private static ThreadAffinityConfig createAnyCoreAffinity()
+    private static ThreadAffinityConfig createAnyCoreAffinity(final boolean bindFlag)
     {
         final ThreadAffinityConfig retval =
             new ThreadAffinityConfig();
 
         retval.setAffinityType(AffinityType.ANY_CORE);
-        retval.setBindFlag(false);
+        retval.setBindFlag(bindFlag);
 
         return (retval);
-    } // end of createAnyCoreAffinity()
+    } // end of createAnyCoreAffinity(boolean)
 
-    private static ThreadAffinityConfig createAnyCpuAffinity()
+    private static ThreadAffinityConfig createAnyCpuAffinity(final boolean bindFlag,
+                                                             final boolean wholeCore)
     {
         final ThreadAffinityConfig retval =
             new ThreadAffinityConfig();
 
         retval.setAffinityType(AffinityType.ANY_CPU);
-        retval.setBindFlag(false);
-        retval.setWholeCoreFlag(false);
+        retval.setBindFlag(bindFlag);
+        retval.setWholeCoreFlag(wholeCore);
 
         return (retval);
-    } // end of createAnyCpuAffinity()
+    } // end of createAnyCpuAffinity(boolean, boolean)
 
-    private static ThreadAffinityConfig createCpuIdAffinity()
+    private static ThreadAffinityConfig createCpuIdAffinity(final boolean bindFlag,
+                                                            final boolean wholeCore)
     {
-        final int cpuId = sAvailableCpus.removeLast();
+        final int cpuId = sAvailableCpus.removeFirst();
         final ThreadAffinityConfig retval =
             new ThreadAffinityConfig();
 
         retval.setAffinityType(AffinityType.CPU_ID);
         retval.setCpuId(cpuId);
-        retval.setBindFlag(false);
-        retval.setWholeCoreFlag(false);
+        retval.setBindFlag(bindFlag);
+        retval.setWholeCoreFlag(wholeCore);
 
         return (retval);
-    } // end of createCpuIdAffinity()
+    } // end of createCpuIdAffinity(boolean, boolean)
 
-    private static ThreadAffinityConfig createCpuLastMinusAffinity()
+    private static ThreadAffinityConfig createCpuLastMinusAffinity(final boolean bindFlag,
+                                                                   final boolean wholeCore)
     {
         final ThreadAffinityConfig retval =
             new ThreadAffinityConfig();
 
         retval.setAffinityType(AffinityType.CPU_LAST_MINUS);
         retval.setLastMinusOffset(4);
-        retval.setBindFlag(false);
-        retval.setWholeCoreFlag(false);
+        retval.setBindFlag(bindFlag);
+        retval.setWholeCoreFlag(wholeCore);
 
         return (retval);
-    } // end of createCpuLastMinusAffinity()
+    } // end of createCpuLastMinusAffinity(boolean, boolean)
 
-    private static ThreadAffinityConfig createCpuStrategiesAffinity()
+    private static ThreadAffinityConfig createCpuStrategiesAffinity(final boolean bindFlag,
+                                                                    final boolean wholeCore)
     {
         final AffinityType affinityType =
             AffinityType.CPU_STRATEGIES;
@@ -374,9 +379,9 @@ public class ThreadAffinityTest
 
         retval.setAffinityType(affinityType);
         retval.setStrategies(strategies);
-        retval.setBindFlag(false);
-        retval.setWholeCoreFlag(false);
+        retval.setBindFlag(bindFlag);
+        retval.setWholeCoreFlag(wholeCore);
 
         return (retval);
-    } // end of createCpuStrategiesAffinity()
+    } // end of createCpuStrategiesAffinity(boolean, boolean)
 } // end of class ThreadAffinityTest

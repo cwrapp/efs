@@ -198,6 +198,13 @@ public final class ThreadAffinityConfig
     public enum AffinityType
     {
         /**
+         * An affinity lock that does nothing. Provided for
+         * testing purposes where a lock is required but is
+         * ignored.
+         */
+        NO_OP,
+
+        /**
          * Use {@code AffinityLock.acquireCore()} to assign any
          * free core to thread.
          */

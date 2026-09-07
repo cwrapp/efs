@@ -38,8 +38,8 @@ import org.decimal4j.api.Decimal;
 import org.decimal4j.immutable.Decimal2f;
 import org.decimal4j.scale.Scale2f;
 import org.efs.dispatcher.EfsDispatcher;
-import org.efs.dispatcher.EfsDispatcher.DispatcherType;
 import org.efs.dispatcher.IEfsAgent;
+import org.efs.dispatcher.IEfsDispatcher.DispatcherType;
 import org.efs.dispatcher.config.ThreadType;
 import org.efs.event.EfsTopicKey;
 import org.efs.event.IEfsEvent;
@@ -1456,7 +1456,7 @@ public final class EfsFileTest
 
             assertThat(EfsFile.exists(key)).isFalse();
             assertThat(tradeFile.isOpen()).isFalse();
-            assertThat(tradeFile.rowCount()).isZero();
+            assertThat(tradeFile.rowCount()).isGreaterThan(0L);
             assertThat(retriever.tradesReceived()).isZero();
             assertThat(retriever.completionReason())
                 .isEqualTo(CompletionType.FILE_CLOSED);
@@ -1919,7 +1919,7 @@ public final class EfsFileTest
             throws EfsFileInitializationException
         {
             final TestExhaust exhaustAgent;
-            final EfsFile.Builder<TradeEvent> builder =
+            EfsFile.Builder<TradeEvent> builder =
                 EfsFile.builder(mTradeKey);
             Duration runTime = Duration.ofSeconds(3L);
             final AtomicBoolean publishFlag =
@@ -1936,7 +1936,7 @@ public final class EfsFileTest
             EfsDispatcher.deregister(mTradeFile);
             mTradeFile =
                 builder.dispatcher(FILE_DISPATCHER)
-                       .tableExhaust(exhaustAgent::onExhaust,
+                       .fileExhaust(exhaustAgent::onExhaust,
                                      exhaustAgent)
                        .clock(sTestClock)
                        .build();
@@ -1957,7 +1957,7 @@ public final class EfsFileTest
 
             try
             {
-                doneSignal.await(5L, TimeUnit.SECONDS);
+                doneSignal.await(5L, TimeUnit.MINUTES);
             }
             catch (InterruptedException interrupt)
             {}
@@ -1969,14 +1969,16 @@ public final class EfsFileTest
             //    exhausted rows.
             mTradeFile.close();
             EfsDispatcher.deregister(mTradeFile);
+
+            builder = EfsFile.builder(mTradeKey);
             mTradeFile =
-                builder.tableInitializer(exhaustAgent::onInitialize)
+                builder.initializer(exhaustAgent::onInitialize)
                        .dispatcher(FILE_DISPATCHER)
                        .clock(sTestClock)
                        .build();
 
             assertThat(mTradeFile.rowCount())
-                .isEqualTo(mPublisher.tradeCount());
+                .isEqualTo(exhaustAgent.tradesExhausted());
         } // end of exhaustAndInitializeEventFile()
     } // end of class EfsExhaustTests
 

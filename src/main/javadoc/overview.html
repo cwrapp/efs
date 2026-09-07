@@ -76,7 +76,7 @@
     <div style="color: #ffff00; font-size: 50px; text-align: center;">Event File System</div>
     <div style="color: #f2f2f2; font-size: 10px; text-align: right;">
       <!-- UPDATE FOR RELEASE -->
-      Updated: August 9, 2026<br/>Version: 0.7.3
+      Updated: September 7, 2026<br/>Version: 0.7.4
     </div>
   </div>
 
@@ -303,8 +303,14 @@ public void onAppEvent(final AppEvent event) {
   </p>
   <h3 id="EventFileSystem">Event File System</h3>
   <p>
-    This part of the framework is still under active development, and a more
-    complete explanation will be added as the implementation matures.
+    The {@link org.efs.io} package provides
+    time-ordered, in-memory event files for a single event type
+    and topic. Each file stores rows with a monotonic row index
+    and publish timestamp, supports CQEngine-based queries,
+    and can return both historical and future events through a
+    dispatcher-backed connection model. Files may also be
+    configured with a maximum size and an optional initializer to
+    preload persisted history.
   </p>
   <h2><a id="AgentActivation">Agent Activation</a></h2>
   <p>
@@ -460,7 +466,7 @@ public void onAppEvent(final AppEvent event) {
   </p>
   <p>
     <!-- UPDATE FOR RELEASE -->
-    Updated: August 9, 2026<br>Version: 0.7.3
+    Updated: September 7, 2026<br>Version: 0.7.4
   </p>
 
     @author <a href="mailto:rapp@acm.org">Charles Rapp</a>

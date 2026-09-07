@@ -19,11 +19,12 @@
  *
  * <p>
  * The {@code org.efs.io} package provides the core I/O
- * capabilities for the Event File System (EFS). It defines a
- * persistent event store that indexes events by both publish
- * timestamp and row index, enabling efficient retrieval
- * of events within specified time intervals and supporting both
- * historical event retrieval and live event delivery.
+ * capabilities for the Event File System (EFS). It defines an
+ * in-memory (+ optional exhaust persistence) event store that
+ * indexes events by both publish timestamp and row index,
+ * enabling efficient event retrieval within specified time
+ * and/or index intervals, supporting both historical event
+ * retrieval and live event delivery.
  * </p>
  *
  * <h3>Core Components</h3>

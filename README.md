@@ -69,7 +69,7 @@ management, making it easy to pull in the required components:
 <dependency>
     <groupId>io.github.cwrapp</groupId>
     <artifactId>efs-bom</artifactId>
-    <version>0.7.1</version>
+    <version>0.7.4</version>
     <type>pom</type>
     <scope>import</scope>
 </dependency>
@@ -111,7 +111,20 @@ Explains how to configure dispatchers using [Typesafe Config](https://github.com
 - Dispatcher tuning parameters
 - Configuration best practices
 
-### 3. `org.efs.timer`
+### 3. `org.efs.bus`
+Provides the event bus layer for type+topic-based, loosely
+coupled communication between agents. `EfsEventBus` allows
+producers to publish specific event types to named topics without
+direct knowledge of downstream consumers, while subscribers
+register interest in specific topics and receive matching events
+through the dispatcher runtime.
+
+**Key Topics:**
+- Type+topic-based publish/subscribe routing
+- Loose producer-consumer decoupling
+- Dispatcher-backed event delivery
+
+### 4. `org.efs.timer`
 Contains `EfsScheduledExecutor`, which _roughly_ follows the
 `java.util.concurrent.ScheduledExecutorService` interface but does not implement it.
 Instead of using `ScheduledFuture`, it uses `EfsDispatcher` for timer delivery,
@@ -125,7 +138,7 @@ Typesafe configuration file.
 - Event-driven timer delivery
 - Configuration options
 
-### 4. `org.efs.activator`
+### 5. `org.efs.activator`
 This service steps an efs agent through stopped, standby, and active states in a thread-safe manner using efs dispatcher's virtual single-thread environment. User-defined `org.efs.activator.Workflow` implementations provide the order in which efs agents are stepped through their states.
 
 **Key Topics:**
@@ -133,7 +146,7 @@ This service steps an efs agent through stopped, standby, and active states in a
 - Workflow definitions
 - State transitions
 
-### 5. `org.efs.activator.config`
+### 6. `org.efs.activator.config`
 Explains how to define one or more activation workflows using a Typesafe configuration file.
 
 **Key Topics:**
@@ -141,7 +154,7 @@ Explains how to define one or more activation workflows using a Typesafe configu
 - Agent ordering
 - State machine definitions
 
-### 6. `org.efs.logging`
+### 7. `org.efs.logging`
 Implements `org.slf4j.Logger` and `org.slf4j.LoggerFactory` with
 `org.efs.logging.AsyncLogger` and `org.efs.logging.AsyncLoggerFactory`.
 This logging uses the efs dispatcher to perform the actual logging work on a
@@ -152,7 +165,7 @@ dispatcher thread rather than inline with application code.
 - Integration with SLF4J
 - Non-blocking log operations
 
-### 7. `org.efs.io`
+### 8. `org.efs.io`
 Provides `org.efs.io.EfsFile`, which supports access to past and future events
 using [CQEngine](https://github.com/npgall/cqengine?tab=readme-ov-file) for
 querying over a specified `EfsInterval`. `EfsFile` associates a publish

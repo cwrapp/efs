@@ -22,8 +22,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 import net.sf.eBus.util.ValidationException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import org.efs.dispatcher.EfsDispatcherThread.DispatcherThreadState;
-import org.efs.dispatcher.EfsDispatcherThread.DispatcherThreadStats;
+import org.efs.dispatcher.EfsDispatcherThreadAbstract.DispatcherThreadState;
+import org.efs.dispatcher.EfsDispatcherThreadAbstract.DispatcherThreadStats;
 import org.efs.dispatcher.config.ThreadType;
 import org.jctools.queues.atomic.MpmcAtomicArrayQueue;
 import org.junit.jupiter.api.BeforeAll;
@@ -226,8 +226,11 @@ public class EfsDispatcherThreadTest
 
         assertThatThrownBy(() -> builder.build())
             .isInstanceOf(ValidationException.class)
-            .hasMessageContainingAll("threadName: not set",
-                                     "threadType: not set");
+            .hasMessageContainingAll(
+                "threadName: not set",
+                "threadType: not set",
+                "runQueue: not set",
+                "runQueue: does not match thread type");
     } // end of builderThreadTypeNotSet()
 
     @Test

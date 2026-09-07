@@ -105,7 +105,7 @@ import org.slf4j.Logger;
  *
  * <h2>Pattern 1: Basic Concrete Topic Publishing and Subscription</h2>
  * <pre><code>// Get or create the event bus
- * EfsEventBus eventBus = EfsEventBus.findOrCreateBus("myBus");
+ * EfsEventBus eventBus = (EfsEventBus.builder("myBus")).build();
  *
  * // Publisher side: Advertise ability to publish OrderEvent on topic "orders"
  * EfsTopicKey&lt;OrderEvent&gt; topicKey = EfsTopicKey.getKey(OrderEvent.class, "orders");

@@ -23,7 +23,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.function.Consumer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import org.efs.dispatcher.EfsDispatcher.DispatcherType;
+import org.efs.dispatcher.IEfsDispatcher.DispatcherType;
 import org.efs.dispatcher.config.ThreadType;
 import org.efs.event.IEfsEvent;
 import org.junit.jupiter.api.AfterAll;

@@ -22,8 +22,8 @@ import com.typesafe.config.Optional;
 import jakarta.annotation.Nullable;
 import java.time.Duration;
 import org.efs.dispatcher.EfsDispatcher;
-import org.efs.dispatcher.EfsDispatcher.DispatcherType;
 import org.efs.dispatcher.IEfsAgent;
+import org.efs.dispatcher.IEfsDispatcher.DispatcherType;
 import org.jctools.util.Pow2;
 
 /**

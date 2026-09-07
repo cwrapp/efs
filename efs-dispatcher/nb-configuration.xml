@@ -17,6 +17,7 @@ Without this configuration present, some functionality in the IDE may be limited
         <netbeans.compile.on.save>all</netbeans.compile.on.save>
     </properties>
     <spellchecker-wordlist xmlns="http://www.netbeans.org/ns/spellchecker-wordlist/1">
+        <word>Agrona</word>
         <word>Akka</word>
         <word>algos</word>
         <word>async</word>

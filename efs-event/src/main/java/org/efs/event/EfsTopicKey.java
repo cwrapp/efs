@@ -17,9 +17,9 @@
 package org.efs.event;
 
 import com.google.common.base.Strings;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.concurrent.Immutable;
 import net.sf.eBus.util.MultiKey2;
 
@@ -75,7 +75,7 @@ public final class EfsTopicKey<E extends IEfsEvent>
      * class and topic.
      */
     private static final Map<MultiKey2<Class<? extends IEfsEvent>, String>, EfsTopicKey<? extends IEfsEvent>> sKeyCache =
-        new HashMap<>(INITIAL_CACHE_SIZE);
+        new ConcurrentHashMap<>(INITIAL_CACHE_SIZE);
 
     //-----------------------------------------------------------
     // Locals.
@@ -226,21 +226,13 @@ public final class EfsTopicKey<E extends IEfsEvent>
 
         final MultiKey2<Class<? extends IEfsEvent>, String> key =
             new MultiKey2<>(ec, topic);
-        final EfsTopicKey<E> retval;
 
         // Create new efs feed key only if it does not already
         // exist.
-        if (sKeyCache.containsKey(key))
-        {
-            retval = (EfsTopicKey<E>) sKeyCache.get(key);
-        }
-        else
-        {
-            retval = new EfsTopicKey<>(ec, topic);
-            sKeyCache.put(key, retval);
-        }
-
-        return (retval);
+        return (
+            (EfsTopicKey<E>)
+                sKeyCache.computeIfAbsent(
+                    key, k -> new EfsTopicKey<>(ec, topic)));
     } // end of getKey(Class, String)
 
     //

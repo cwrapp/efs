@@ -20,8 +20,10 @@ import java.util.Formatter;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.efs.dispatcher.EfsDispatcher.DispatcherStats;
-import org.efs.dispatcher.EfsDispatcher.DispatcherType;
-import org.efs.dispatcher.EfsDispatcherThread.DispatcherThreadStats;
+import org.efs.dispatcher.EfsDispatcherThreadAbstract.DispatcherThreadStats;
+import org.efs.dispatcher.IEfsDispatcher.DispatcherType;
+import org.efs.dispatcher.config.ThreadAffinityConfig;
+import org.efs.dispatcher.config.ThreadAffinityConfig.AffinityType;
 import org.efs.dispatcher.config.ThreadType;
 import org.efs.logging.AsyncLoggerFactory;
 import org.junit.jupiter.api.Disabled;
@@ -53,6 +55,8 @@ public final class DispatcherPerformanceTest
         "dispatcher-spin+park";
     private static final String SPIN_YIELD_DISPATCHER =
         "dispatcher-spin+yield";
+    private static final String PINNED_DISPATCHER =
+        "dispatcher-pinned-";
     private static final String MULTI_SPINNING_DISPATCHER =
         "dispatcher-multi-spinning";
     private static final String MULTI_SPIN_PARK_DISPATCHER =
@@ -71,6 +75,7 @@ public final class DispatcherPerformanceTest
     private static final int MAX_RUN_QUEUE_SIZE = 1_024;
 
     private static final String AGENT_NAME = "PerformanceAgent";
+    private static final String PRODUCER_NAME = "ProducerAgent";
 
     private static final int MAX_EVENTS = 10_000_000;
     private static final long TEST_DELAY = 10L;
@@ -214,6 +219,80 @@ public final class DispatcherPerformanceTest
 
     @Disabled
     @Test
+    public void performanceTestPinnedDispatcher()
+    {
+        final String dispatcher0 = PINNED_DISPATCHER + 0;
+        final String dispatcher1 = PINNED_DISPATCHER + 1;
+        EfsDispatcher.Builder builder;
+        final ThreadAffinityConfig affinity =
+            new ThreadAffinityConfig();
+        final int eventCount = MAX_EVENTS;
+        final long delay = TEST_DELAY;
+        final TimeUnit timeUnit = TEST_TIME_UNIT;
+        final CountDownLatch doneSignal =
+            new CountDownLatch(eventCount);
+        final PerformanceAgent agent =
+            new PerformanceAgent(AGENT_NAME,
+                                 eventCount,
+                                 doneSignal);
+        final ProducerAgent producer =
+            new ProducerAgent(PRODUCER_NAME,
+                              eventCount,
+                              delay,
+                              timeUnit,
+                              agent);
+
+        affinity.setAffinityType(AffinityType.ANY_CPU);
+        affinity.setBindFlag(false);
+
+        builder = EfsDispatcher.builder(dispatcher0);
+        builder.dispatcherType(DispatcherType.EFS_PINNED)
+               .threadAffinity(affinity)
+               .pinnedAgent(agent)
+               .build();
+
+        builder = EfsDispatcher.builder(dispatcher1);
+        builder.dispatcherType(DispatcherType.EFS_PINNED)
+               .threadAffinity(affinity)
+               .pinnedAgent(producer)
+               .build();
+
+        sLogger.info("\n\nTesting {} and {}.",
+                     dispatcher0,
+                     dispatcher1);
+
+        agent.start();
+        producer.start();
+
+        try
+        {
+            doneSignal.await();
+        }
+        catch (InterruptedException interrupt)
+        {}
+
+        agent.stop();
+        producer.stop();
+
+        try (final Formatter output = new Formatter())
+        {
+            output.format("PerformanceAgent results:%n%s%n",
+                          agent.generateResults())
+                  .format("ProducerAgent results:%n%s%n",
+                          producer.generateResults());
+
+            outputDispatcherStats(output, dispatcher0);
+            output.format("%n");
+            outputDispatcherStats(output, dispatcher1);
+
+            sLogger.info(output.toString());
+        }
+
+        EfsDispatcher.stopDispatchers();
+    } // end of performanceTestPinnedDispatcher()
+
+    @Disabled
+    @Test
     public void performanceTestMultiAgentMultiDispatcher()
     {
         final int numEvents = 5_000_000;
@@ -284,7 +363,8 @@ public final class DispatcherPerformanceTest
                                              doneSignal);
         }
 
-        producer = new ProducerAgent(eventCount,
+        producer = new ProducerAgent(PRODUCER_NAME,
+                                     eventCount,
                                      TEST_DELAY,
                                      TEST_TIME_UNIT,
                                      agents,
@@ -396,7 +476,8 @@ public final class DispatcherPerformanceTest
                                  eventCount,
                                  doneSignal);
         final ProducerAgent producer =
-            new ProducerAgent(eventCount,
+            new ProducerAgent(PRODUCER_NAME,
+                              eventCount,
                               delay,
                               timeUnit,
                               agent);
@@ -424,42 +505,49 @@ public final class DispatcherPerformanceTest
 
         try (final Formatter output = new Formatter())
         {
-            final DispatcherStats dispatcherStats =
-                EfsDispatcher.performanceStats(dispatcherName);
-
             output.format("PerformanceAgent results:%n%s%n",
                           agent.generateResults())
                   .format("ProducerAgent results:%n%s%n",
                           producer.generateResults());
 
-            if (dispatcherStats == null)
-            {
-                output.format("No dispatchers.");
-            }
-            else
-            {
-                final DispatcherThreadStats[] threadStats =
-                    dispatcherStats.dispatcherThreadStats();
-                final int numThreads = threadStats.length;
-                int ti;
-
-                output.format("%s%n",
-                          dispatcherStats.agentReadyTimeStats())
-                      .format("%s%n",
-                              dispatcherStats.agentRunTimeStats())
-                      .format("%s%n",
-                              dispatcherStats.agentEventStats())
-                      .format("Total agent run count: %,d%n%n",
-                              dispatcherStats.totalAgentRunCount())
-                      .format("Dispatcher thread stats:");
-
-                for (ti = 0; ti < numThreads; ++ti)
-                {
-                    output.format("%n  %s", threadStats[ti]);
-                }
-            }
+            outputDispatcherStats(output, dispatcherName);
 
             sLogger.info(output.toString());
         }
     } // end of runTest(String, int, long, TimeUnit)
+
+    private void outputDispatcherStats(final Formatter output,
+                                       final String dispatcherName)
+    {
+        final DispatcherStats dispatcherStats =
+            EfsDispatcher.performanceStats(dispatcherName);
+
+        if (dispatcherStats == null)
+        {
+            output.format("No dispatcher \"%s\".",
+                          dispatcherName);
+        }
+        else
+        {
+            final DispatcherThreadStats[] threadStats =
+                dispatcherStats.dispatcherThreadStats();
+            final int numThreads = threadStats.length;
+            int ti;
+
+            output.format("%s%n",
+                          dispatcherStats.agentReadyTimeStats())
+                  .format("%s%n",
+                          dispatcherStats.agentRunTimeStats())
+                  .format("%s%n",
+                          dispatcherStats.agentEventStats())
+                  .format("Total agent run count: %,d%n%n",
+                          dispatcherStats.totalAgentRunCount())
+                  .format("Dispatcher thread stats:");
+
+            for (ti = 0; ti < numThreads; ++ti)
+            {
+                output.format("%n  %s", threadStats[ti]);
+            }
+        }
+    } // end of logDispatcherStats(Formatter)
 } // end of class DispatcherPerformanceTest

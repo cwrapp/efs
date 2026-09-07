@@ -34,12 +34,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import net.sf.eBus.util.ValidationException;
 import net.sf.eBus.util.Validator;
-import org.efs.dispatcher.EfsDispatcherThread.DispatcherThreadStats;
+import org.efs.dispatcher.EfsDispatcherThreadAbstract .DispatcherThreadStats;
 import org.efs.dispatcher.config.EfsDispatcherConfig;
 import org.efs.dispatcher.config.EfsDispatchersConfig;
 import org.efs.dispatcher.config.ThreadAffinityConfig;
@@ -94,6 +95,48 @@ import org.slf4j.LoggerFactory;
  * Also note that there is no way is provided to stop a
  * dispatcher once started.
  * </p>
+ * <h2>Pinned Dispatcher</h2>
+ * <p>
+ * A {@link DispatcherType#EFS_PINNED pinned dispatcher}
+ * contains a single
+ * {@link EfsDispatcherThreadPinned pinned thread} and a single
+ * {@link IEfsAgent pinned agent}. The thread <em>must</em>
+ * have core affinity set because the agent busy spins on its
+ * event queue, waiting for events to arrive. The pinned
+ * dispatcher's goal is to deliver events to the agent as rapidly
+ * as possible.
+ * </p>
+ * <p>
+ * This dispatcher differs from the other types in that:
+ * </p>
+ * <ul>
+ *   <li>
+ *     Dispatcher has exactly one thread associated with it, no
+ *     more, no less.
+ *   </li>
+ *   <li>
+ *     There is no run queue.
+ *   </li>
+ *   <li>
+ *     Agent is constantly waiting for events to arrive. That
+ *     means the agent is always running in its dispatcher
+ *     thread.
+ *   </li>
+ *   <li>
+ *     Agent is registered with its pinned dispatcher when that
+ *     dispatcher is built. That means the agent must be created
+ *     <em>before</em> the dispatcher.
+ *   </li>
+ *   <li>
+ *     Agent cannot be de-registered from its dispatcher.
+ *   </li>
+ * </ul>
+ * <p>
+ * Pinned dispatchers should be used with care and should be
+ * considered an advanced use of {@code EfsDispatcher}. This
+ * type requires an understanding of core isolation from the
+ * operating system and thread/core affinity.
+ * </p>
  *
  * @see EfsDispatcherConfig
  * @see EfsDispatcher.Builder
@@ -107,78 +150,6 @@ public final class EfsDispatcher
 //---------------------------------------------------------------
 // Member Enums.
 //
-
-    /**
-     * Enumerates the supported efs dispatcher thread types.
-     * There are effectively two dispatcher types: efs and
-     * GUI with GUI divided between Swing and JavaFX.
-     */
-    public enum DispatcherType
-    {
-        /**
-         * Default efs dispatcher type.
-         */
-        EFS (false),
-
-        /**
-         * Means that a user-defined dispatcher is being used.
-         */
-        SPECIAL (true);
-
-    //-----------------------------------------------------------
-    // Member data.
-    //
-
-        //-------------------------------------------------------
-        // Locals.
-        //
-
-        /**
-         * Special dispatchers may only be marked as the default
-         * dispatcher. All other properties are ignored.
-         */
-        private final boolean mSpecial;
-
-    //-----------------------------------------------------------
-    // Member methods.
-    //
-
-        //-------------------------------------------------------
-        // Constructors.
-        //
-
-        /**
-         * Creates a new dispatcher type for the given run queue.
-         * @param special marks this as a special dispatcher
-         * which may not be configured.
-         */
-        private DispatcherType(final boolean special)
-        {
-            mSpecial = special;
-        } // end of DispatcherType(boolean)
-
-        //
-        // end of Constructors.
-        //-------------------------------------------------------
-
-        //-------------------------------------------------------
-        // Get Methods.
-        //
-
-        /**
-         * Returns {@code true} if this dispatcher type is a
-         * special, non-configurable dispatcher.
-         * @return {@code true} if a special dispatcher.
-         */
-        public boolean isSpecial()
-        {
-            return (mSpecial);
-        } // end of isSpecial()
-
-        //
-        // end of Get Methods.
-        //-------------------------------------------------------
-    } // end of enum DispatcherType
 
     /**
      * A dispatcher is either stopped, started, or failed to
@@ -366,7 +337,7 @@ public final class EfsDispatcher
         "eventQueueCapacity";
 
     /**
-     * Key {@value} sets  run queue maximum size. Only used for
+     * Key {@value} sets run queue maximum size. Only used for
      * non-blocking thread types.
      * <p>
      * Default value is {@link #DEFAULT_RUN_QUEUE_CAPACITY}.
@@ -374,6 +345,24 @@ public final class EfsDispatcher
      */
     public static final String RUN_QUEUE_CAPACITY_KEY =
         "runQueueCapacity";
+
+    /**
+     * Key {@value} sets HFT thread affinity. Only used for
+     * spinning thread type.
+     * <p>
+     * Default value is {@code null}.
+     * </p>
+     */
+    public static final String AFFINITY_KEY = "threadAffinity";
+
+    /**
+     * Key {@value} sets solitary agent for a pinned dispatcher.
+     * May not be set for other dispatcher types.
+     * <p>
+     * Default value is {@code null}.
+     * </p>
+     */
+    public static final String PINNED_AGENT_KEY = "pinnedAgent";
 
     //
     // Exception messages.
@@ -527,6 +516,13 @@ public final class EfsDispatcher
     public static final String UNREGISTERED_AGENT =
         "%s is not registered with a dispatcher";
 
+    /**
+     * An agent pinned to a dispatcher may not be de-registered
+     * directly expect by class the dispatcher.
+     */
+    public static final String PINNED_AGENT =
+       "%s is pinned to dispatcher, cannot de-register";
+
     //-----------------------------------------------------------
     // Statics.
     //
@@ -542,7 +538,7 @@ public final class EfsDispatcher
      * {@code EfsAgent}. This is why efs object names must be
      * unique within the JVM.
      */
-    private static final Map<String, EfsAgent> sAgents =
+    private static final Map<String, EfsAgentAbstract> sAgents =
         new ConcurrentHashMap<>();
 
     /**
@@ -573,7 +569,7 @@ public final class EfsDispatcher
      * {@link DispatcherType#EFS efs} dispatcher. Will be an
      * empty thread for a special dispatcher.
      */
-    private final EfsDispatcherThread[] mThreads;
+    private final EfsDispatcherThreadAbstract[] mThreads;
 
     /**
      * Thread runs at this priority. Must be
@@ -675,9 +671,15 @@ public final class EfsDispatcher
         mDispatcher = (mDispatcherType == DispatcherType.EFS ?
                        this::doDispatch :
                        this::doSpecialDispatch);
-        mThreads = (mDispatcherType == DispatcherType.EFS ?
-                    new EfsDispatcherThread[builder.mNumThreads] :
-                    new EfsDispatcherThread[0]);
+        mThreads =
+            switch (mDispatcherType)
+            {
+                case EFS ->
+                    new EfsDispatcherThreadAbstract[builder.mNumThreads];
+                case EFS_PINNED ->
+                    new EfsDispatcherThreadAbstract[1];
+                default -> new EfsDispatcherThreadAbstract[0];
+        };
 
         // A special dispatcher type is considered already
         // started.
@@ -703,6 +705,16 @@ public final class EfsDispatcher
     {
         return (mDispatcherName);
     } // end of name()
+
+    /**
+     * Returns dispatcher type.
+     * @return dispatcher type.
+     */
+    @Override
+    public DispatcherType dispatcherType()
+    {
+        return (mDispatcherType);
+    } // end of dispatcherType()
 
     /**
      * Returns dispatcher's subordinate thread count.
@@ -852,7 +864,7 @@ public final class EfsDispatcher
      */
     @Nullable public static IEfsAgent agent(final String agentName)
     {
-        final EfsAgent agent = sAgents.get(agentName);
+        final EfsAgentAbstract agent = sAgents.get(agentName);
 
         return (agent == null ? null : agent.agent());
     } // end of agent(String)
@@ -871,7 +883,8 @@ public final class EfsDispatcher
 
         Objects.requireNonNull(agent, NULL_AGENT);
 
-        final EfsAgent efsAgent = sAgents.get(agent.name());
+        final EfsAgentAbstract efsAgent =
+            sAgents.get(agent.name());
 
         if (efsAgent != null)
         {
@@ -932,6 +945,16 @@ public final class EfsDispatcher
      * snapshot. This snapshot is <em>not</em> dynamically
      * updated. This method must be called to receive changes
      * in dispatcher's performance.
+     * <p>
+     * <strong>Note:</strong> when using a
+     * {@link DispatcherType#EFS_PINNED pinned dispatcher},
+     * dispatcher stats will most likely be empty because a
+     * pinned dispatcher has only one thread and one registered
+     * agent where the dispatcher's thread spends all its time
+     * {@link EfsAgentPinned#processEvents() processing agent events}.
+     * Therefore there are no dispatcher, thread, or agent stats
+     * to collect.
+     * </p>
      * @param name dispatcher name.
      * @return named dispatcher's performance.
      * @throws IllegalArgumentException
@@ -958,7 +981,7 @@ public final class EfsDispatcher
      * Returns current efs agents in an immutable list.
      * @return immutable list of efs agents.
      */
-    /* package */ static List<EfsAgent> agents()
+    /* package */ static List<EfsAgentAbstract> agents()
     {
         return (ImmutableList.copyOf(sAgents.values()));
     } // end of agents()
@@ -979,7 +1002,8 @@ public final class EfsDispatcher
      * blank string or dispatcher name is {@code null}, empty, or
      * blank string. or an unknown dispatcher.
      * @throws IllegalStateException
-     * if {@code agent} is already registered.
+     * if this dispatcher is pinned (and so new agents cannot be
+     * registered to it) or {@code agent} is already registered.
      *
      * @see #dispatch(Runnable, IEfsAgent)
      * @see #dispatch(Consumer, IEfsEvent, IEfsAgent)
@@ -1033,7 +1057,7 @@ public final class EfsDispatcher
                                                       final E event,
                                                       final IEfsAgent agent)
     {
-        final EfsAgent efsAgent;
+        final EfsAgentAbstract efsAgent;
 
         Objects.requireNonNull(callback, NULL_CALLBACK);
         Objects.requireNonNull(event, NULL_EVENT);
@@ -1101,7 +1125,7 @@ public final class EfsDispatcher
     public static void dispatch(final Runnable task,
                                 final IEfsAgent agent)
     {
-        final EfsAgent efsAgent;
+        final EfsAgentAbstract efsAgent;
 
         Objects.requireNonNull(task, NULL_TASK);
         Objects.requireNonNull(agent, NULL_AGENT);
@@ -1126,6 +1150,8 @@ public final class EfsDispatcher
      * @throws IllegalArgumentException
      * if {@code agent} name is either {@code null}, empty, or
      * blank string.
+     * @throws IllegalStateException
+     * if {@code agent} is pinned to the dispatcher.
      *
      * @see #register(IEfsAgent, String)
      * @see #dispatch(Runnable, IEfsAgent)
@@ -1133,17 +1159,28 @@ public final class EfsDispatcher
      */
     public static void deregister(final IEfsAgent agent)
     {
-        final EfsAgent efsAgent;
+        final EfsAgentAbstract efsAgent;
 
         Objects.requireNonNull(agent, NULL_AGENT);
         validateAgentName(agent);
 
-        efsAgent = sAgents.remove(agent.name());
+        efsAgent = sAgents.get(agent.name());
 
         // Ignore un-registered efs agent.
         if (efsAgent != null)
         {
-            // Remove from agents map.
+            // Is this a pinned agent?
+            if (efsAgent instanceof EfsAgentPinned)
+            {
+                // Yes. Cannot de-register a pinned agent.
+                throw (
+                    new IllegalStateException(
+                        String.format(
+                            PINNED_AGENT, agent.name())));
+            }
+
+            // Remove from agents map and mark as de-registered.
+            sAgents.remove(agent.name());
             efsAgent.deregister();
         }
     } // end of deregister(IEfsAgent)
@@ -1288,6 +1325,16 @@ public final class EfsDispatcher
     } // end of clearAgents()
 
     /**
+     * Stops this dispatcher and its threads. Provided for
+     * testing purposes only.
+     */
+    @VisibleForTesting
+    /* package */ void stopDispatcher()
+    {
+        stopThreads();
+    } // end of stopDispatcher()
+
+    /**
      * Stops all extant dispatcher threads. Provided for testing
      * purposes only.
      */
@@ -1354,12 +1401,12 @@ public final class EfsDispatcher
 
             mState = DispatcherState.STARTED;
         }
-        catch (Throwable tex)
+        catch (Exception jex)
         {
             sLogger.warn(
                 "Attempt to start dispatcher {} failed.",
                 mDispatcherName,
-                tex);
+                jex);
 
             // Stop all running threads before leaving.
             for (index = 0; index < startCount; ++index)
@@ -1377,9 +1424,83 @@ public final class EfsDispatcher
                     mDispatcherName,
                     threadName,
                     "dispatcher thread start failed",
-                    tex));
+                    jex));
         }
     } // end of startup()
+
+    /**
+     * Creates a single
+     * {@link EfsDispatcherThreadPinned pinned dispatcher thread}
+     * and registers given agent to this dispatcher.
+     * @param agent efs agent pinned to this dispatcher.
+     */
+    @SuppressWarnings({"java:S1141"})
+    private void startupPinned(final IEfsAgent agent)
+    {
+        final String threadName = generateThreadName(0);
+
+        try
+        {
+            final EfsAgentPinned.Builder agentBuilder =
+                EfsAgentPinned.builder();
+            final EfsAgentPinned pinnedAgent =
+                agentBuilder.agent(agent)
+                            .dispatcher(this)
+                            .eventQueueCapacity(mEventQueueCapacity)
+                            .build();
+            final CountDownLatch agentStartSignal =
+                pinnedAgent.startSignal();
+            final EfsDispatcherThreadPinned.Builder threadBuilder =
+                EfsDispatcherThreadPinned.builder();
+
+            // Pinned agent is automatically registered with this
+            // dispatcher.
+            sAgents.put(agent.name(), pinnedAgent);
+
+            mThreads[0] = threadBuilder.threadName(threadName)
+                                       .threadType(mThreadType)
+                                       .priority(mPriority)
+                                       .affinity(mAffinity)
+                                       .pinnedAgent(pinnedAgent)
+                                       .build();
+            mThreads[0].start();
+
+            // Wait for agent to start processing events.
+            while (agentStartSignal.getCount() > 0)
+            {
+                try
+                {
+                    agentStartSignal.await();
+                }
+                catch (InterruptedException interrupt)
+                {}
+            }
+
+            mState = DispatcherState.STARTED;
+        }
+        catch (Exception jex)
+        {
+            sLogger.warn(
+                "Attempt to start dispatcher {} failed.",
+                mDispatcherName,
+                jex);
+
+            // Stop pinned thread if running.
+            if (mThreads[0] != null)
+            {
+                mThreads[0].shutdown();
+            }
+
+            mState = DispatcherState.START_FAILED;
+
+            throw (
+                new ThreadStartException(
+                    mDispatcherName,
+                    threadName,
+                    "dispatcher thread start failed",
+                    jex));
+        }
+    } // end of startupPinned(IEfsAgent)
 
     /**
      * Validates that {@code agent} has a non-{@code null},
@@ -1416,10 +1537,10 @@ public final class EfsDispatcher
      * if {@code agent} is not registered with a dispatcher.
      */
     @Nonnull
-    private static EfsAgent validateAgentDispatch(final IEfsAgent agent)
+    private static EfsAgentAbstract validateAgentDispatch(final IEfsAgent agent)
     {
         final String agentName = agent.name();
-        final EfsAgent retval = sAgents.get(agentName);
+        final EfsAgentAbstract retval = sAgents.get(agentName);
 
         // Is this a registered efs agent?
         if (retval == null)
@@ -1473,11 +1594,21 @@ public final class EfsDispatcher
      * @param dispatcher associate {@code agent} with this
      * dispatcher.
      * @throws IllegalStateException
-     * if {@code agent} is already registered.
+     * if this dispatcher is pinned (and so new agents cannot be
+     * registered to it) or {@code agent} is already registered.
      */
     private static void doRegister(final IEfsAgent agent,
                                    final IEfsDispatcher dispatcher)
     {
+        if ((dispatcher.dispatcherType()).isPinned())
+        {
+            throw (
+                new IllegalStateException(
+                   "efs dispatcher \"" +
+                   dispatcher.name() +
+                   "\" is pinned and does not accept new agents"));
+        }
+
         final String agentName = agent.name();
         final EfsAgent.Builder builder = EfsAgent.builder();
         final EfsAgent newAgent =
@@ -1487,7 +1618,7 @@ public final class EfsDispatcher
                     .eventQueueCapacity(
                         dispatcher.eventQueueCapacity())
                     .build();
-        final EfsAgent existingAgent =
+        final EfsAgentAbstract existingAgent =
             sAgents.putIfAbsent(agentName, newAgent);
 
         // Is this agent currently registered?
@@ -1883,6 +2014,11 @@ import org.efs.dispatcher.config.ThreadType;
         @Nullable private Queue<EfsAgent> mRunQueue;
         private Consumer<Runnable> mSpecialDispatcher;
 
+        /**
+         * Agent pinned to a single, busy spin dispatcher thread.
+         */
+        @Nullable private IEfsAgent mPinnedAgent;
+
     //-----------------------------------------------------------
     // Member methods.
     //
@@ -1926,6 +2062,13 @@ import org.efs.dispatcher.config.ThreadType;
         {
             mDispatcherType =
                 Objects.requireNonNull(type, NULL_TYPE);
+
+            if (type == DispatcherType.EFS_PINNED)
+            {
+                mThreadType = ThreadType.SPINNING;
+                mNumThreads = 1;
+                mPriority = Thread.MAX_PRIORITY;
+            }
 
             return (this);
         } // end of dispatcherType(DispatcherType)
@@ -2169,9 +2312,28 @@ import org.efs.dispatcher.config.ThreadType;
         } // end of dispatcher(Consumer<>)
 
         /**
+         * Sets solo agent for a pinned dispatcher. Attempt to
+         * set an agent for an unpinned dispatcher results in a
+         * build failure.
+         * @param agent agent pinned to this dispatcher.
+         * @return {@code this Builder} instance.
+         * @throws NullPointerException
+         * if {@code agent} is {@code null}.
+         */
+        public Builder pinnedAgent(final IEfsAgent agent)
+        {
+            mPinnedAgent =
+                Objects.requireNonNull(agent, NULL_AGENT);
+
+            return (this);
+        } // end of pinnedAgent(IEfsAgent)
+
+
+        /**
          * Configures efs dispatcher as per given configuration.
          * Note that this configuration only supports
-         * {@link DispatcherType#EFS efs dispatcher type}.
+         * {@link DispatcherType#EFS efs dispatcher type} and
+         * <em>not</em> {@link DispatcherType#EFS_PINNED}.
          * @param config efs dispatcher configuration.
          * @return {@code this Builder} instance.
          * @throws ClassNotFoundException
@@ -2237,18 +2399,16 @@ import org.efs.dispatcher.config.ThreadType;
          */
         public IEfsDispatcher build()
         {
-            final boolean isEfsDispatcher =
-                (mDispatcherType == DispatcherType.EFS);
             final IEfsDispatcher existingDispatcher;
             final EfsDispatcher retval;
 
             // Validate this builder's settings.
             validate();
 
-            // Is this an efs dispatcher?
-            if (isEfsDispatcher)
+            // Is this an un-pinned efs dispatcher?
+            if (mDispatcherType == DispatcherType.EFS)
             {
-                // Then create run queue based on thread type.
+                // Yes, create run queue based on thread type.
                 // Set queue capacity to configured maximum.
                 mRunQueue = createRunQueue();
             }
@@ -2274,9 +2434,13 @@ import org.efs.dispatcher.config.ThreadType;
             // *not* a special dispatcher. Special
             // dispatchers are expected to be already
             // running.
-            if (isEfsDispatcher)
+            if (mDispatcherType == DispatcherType.EFS)
             {
                 retval.startup();
+            }
+            else if (mDispatcherType == DispatcherType.EFS_PINNED)
+            {
+                retval.startupPinned(mPinnedAgent);
             }
 
             return (retval);
@@ -2291,7 +2455,7 @@ import org.efs.dispatcher.config.ThreadType;
          * if {@this Builder} instance contains one or more
          * invalid settings.
          */
-        @SuppressWarnings ({"java:S1067"})
+        @SuppressWarnings ({"java:S1067", "java:S3776"})
         private void validate()
         {
             final Validator problems = new Validator();
@@ -2306,7 +2470,9 @@ import org.efs.dispatcher.config.ThreadType;
                                   mThreadType != null),
                                  THREAD_TYPE_KEY,
                                  Validator.NOT_SET)
-                    .requireTrue((mMaxEvents > 0),
+                    .requireTrue((mDispatcherType ==
+                                      DispatcherType.EFS_PINNED ||
+                                  mMaxEvents > 0),
                                  MAX_EVENTS_KEY,
                                  Validator.NOT_SET)
                     .requireTrue((mDispatcherType ==
@@ -2315,8 +2481,8 @@ import org.efs.dispatcher.config.ThreadType;
                                       MIN_QUEUE_SIZE),
                                  EVENT_QUEUE_CAPACITY_KEY,
                                  Validator.NOT_SET)
-                    .requireTrue((mDispatcherType ==
-                                      DispatcherType.SPECIAL ||
+                    .requireTrue((mDispatcherType !=
+                                      DispatcherType.EFS ||
                                   mRunQueueCapacity > 0),
                                  RUN_QUEUE_CAPACITY_KEY,
                                  Validator.NOT_SET)
@@ -2337,12 +2503,49 @@ import org.efs.dispatcher.config.ThreadType;
                     // Make sure that is dispatcher is set for
                     // a special dispatcher type.
                     .requireTrue(mDispatcherType != null &&
-                                 (mDispatcherType ==
-                                      DispatcherType.EFS ||
+                                 (mDispatcherType !=
+                                      DispatcherType.SPECIAL ||
                                   mSpecialDispatcher != null),
                                  DISPATCHER_TYPE_KEY,
                                  "dispatcher type is null or, " +
                                  "if SPECIAL, dispatcher lambda must be provided")
+                    // EFS_PINNED dispatcher type validation.
+                    // Pinned dispatcher's thread type must be
+                    // spinning.
+                    .requireTrue(
+                        (mDispatcherType != DispatcherType.EFS_PINNED ||
+                         mThreadType == ThreadType.SPINNING),
+                        THREAD_TYPE_KEY,
+                        "pinned efs dispatcher must use spinning thread type")
+                    // Pinned dispatcher has only one thread.
+                    .requireTrue(
+                        (mDispatcherType != DispatcherType.EFS_PINNED ||
+                         mNumThreads == 1),
+                        NUM_THREADS_KEY,
+                        "pinned efs dispatcher uses only one thread")
+                    // Pinned dispatcher requires thread
+                    // affinity.
+                    .requireTrue(
+                        (mDispatcherType != DispatcherType.EFS_PINNED ||
+                         mAffinity != null),
+                        AFFINITY_KEY,
+                        "pinned efs dispatcher requires a threads affinity")
+                    // Pinned dispatcher requires an agent;
+                    // other dispatcher types require no agent.
+                    .requireTrue(
+                        ((mDispatcherType != DispatcherType.EFS_PINNED &&
+                          mPinnedAgent == null) ||
+                         (mDispatcherType == DispatcherType.EFS_PINNED &&
+                          mPinnedAgent != null)),
+                        PINNED_AGENT_KEY,
+                        "pinned efs dispatcher agent is either null or  " +
+                            "may not be set for other dispatcher types")
+                    .requireTrue(
+                        (mDispatcherType != DispatcherType.EFS_PINNED ||
+                         (mPinnedAgent != null &&
+                          !EfsDispatcher.isRegistered(mPinnedAgent))),
+                        PINNED_AGENT_KEY,
+                        "pinned efs dispather agent is already registered")
                     .throwException(EfsDispatcher.class);
         } // end of validate()
 
@@ -2394,6 +2597,16 @@ import org.efs.dispatcher.config.ThreadType;
      * a snapshot of dispatcher's current performance statistics
      * and is not updated. A new instance must be acquired to
      * get the latest statistics.
+     * </p>
+     * <p>
+     * <em>Note:</em> when using a
+     * {@link DispatcherType#EFS_PINNED pinned dispatcher},
+     * dispatcher stats will most likely be empty because a
+     * pinned dispatcher has only one thread and one registered
+     * agent where the dispatcher's thread spends all its time
+     * {@link EfsAgentPinned#processEvents() processing agent events}.
+     * Therefore there are no dispatcher, thread, or agent stats
+     * to collect.
      * </p>
      */
     public final class DispatcherStats
